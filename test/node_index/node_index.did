@@ -1,0 +1,144 @@
+type TransactionType = 
+ variant {
+   addLiquidity;
+   claim;
+   decreaseLiquidity;
+   increaseLiquidity;
+   swap;
+ };
+type Transaction = 
+ record {
+   action: TransactionType;
+   amountToken0: float64;
+   amountToken1: float64;
+   amountUSD: float64;
+   from: text;
+   hash: text;
+   liquidityChange: nat;
+   liquidityTotal: nat;
+   poolFee: nat;
+   poolId: text;
+   recipient: text;
+   sender: text;
+   tick: int;
+   timestamp: int;
+   to: text;
+   token0ChangeAmount: float64;
+   token0Decimals: float64;
+   token0Fee: float64;
+   token0Id: text;
+   token0Price: float64;
+   token0Standard: text;
+   token0Symbol: text;
+   token1ChangeAmount: float64;
+   token1Decimals: float64;
+   token1Fee: float64;
+   token1Id: text;
+   token1Price: float64;
+   token1Standard: text;
+   token1Symbol: text;
+ };
+type PublicTokenOverview = 
+ record {
+   address: text;
+   feesUSD: float64;
+   id: nat;
+   name: text;
+   priceUSD: float64;
+   priceUSDChange: float64;
+   standard: text;
+   symbol: text;
+   totalVolumeUSD: float64;
+   txCount: int;
+   volumeUSD: float64;
+   volumeUSD1d: float64;
+   volumeUSD7d: float64;
+ };
+type PublicPoolOverView = 
+ record {
+   feeTier: nat;
+   feesUSD: float64;
+   id: nat;
+   liquidity: nat;
+   pool: text;
+   sqrtPrice: float64;
+   tick: int;
+   token0Decimals: float64;
+   token0Id: text;
+   token0Price: float64;
+   token0Standard: text;
+   token0Symbol: text;
+   token0TotalVolume: float64;
+   token1Decimals: float64;
+   token1Id: text;
+   token1Price: float64;
+   token1Standard: text;
+   token1Symbol: text;
+   token1TotalVolume: float64;
+   totalVolumeUSD: float64;
+   txCount: nat;
+   volumeUSD: float64;
+   volumeUSD1d: float64;
+   volumeUSD7d: float64;
+ };
+type NodeIndex = 
+ service {
+   addOwner: (principal) -> ();
+   allPoolStorage: () -> (vec text) query;
+   allTokenStorage: () -> (vec text) query;
+   allUserStorage: () -> (vec text) query;
+   batchInsert: (vec Transaction) -> ();
+   clean: () -> ();
+   cycleAvailable: () -> (NatResult);
+   cycleBalance: () -> (NatResult) query;
+   getAllPools: () -> (vec PublicPoolOverView) query;
+   getAllTokens: () -> (vec PublicTokenOverview) query;
+   getDataQueueSize: () -> (nat) query;
+   getLastDataTime: () -> (int) query;
+   getOwners: () -> (vec principal);
+   getPoolQueueSize: () -> (vec record {
+                                  text;
+                                  nat;
+                                }) query;
+   getSyncLock: () -> (bool) query;
+   getSyncStatus: () -> (vec record {
+                               text;
+                               bool;
+                               text;
+                             }) query;
+   getTokenQueueSize: () -> (vec record {
+                                   text;
+                                   nat;
+                                 }) query;
+   getUserQueueSize: () -> (vec record {
+                                  text;
+                                  nat;
+                                }) query;
+   insert: (Transaction) -> ();
+   poolMapping: () -> (vec record {
+                             text;
+                             text;
+                           }) query;
+   poolStorage: (text) -> (opt text) query;
+   setPoolSyncStatus: (bool) -> (bool);
+   setTokenSyncStatus: (bool) -> (bool);
+   setUserSyncStatus: (bool) -> (bool);
+   syncOverview: () -> ();
+   tokenMapping: () -> (vec record {
+                              text;
+                              text;
+                            }) query;
+   tokenStorage: (text) -> (opt text) query;
+   userMapping: () -> (vec record {
+                             text;
+                             text;
+                           }) query;
+   userStorage: (Address) -> (opt text) query;
+ };
+type NatResult = 
+ variant {
+   err: text;
+   ok: nat;
+ };
+type Address = text;
+service : (text, text) -> NodeIndex

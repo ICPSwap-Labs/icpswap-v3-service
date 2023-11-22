@@ -1,0 +1,66 @@
+type TransactionType = 
+ variant {
+   addLiquidity;
+   claim;
+   decreaseLiquidity;
+   increaseLiquidity;
+   swap;
+ };
+type SwapRecordInfo = 
+ record {
+   action: TransactionType;
+   feeAmount: int;
+   feeAmountTotal: int;
+   feeTire: nat;
+   from: text;
+   liquidityChange: nat;
+   liquidityTotal: nat;
+   poolId: text;
+   price: nat;
+   recipient: text;
+   tick: int;
+   timestamp: int;
+   to: text;
+   token0AmountTotal: nat;
+   token0ChangeAmount: nat;
+   token0Fee: nat;
+   token0Id: text;
+   token0Standard: text;
+   token1AmountTotal: nat;
+   token1ChangeAmount: nat;
+   token1Fee: nat;
+   token1Id: text;
+   token1Standard: text;
+ };
+type NatResult = 
+ variant {
+   err: text;
+   ok: nat;
+ };
+type BaseIndex = 
+ service {
+   addClient: (principal) -> ();
+   baseLastStorage: () -> (text) query;
+   baseStorage: () -> (vec text) query;
+   batchPush: (vec SwapRecordInfo) -> ();
+   clean: () -> ();
+   cycleAvailable: () -> (NatResult);
+   cycleBalance: () -> (NatResult) query;
+   getAllowTokens: () -> (vec text);
+   getClients: () -> (vec principal) query;
+   getDataQueue: () -> (vec SwapRecordInfo) query;
+   getEnableSync: () -> (bool) query;
+   getPoolLastPrice: (principal) -> (float64) query;
+   getSyncError: () -> (text) query;
+   getSyncLock: () -> (bool) query;
+   getSyncOffset: () -> (nat) query;
+   getSyncStatus: () -> (bool) query;
+   priceCanister: () -> (vec principal);
+   push: (SwapRecordInfo) -> ();
+   removeTokenMetadata: (principal) -> ();
+   setEnableSync: (bool) -> (bool);
+   setPriceCanister: (principal) -> ();
+   syncOldDataToLast: (nat) -> (bool);
+   updateTokenDecimal: (principal, nat) -> ();
+ };
+service : (principal, principal) -> BaseIndex
