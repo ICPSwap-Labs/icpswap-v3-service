@@ -1,0 +1,91 @@
+type WICPType = 
+ record {
+   icp: record {
+          address: text;
+          decimals: nat;
+        };
+   icpswap: record {
+              address: text;
+              decimals: nat;
+            };
+   sonic: record {
+            address: text;
+            decimals: nat;
+          };
+ };
+type TokenPrice__1 = 
+ record {
+   priceICP: float64;
+   priceUSD: float64;
+   tokenId: text;
+   volumeUSD7d: float64;
+ };
+type TokenPriceMetadata = 
+ record {
+   tokenPriceEntries: vec record {
+                            text;
+                            TokenPrice;
+                          };
+   wicpPrice: float64;
+   wicps: vec text;
+ };
+type TokenPrice = 
+ record {
+   priceICP: float64;
+   priceUSD: float64;
+   tokenId: text;
+   volumeUSD7d: float64;
+ };
+type NatResult = 
+ variant {
+   err: text;
+   ok: nat;
+ };
+type ExchangeRateError = 
+ variant {
+   AnonymousPrincipalNotAllowed;
+   CryptoBaseAssetNotFound;
+   CryptoQuoteAssetNotFound;
+   FailedToAcceptCycles;
+   ForexAssetsNotFound;
+   ForexBaseAssetNotFound;
+   ForexInvalidTimestamp;
+   ForexQuoteAssetNotFound;
+   InconsistentRatesReceived;
+   NotEnoughCycles;
+   Other: record {
+            code: nat32;
+            description: text;
+          };
+   Pending;
+   RateLimited;
+   StablecoinRateNotFound;
+   StablecoinRateTooFewRates;
+   StablecoinRateZeroRate;
+ };
+service : {
+  addAdmin: (text) -> (bool);
+  batchUpdateTokenPrice7dVolumeUSD: (vec record {
+                                           text;
+                                           float64;
+                                         }) -> ();
+  cycleAvailable: () -> (NatResult);
+  cycleBalance: () -> (NatResult) query;
+  getAdminList: () -> (vec text);
+  getIcpPrice: (nat) -> (float64) query;
+  getTokenPrice: () -> (vec record {
+                              text;
+                              TokenPrice__1;
+                            }) query;
+  getTokenPriceMetadata: () -> (TokenPriceMetadata) query;
+  getWicp: () -> (WICPType) query;
+  getWicpPrice: () -> (float64) query;
+  getWicps: () -> (vec text) query;
+  getXrcError: () -> (opt ExchangeRateError) query;
+  isAdmin: (text) -> (bool);
+  removeAdmin: (text) -> (bool);
+  setWICP: (text, text, text) -> ();
+  setWicpPrice: (float64) -> ();
+  updateTokenPrice: (text, float64, float64) -> ();
+  updateTokenPrice7dVolumeUSD: (text, float64) -> ();
+}
