@@ -72,6 +72,8 @@ echo "==>install DIP20"
 dfx canister install DIP20A --argument="(\"DIPA Logo\", \"DIPA\", \"DIPA\", 8, $TOTAL_SUPPLY, principal \"$MINTER_PRINCIPAL\", $TRANS_FEE)"
 dfx canister install DIP20B --argument="(\"DIPB Logo\", \"DIPB\", \"DIPB\", 8, $TOTAL_SUPPLY, principal \"$MINTER_PRINCIPAL\", $TRANS_FEE)"
 
+echo "==> install SwapFeeReceiver"
+dfx canister install SwapFeeReceiver
 echo "==> install Test"
 dfx canister install Test
 echo "==> install price"

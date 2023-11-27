@@ -155,31 +155,42 @@ shared ({ caller }) actor class SwapPool(
     private func _syncTokenFee() : async () { _token0Fee := ?(await _token0Act.fee()); _token1Fee := ?(await _token1Act.fee()); };
     let _syncTokenFeePerHour = Timer.recurringTimer(#seconds(3600), _syncTokenFee);
 
+    private stable var _claimLog : [Text] = [];
+    private var _claimLogBuffer : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
+    public query (msg) func getClaimLog() : async [Text] { return Buffer.toArray(_claimLogBuffer); };
     private func _claimSwapFeeRepurchase() : async () {
-        let thisCanisterId = switch _canisterId { case (?cid) { cid }; case (null) { return }; };
-        let (balance0, fee0) = (_tokenAmountService.getSwapFee0Repurchase(), switch _token0Fee { case (?f) { f }; case (null) { return } });
-        let (balance1, fee1) = (_tokenAmountService.getSwapFee1Repurchase(), switch _token1Fee { case (?f) { f }; case (null) { return } });
+        var time = BlockTimestamp.blockTimestamp();
+        let thisCanisterId = switch _canisterId { case (?cid) { cid }; case (null) { _claimLogBuffer.add("{\"msg\": \"_canisterId is null\", \"amount0\": \"0\", \"amount1\": \"0\", \"timestamp\": \"" # debug_show(time) # "\"}"); return }; };
+        let (balance0, fee0) = (_tokenAmountService.getSwapFee0Repurchase(), switch _token0Fee { case (?f) { f }; case (null) { var f = await _token0Act.fee(); _token0Fee := ?(f); f; } });
+        let (balance1, fee1) = (_tokenAmountService.getSwapFee1Repurchase(), switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; } });
         var amount0 = if (balance0 <= fee0) { 0 } else { Nat.sub(balance0, fee0); };
         var amount1 = if (balance1 <= fee1) { 0 } else { Nat.sub(balance1, fee1); };
 
+        var amount0Result = " amount0 transfer succeeded. ";
         if (amount0 > 0) {
             switch (await _token0Act.transfer({ from = { owner = thisCanisterId; subaccount = null }; from_subaccount = null; to = { owner = feeReceiverCid; subaccount = null }; amount = amount0; fee = null; memo = null; created_at_time = null })) {
                 case (#Ok(index)) {
-                    _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
+                    // _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
                     _tokenAmountService.setSwapFee0Repurchase(SafeUint.Uint256(_tokenAmountService.getSwapFee0Repurchase()).sub(SafeUint.Uint256(balance0)).val());
                 };
-                case (#Err(msg)) {};
+                case (#Err(msg)) {
+                    amount0Result := " amount0 transfer failed: " # debug_show(msg) # ". ";
+                };
             };
         };
+        var amount1Result = " amount1 transfer succeeded. ";
         if (amount1 > 0) {
             switch (await _token1Act.transfer({ from = { owner = thisCanisterId; subaccount = null }; from_subaccount = null; to = { owner = feeReceiverCid; subaccount = null }; amount = amount1; fee = null; memo = null; created_at_time = null })) {
                 case (#Ok(index)) {
-                    _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
+                    // _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
                     _tokenAmountService.setSwapFee1Repurchase(SafeUint.Uint256(_tokenAmountService.getSwapFee1Repurchase()).sub(SafeUint.Uint256(balance1)).val());
                 };
-                case (#Err(msg)) {};
+                case (#Err(msg)) {
+                    amount1Result := " amount1 transfer failed: " # debug_show(msg) # ". ";
+                };
             };
         };
+        _claimLogBuffer.add("{\"msg\": \"" # amount0Result # amount1Result # "\", \"amount0\": \"" # debug_show(amount0) # "\", \"amount1\": \"" # debug_show(amount1) # "\", \"timestamp\": \"" # debug_show(time) # "\"}");
     };
     let _claimSwapFeeRepurchasePerWeek = Timer.recurringTimer(#seconds(604800), _claimSwapFeeRepurchase);
 
@@ -1893,6 +1904,7 @@ shared ({ caller }) actor class SwapPool(
         _recordState := _swapRecordService.getState();
         _tokenHolderState := _tokenHolderService.getState();
         _tokenAmountState := _tokenAmountService.getState();
+        _claimLog := Buffer.toArray(_claimLogBuffer);
     };
 
     system func postupgrade() {
@@ -1904,6 +1916,7 @@ shared ({ caller }) actor class SwapPool(
         _ticksEntries := [];
         _addressPrincipals := [];
         _canisterId := ?Principal.fromActor(this);
+        _claimLogBuffer := Buffer.fromArray(_claimLog);
     };
     
     system func inspect({

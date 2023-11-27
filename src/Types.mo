@@ -285,6 +285,7 @@ module {
         #depositFrom : () -> DepositArgs;
         #getAddressPrincipals : () -> ();
         #getAvailabilityState : () -> ();
+        #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
         #getPosition : () -> GetPositionArgs;
         #getPositions : () -> (Nat, Nat);
