@@ -170,7 +170,6 @@ shared ({ caller }) actor class SwapPool(
         if (amount0 > 0) {
             switch (await _token0Act.transfer({ from = { owner = thisCanisterId; subaccount = null }; from_subaccount = null; to = { owner = feeReceiverCid; subaccount = null }; amount = amount0; fee = null; memo = null; created_at_time = null })) {
                 case (#Ok(index)) {
-                    // _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
                     _tokenAmountService.setSwapFee0Repurchase(SafeUint.Uint256(_tokenAmountService.getSwapFee0Repurchase()).sub(SafeUint.Uint256(balance0)).val());
                 };
                 case (#Err(msg)) {
@@ -182,7 +181,6 @@ shared ({ caller }) actor class SwapPool(
         if (amount1 > 0) {
             switch (await _token1Act.transfer({ from = { owner = thisCanisterId; subaccount = null }; from_subaccount = null; to = { owner = feeReceiverCid; subaccount = null }; amount = amount1; fee = null; memo = null; created_at_time = null })) {
                 case (#Ok(index)) {
-                    // _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
                     _tokenAmountService.setSwapFee1Repurchase(SafeUint.Uint256(_tokenAmountService.getSwapFee1Repurchase()).sub(SafeUint.Uint256(balance1)).val());
                 };
                 case (#Err(msg)) {

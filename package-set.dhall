@@ -24,7 +24,7 @@ let
       ,{ dependencies = [] : List Text
       , name = "token-adapter"
       , repo = "git@github.com:ICPSwap-Labs/icpswap-token-adapter.git"
-      , version = "v1.0.5"
+      , version = "v1.0.6"
       }
     ]
 let
