@@ -150,7 +150,7 @@ shared ({ caller }) actor class SwapPool(
     private var _token1Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token1.address, _token1.standard);
 
     private func _syncRecord() : async () { await _swapRecordService.syncRecord(); };
-    let _syncRecordPer10s = Timer.recurringTimer(#seconds(10), _syncRecord);
+    let _syncRecordPerMinute = Timer.recurringTimer(#seconds(60), _syncRecord);
 
     private func _syncTokenFee() : async () { _token0Fee := ?(await _token0Act.fee()); _token1Fee := ?(await _token1Act.fee()); };
     let _syncTokenFeePerHour = Timer.recurringTimer(#seconds(3600), _syncTokenFee);
