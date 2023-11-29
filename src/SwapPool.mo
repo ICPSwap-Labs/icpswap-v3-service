@@ -160,39 +160,16 @@ shared ({ caller }) actor class SwapPool(
     public query (msg) func getClaimLog() : async [Text] { return Buffer.toArray(_claimLogBuffer); };
     private func _claimSwapFeeRepurchase() : async () {
         var time = BlockTimestamp.blockTimestamp();
-        let thisCanisterId = switch _canisterId { case (?cid) { cid }; case (null) { _claimLogBuffer.add("{\"msg\": \"_canisterId is null\", \"amount0\": \"0\", \"amount1\": \"0\", \"timestamp\": \"" # debug_show(time) # "\"}"); return }; };
-        let (balance0, fee0) = (_tokenAmountService.getSwapFee0Repurchase(), switch _token0Fee { case (?f) { f }; case (null) { var f = await _token0Act.fee(); _token0Fee := ?(f); f; } });
-        let (balance1, fee1) = (_tokenAmountService.getSwapFee1Repurchase(), switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; } });
-        var amount0 = if (balance0 <= fee0) { 0 } else { Nat.sub(balance0, fee0); };
-        var amount1 = if (balance1 <= fee1) { 0 } else { Nat.sub(balance1, fee1); };
-
-        var amount0Result = "";
-        if (amount0 > 0) {
-            switch (await _token0Act.transfer({ from = { owner = thisCanisterId; subaccount = null }; from_subaccount = null; to = { owner = feeReceiverCid; subaccount = null }; amount = amount0; fee = null; memo = null; created_at_time = null })) {
-                case (#Ok(index)) {
-                    amount0Result := " amount0 transfer succeeded. ";
-                    _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
-                    _tokenAmountService.setSwapFee0Repurchase(SafeUint.Uint256(_tokenAmountService.getSwapFee0Repurchase()).sub(SafeUint.Uint256(balance0)).val());
-                };
-                case (#Err(msg)) {
-                    amount0Result := " amount0 transfer failed: " # debug_show(msg) # ". ";
-                };
-            };
+        let balance0 = _tokenAmountService.getSwapFee0Repurchase();
+        let balance1 = _tokenAmountService.getSwapFee1Repurchase();
+        if (balance0 > 0 or balance1 > 0) {
+            _claimLogBuffer.add("{\"amount0\": \"" # debug_show(balance0) # "\", \"amount1\": \"" # debug_show(balance1) # "\", \"timestamp\": \"" # debug_show(BlockTimestamp.blockTimestamp()) # "\"}");
+            ignore _tokenHolderService.deposit2(feeReceiverCid, _token0, balance0, _token1, balance1);
+            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
+            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
+            _tokenAmountService.setSwapFee0Repurchase(0);
+            _tokenAmountService.setSwapFee1Repurchase(0);
         };
-        var amount1Result = "";
-        if (amount1 > 0) {
-            switch (await _token1Act.transfer({ from = { owner = thisCanisterId; subaccount = null }; from_subaccount = null; to = { owner = feeReceiverCid; subaccount = null }; amount = amount1; fee = null; memo = null; created_at_time = null })) {
-                case (#Ok(index)) {
-                    amount1Result := " amount1 transfer succeeded. ";
-                    _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
-                    _tokenAmountService.setSwapFee1Repurchase(SafeUint.Uint256(_tokenAmountService.getSwapFee1Repurchase()).sub(SafeUint.Uint256(balance1)).val());
-                };
-                case (#Err(msg)) {
-                    amount1Result := " amount1 transfer failed: " # debug_show(msg) # ". ";
-                };
-            };
-        };
-        _claimLogBuffer.add("{\"msg\": \"" # amount0Result # amount1Result # "\", \"amount0\": \"" # debug_show(balance0) # "\", \"amount1\": \"" # debug_show(balance1) # "\", \"timestamp\": \"" # debug_show(time) # "\"}");
     };
     let _claimSwapFeeRepurchasePerWeek = Timer.recurringTimer(#seconds(604800), _claimSwapFeeRepurchase);
 
