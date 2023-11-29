@@ -192,7 +192,7 @@ shared ({ caller }) actor class SwapPool(
         };
         _claimLogBuffer.add("{\"msg\": \"" # amount0Result # amount1Result # "\", \"amount0\": \"" # debug_show(amount0) # "\", \"amount1\": \"" # debug_show(amount1) # "\", \"timestamp\": \"" # debug_show(time) # "\"}");
     };
-    let _claimSwapFeeRepurchasePerWeek = Timer.recurringTimer(#seconds(600), _claimSwapFeeRepurchase);
+    let _claimSwapFeeRepurchasePerWeek = Timer.recurringTimer(#seconds(604800), _claimSwapFeeRepurchase);
 
     private func _saveAddressPrincipal(operator : Principal) : () {
         let callerAddress : Text = PrincipalUtils.toAddress(operator);
