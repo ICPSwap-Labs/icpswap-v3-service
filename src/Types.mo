@@ -357,6 +357,11 @@ module {
         #removePoolControllers : () -> (Principal, [Principal]);
         #validateRemovePoolControllers : () -> (Principal, [Principal]);
     };
+    public type SwapFeeReceiverMsg = {
+        #balance : () -> (Principal, Text);
+        #getCycleInfo : () -> ();
+        #transfer : () -> (Principal, Text, Principal, Nat);
+    };
     public type SwapPoolActor = actor {
         initUserPositionIdMap : shared (userPositionIds : [(Text, [Nat])]) -> async ();
         getUserPositionIds : query () -> async Result.Result<[(Text, [Nat])], Error>;
