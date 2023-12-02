@@ -150,35 +150,25 @@ shared ({ caller }) actor class SwapPool(
     private var _token1Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token1.address, _token1.standard);
 
     private func _syncRecord() : async () { await _swapRecordService.syncRecord(); };
-    let _syncRecordPer10s = Timer.recurringTimer(#seconds(10), _syncRecord);
+    let _syncRecordPerMinute = Timer.recurringTimer(#seconds(60), _syncRecord);
 
     private func _syncTokenFee() : async () { _token0Fee := ?(await _token0Act.fee()); _token1Fee := ?(await _token1Act.fee()); };
     let _syncTokenFeePerHour = Timer.recurringTimer(#seconds(3600), _syncTokenFee);
 
+    private stable var _claimLog : [Text] = [];
+    private var _claimLogBuffer : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
+    public query (msg) func getClaimLog() : async [Text] { return Buffer.toArray(_claimLogBuffer); };
     private func _claimSwapFeeRepurchase() : async () {
-        let thisCanisterId = switch _canisterId { case (?cid) { cid }; case (null) { return }; };
-        let (balance0, fee0) = (_tokenAmountService.getSwapFee0Repurchase(), switch _token0Fee { case (?f) { f }; case (null) { return } });
-        let (balance1, fee1) = (_tokenAmountService.getSwapFee1Repurchase(), switch _token1Fee { case (?f) { f }; case (null) { return } });
-        var amount0 = if (balance0 <= fee0) { 0 } else { Nat.sub(balance0, fee0); };
-        var amount1 = if (balance1 <= fee1) { 0 } else { Nat.sub(balance1, fee1); };
-
-        if (amount0 > 0) {
-            switch (await _token0Act.transfer({ from = { owner = thisCanisterId; subaccount = null }; from_subaccount = null; to = { owner = feeReceiverCid; subaccount = null }; amount = amount0; fee = null; memo = null; created_at_time = null })) {
-                case (#Ok(index)) {
-                    _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
-                    _tokenAmountService.setSwapFee0Repurchase(SafeUint.Uint256(_tokenAmountService.getSwapFee0Repurchase()).sub(SafeUint.Uint256(balance0)).val());
-                };
-                case (#Err(msg)) {};
-            };
-        };
-        if (amount1 > 0) {
-            switch (await _token1Act.transfer({ from = { owner = thisCanisterId; subaccount = null }; from_subaccount = null; to = { owner = feeReceiverCid; subaccount = null }; amount = amount1; fee = null; memo = null; created_at_time = null })) {
-                case (#Ok(index)) {
-                    _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
-                    _tokenAmountService.setSwapFee1Repurchase(SafeUint.Uint256(_tokenAmountService.getSwapFee1Repurchase()).sub(SafeUint.Uint256(balance1)).val());
-                };
-                case (#Err(msg)) {};
-            };
+        var time = BlockTimestamp.blockTimestamp();
+        let balance0 = _tokenAmountService.getSwapFee0Repurchase();
+        let balance1 = _tokenAmountService.getSwapFee1Repurchase();
+        if (balance0 > 0 or balance1 > 0) {
+            _claimLogBuffer.add("{\"amount0\": \"" # debug_show(balance0) # "\", \"amount1\": \"" # debug_show(balance1) # "\", \"timestamp\": \"" # debug_show(BlockTimestamp.blockTimestamp()) # "\"}");
+            ignore _tokenHolderService.deposit2(feeReceiverCid, _token0, balance0, _token1, balance1);
+            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
+            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
+            _tokenAmountService.setSwapFee0Repurchase(0);
+            _tokenAmountService.setSwapFee1Repurchase(0);
         };
     };
     let _claimSwapFeeRepurchasePerWeek = Timer.recurringTimer(#seconds(604800), _claimSwapFeeRepurchase);
@@ -1841,7 +1831,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.2.4";
+    private var _version : Text = "3.2.5";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
@@ -1893,6 +1883,7 @@ shared ({ caller }) actor class SwapPool(
         _recordState := _swapRecordService.getState();
         _tokenHolderState := _tokenHolderService.getState();
         _tokenAmountState := _tokenAmountService.getState();
+        _claimLog := Buffer.toArray(_claimLogBuffer);
     };
 
     system func postupgrade() {
@@ -1904,6 +1895,7 @@ shared ({ caller }) actor class SwapPool(
         _ticksEntries := [];
         _addressPrincipals := [];
         _canisterId := ?Principal.fromActor(this);
+        _claimLogBuffer := Buffer.fromArray(_claimLog);
     };
     
     system func inspect({

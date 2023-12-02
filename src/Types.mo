@@ -285,6 +285,7 @@ module {
         #depositFrom : () -> DepositArgs;
         #getAddressPrincipals : () -> ();
         #getAvailabilityState : () -> ();
+        #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
         #getPosition : () -> GetPositionArgs;
         #getPositions : () -> (Nat, Nat);
@@ -355,6 +356,11 @@ module {
         #validateUpgradePoolTokenStandard : () -> (Principal, Principal);
         #removePoolControllers : () -> (Principal, [Principal]);
         #validateRemovePoolControllers : () -> (Principal, [Principal]);
+    };
+    public type SwapFeeReceiverMsg = {
+        #balance : () -> (Principal, Text);
+        #getCycleInfo : () -> ();
+        #transfer : () -> (Principal, Text, Principal, Nat);
     };
     public type SwapPoolActor = actor {
         initUserPositionIdMap : shared (userPositionIds : [(Text, [Nat])]) -> async ();
