@@ -25,10 +25,6 @@ cat <<< $(jq '.canisters={
     "main": "./src/PositionIndex.mo",
     "type": "motoko",
     "dependencies": ["SwapFactory"]
-  },
-  "SwapNFT": {
-    "main": "./src/SwapNFT.mo",
-    "type": "motoko"
   }
 }' dfx.json) > dfx.json
 dfx start --background

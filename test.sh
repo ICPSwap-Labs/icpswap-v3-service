@@ -57,8 +57,6 @@ TOTAL_SUPPLY="1000000000000000000"
 # TRANS_FEE="100000000";
 TRANS_FEE="0";
 MINTER_PRINCIPAL="$(dfx identity get-principal)"
-ACCOUNT_A_PRINCIPAL="vstbj-pvo2s-z547c-smmjg-ono5g-utcx7-yx6zz-sblsa-pq63d-y4glz-5qe"
-ACCOUNT_B_PRINCIPAL="37flx-mmcuh-dxkeo-bjudx-jfugc-lwbcs-3zy2f-3t2g2-5w6zq-3ten5-bqe"
 
 dfx start --clean --background
 echo "-=========== create all"
@@ -114,7 +112,6 @@ echo "=== token1: $token1"
 echo "======================================="
 
 # subaccount=`dfx canister call Test getSubaccount |grep text__ |awk -F"text__" '{print substr($2,4,128)}'`
-# subaccount="\\1D\\70\\DF\\FD\\82\\8A\\80\\46\\CC\\C0\\E8\\03\\79\\2B\\9C\\D3\\9E\\4A\\A8\\33\\A2\\2C\\A3\\7E\\05\\88\\B3\\59\\B9\\02\\00\\00"
 echo 
 
 function balanceOf()
