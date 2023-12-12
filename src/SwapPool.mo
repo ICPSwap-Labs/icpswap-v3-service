@@ -739,7 +739,7 @@ shared ({ caller }) actor class SwapPool(
         if (not (args.amount > args.fee)) { return #err(#InsufficientFunds) };
         var amount : Nat = Nat.sub(args.amount, args.fee);
         try {
-            switch (await tokenAct.transfer({ from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; to = { owner = canisterId; subaccount = null }; amount = amount; fee = null; memo = null; created_at_time = null })) {
+            switch (await tokenAct.transfer({ from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; to = { owner = canisterId; subaccount = null }; amount = amount; fee = ?args.fee; memo = null; created_at_time = null })) {
                 case (#Ok(index)) {
                     ignore _tokenHolderService.deposit(caller, token, amount);
                     return #ok(amount);
@@ -784,7 +784,7 @@ shared ({ caller }) actor class SwapPool(
             if (Principal.equal(caller, canisterId)) {
                 return #err(#InternalError("Caller and canister id can't be the same"));
             };
-            switch (await tokenAct.transferFrom({ from = { owner = caller; subaccount = null }; to = { owner = canisterId; subaccount = null }; amount = args.amount; fee = null; memo = null; created_at_time = null })) {
+            switch (await tokenAct.transferFrom({ from = { owner = caller; subaccount = null }; to = { owner = canisterId; subaccount = null }; amount = args.amount; fee = ?args.fee; memo = null; created_at_time = null })) {
                 case (#Ok(index)) {
                     ignore _tokenHolderService.deposit(caller, token, args.amount);
                     return #ok(args.amount);
@@ -838,7 +838,7 @@ shared ({ caller }) actor class SwapPool(
         var amount : Nat = Nat.sub(args.amount, fee);
         if (_tokenHolderService.withdraw(caller, token, args.amount)) {
             var logIndex = _tokenAmountService.addWithdrawErrorLog(caller, token, Time.now(), amount);
-            switch (await tokenAct.transfer({ from = { owner = canisterId; subaccount = null }; from_subaccount = null; to = { owner = caller; subaccount = null }; amount = amount; fee = null; memo = null; created_at_time = null })) {
+            switch (await tokenAct.transfer({ from = { owner = canisterId; subaccount = null }; from_subaccount = null; to = { owner = caller; subaccount = null }; amount = amount; fee = ?args.fee; memo = null; created_at_time = null })) {
                 case (#Ok(index)) {
                     _tokenAmountService.removeWithdrawErrorLog(logIndex);
                     return #ok(amount);
@@ -893,7 +893,7 @@ shared ({ caller }) actor class SwapPool(
         if (args.amount0 > 0) {
             if (args.amount0 > args.fee0) {
                 var amount0 : Nat = Nat.sub(args.amount0, args.fee0);
-                switch (await _token0Act.transfer({ from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; to = { owner = canisterId; subaccount = null }; amount = amount0; fee = null; memo = null; created_at_time = null })) {
+                switch (await _token0Act.transfer({ from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; to = { owner = canisterId; subaccount = null }; amount = amount0; fee = ?args.fee0; memo = null; created_at_time = null })) {
                     case (#Ok(index)) { ignore _tokenHolderService.deposit(args.positionOwner, _token0, amount0); };
                     case (#Err(msg)) { return #err(#InternalError(debug_show(msg))); };
                 };
@@ -903,7 +903,7 @@ shared ({ caller }) actor class SwapPool(
         if (args.amount1 > 0) {
             if (args.amount1 > args.fee1) {
                 var amount1 : Nat = Nat.sub(args.amount1, args.fee1);
-                switch (await _token1Act.transfer({ from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; to = { owner = canisterId; subaccount = null }; amount = amount1; fee = null; memo = null; created_at_time = null })) {
+                switch (await _token1Act.transfer({ from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; to = { owner = canisterId; subaccount = null }; amount = amount1; fee = ?args.fee1; memo = null; created_at_time = null })) {
                     case (#Ok(index)) { ignore _tokenHolderService.deposit(args.positionOwner, _token1, amount1); };
                     case (#Err(msg)) { return #err(#InternalError(debug_show(msg))); };
                 };
@@ -1831,7 +1831,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.2.5";
+    private var _version : Text = "3.2.6";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
