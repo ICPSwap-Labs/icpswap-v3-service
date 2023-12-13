@@ -358,6 +358,31 @@ shared ({ caller }) actor class SwapPool(
         return #ok(swapAmount);
     };
 
+    private func _preSwapForAll(args : Types.SwapArgs, operator : Principal) : Result.Result<Nat, Types.Error> {
+        var swapResult = switch (_computeSwap(args, operator, false)) {
+            case (#ok(result)) { result };
+            case (#err(code)) { return #err(#InternalError("preswap " # debug_show (code))); };
+        };
+        var effectiveAmount = 0;
+        var swapAmount = 0;
+        if (args.zeroForOne and swapResult.amount1 < 0) {
+            swapAmount := IntUtils.toNat(-(swapResult.amount1), 256);
+            effectiveAmount := IntUtils.toNat(swapResult.amount0, 256);
+        };
+        if ((not args.zeroForOne) and swapResult.amount0 < 0) {
+            swapAmount := IntUtils.toNat(-(swapResult.amount0), 256);
+            effectiveAmount := IntUtils.toNat(swapResult.amount1, 256);
+        };
+
+        if (swapAmount <= 0) {
+            return #err(#InternalError("The amount of input token is too small."));
+        } else if (TextUtils.toInt(args.amountIn) > effectiveAmount and effectiveAmount > 0) {
+            return #err(#InternalError("The maximum amount of input tokens is " # debug_show (effectiveAmount)));
+        } else {
+            return #ok(swapAmount);
+        };
+    };
+
     private func _computeSwap(args : Types.SwapArgs, operator : Principal, effective : Bool) : Result.Result<{ amount0 : Int; amount1 : Int }, Text> {
         var amountIn = TextUtils.toInt(args.amountIn);
         if (amountIn <= 0) { return #err("illegal amountIn") };
@@ -1351,6 +1376,10 @@ shared ({ caller }) actor class SwapPool(
         return _preSwap(args, msg.caller);
     };
 
+    public query (msg) func quoteForAll(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
+        return _preSwapForAll(args, msg.caller);
+    };
+
     public query func refreshIncome(positionId : Nat) : async Result.Result<{ tokensOwed0 : Nat; tokensOwed1 : Nat }, Types.Error> {
         let result = switch (_refreshIncome(positionId)) {
             case (#ok(result)) { result };
@@ -1831,7 +1860,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.2.6";
+    private var _version : Text = "3.2.5";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {

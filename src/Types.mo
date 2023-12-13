@@ -311,6 +311,7 @@ module {
         #metadata : () -> ();
         #mint : () -> MintArgs;
         #quote : () -> SwapArgs;
+        #quoteForAll : () -> SwapArgs;
         #refreshIncome : () -> Nat;
         #sumTick : () -> ();
         #swap : () -> SwapArgs;
