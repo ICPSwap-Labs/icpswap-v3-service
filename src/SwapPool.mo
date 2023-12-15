@@ -662,7 +662,7 @@ shared ({ caller }) actor class SwapPool(
             _fee,
         );
     };
-
+    private func _submit(): async () {};
     private func _rollback() : () {
         assert(false);
     };
@@ -876,6 +876,8 @@ shared ({ caller }) actor class SwapPool(
                 };
             };
         };
+        // Submit the above message to prevent an incorrect rollback of the token holder balance when a trap occurs below.
+        await _submit();
 
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
         var amount1Desired = SafeUint.Uint256(TextUtils.toNat(args.amount1Desired));
@@ -910,7 +912,6 @@ shared ({ caller }) actor class SwapPool(
                 throw Error.reject("Balance of token1: " # debug_show (amount1) # " is less than amount1Desired");
             };
         };
-
         let positionId = _nextPositionId;
         _nextPositionId := _nextPositionId + 1;
         try {
