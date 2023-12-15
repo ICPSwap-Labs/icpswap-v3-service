@@ -60,7 +60,10 @@ shared ({ caller }) actor class SwapPool(
             _fee := fee;
             _tickSpacing := tickSpacing;
             _sqrtPriceX96 := sqrtPriceX96;
-            _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) { case (#ok(r)) { r }; case (#err(code)) { 0 }; };
+            _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) { 
+                case (#ok(r)) { r }; 
+                case (#err(code)) { throw Error.reject("init pool failed: " # code); }; 
+            };
             _maxLiquidityPerTick := Tick.tickSpacingToMaxLiquidityPerTick(SafeInt.Int24(tickSpacing));
             _inited := true;
             _canisterId := ?Principal.fromActor(this);
