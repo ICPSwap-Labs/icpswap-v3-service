@@ -891,7 +891,7 @@ shared ({ caller }) actor class SwapPool(
         if (Text.notEqual(_token0.standard, "ICP") and Text.notEqual(_token0.standard, "ICRC1") and Text.notEqual(_token0.standard, "ICRC2") and Text.notEqual(_token0.standard, "ICRC3")) {
             return #err(#InternalError("Illegal token0 standard: " # debug_show (_token0.standard)));
         };
-        if (Text.notEqual(_token1.standard, "ICP") and Text.notEqual(_token1.standard, "ICRC1") and Text.notEqual(_token1.standard, "ICRC2") and Text.notEqual(_token0.standard, "ICRC3")) {
+        if (Text.notEqual(_token1.standard, "ICP") and Text.notEqual(_token1.standard, "ICRC1") and Text.notEqual(_token1.standard, "ICRC2") and Text.notEqual(_token1.standard, "ICRC3")) {
             return #err(#InternalError("Illegal token1 standard: " # debug_show (_token1.standard)));
         };
         var fee0 = switch _token0Fee {
