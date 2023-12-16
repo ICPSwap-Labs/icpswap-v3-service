@@ -91,7 +91,6 @@ shared ({ caller }) actor class SwapPool(
         records = [];
         retryCount = 0;
         errors = [];
-        infoCanisterAvailable = true;
     };
     private stable var _tokenHolderState : TokenHolder.State = {
         token0 = _token0;
@@ -541,17 +540,23 @@ shared ({ caller }) actor class SwapPool(
                 _feeGrowthGlobal0X128 := state.feeGrowthGlobalX128;
             } else { _feeGrowthGlobal1X128 := state.feeGrowthGlobalX128 };
         };
-
-        var amount0 = if (args.zeroForOne) {
-            SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val();
-        } else { state.amountCalculated };
-        var amount1 = if (args.zeroForOne) { state.amountCalculated } else {
-            SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val();
-        };
-        return #ok({
-            amount0 = amount0;
-            amount1 = amount1;
-        });
+        // return #ok({
+        //     amount0 = if (args.zeroForOne) { SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val() } else { state.amountCalculated };
+        //     amount1 = if (args.zeroForOne) { state.amountCalculated } else { SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val()  };
+        // });
+        return #ok(
+            if (args.zeroForOne) {
+                {
+                    amount0 = SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val();
+                    amount1 = state.amountCalculated;
+                }
+            } else {
+                {
+                    amount0 = state.amountCalculated;
+                    amount1 = SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val();
+                }
+            }
+        );
     };
 
     private func _refreshIncome(positionId : Nat) : Result.Result<{ tokensOwed0 : Nat; tokensOwed1 : Nat }, Text> {
@@ -634,7 +639,6 @@ shared ({ caller }) actor class SwapPool(
         token1ChangeAmount : Nat,
         zeroForOne : Bool,
     ) : () {
-        var timestamp = Time.now();
         var poolCid : Text = Principal.toText(Principal.fromActor(this));
         let (token0Id, token1Id, token0Standard, token1Standard, token0Amount, token1Amount) = if (zeroForOne) {
             (_token0.address, _token1.address, _token0.standard, _token1.standard, _tokenAmountService.getTokenAmount0(), _tokenAmountService.getTokenAmount1());
