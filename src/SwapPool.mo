@@ -91,7 +91,6 @@ shared ({ caller }) actor class SwapPool(
         records = [];
         retryCount = 0;
         errors = [];
-        infoCanisterAvailable = true;
     };
     private stable var _tokenHolderState : TokenHolder.State = {
         token0 = _token0;
@@ -124,25 +123,6 @@ shared ({ caller }) actor class SwapPool(
     // principal address pair
     private stable var _addressPrincipals : [(Text, Principal)] = [];
     private var _addressPrincipalMap : HashMap.HashMap<Text, Principal> = HashMap.fromIter(_addressPrincipals.vals(), 0, Text.equal, Text.hash);
-
-    private var _tickBak : Int = 0;
-    private var _sqrtPriceX96Bak : Nat = 0;
-    private var _liquidityBak : Nat = 0;
-    private var _feeGrowthGlobal0X128Bak : Nat = 0;
-    private var _feeGrowthGlobal1X128Bak : Nat = 0;
-    private var _userPositionsEntriesBak : [(Nat, Types.UserPositionInfo)] = [];
-    private var _positionsEntriesBak : [(Text, Types.PositionInfo)] = [];
-    private var _tickBitmapsEntriesBak : [(Int, Nat)] = [];
-    private var _ticksEntriesBak : [(Text, Types.TickInfo)] = [];
-    private var _userPositionIdsEntriesBak : [(Text, [Nat])] = [];
-    private var _tokenAmountStateBak : TokenAmount.State = {
-        tokenAmount0 = 0;
-        tokenAmount1 = 0;
-        swapFee0Repurchase = 0;
-        swapFee1Repurchase = 0;
-        withdrawErrorLogIndex = 0;
-        withdrawErrorLog = [];
-    };
 
     private var _positionTickService : PositionTick.Service = PositionTick.Service(_userPositionsEntries, _positionsEntries, _tickBitmapsEntries, _ticksEntries, _userPositionIdsEntries, _allowancedUserPositionEntries);
     private var _tokenHolderService : TokenHolder.Service = TokenHolder.Service(_tokenHolderState);
@@ -560,17 +540,23 @@ shared ({ caller }) actor class SwapPool(
                 _feeGrowthGlobal0X128 := state.feeGrowthGlobalX128;
             } else { _feeGrowthGlobal1X128 := state.feeGrowthGlobalX128 };
         };
-
-        var amount0 = if (args.zeroForOne) {
-            SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val();
-        } else { state.amountCalculated };
-        var amount1 = if (args.zeroForOne) { state.amountCalculated } else {
-            SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val();
-        };
-        return #ok({
-            amount0 = amount0;
-            amount1 = amount1;
-        });
+        // return #ok({
+        //     amount0 = if (args.zeroForOne) { SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val() } else { state.amountCalculated };
+        //     amount1 = if (args.zeroForOne) { state.amountCalculated } else { SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val()  };
+        // });
+        return #ok(
+            if (args.zeroForOne) {
+                {
+                    amount0 = SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val();
+                    amount1 = state.amountCalculated;
+                }
+            } else {
+                {
+                    amount0 = state.amountCalculated;
+                    amount1 = SafeInt.Int256(amountIn).sub(SafeInt.Int256(state.amountSpecifiedRemaining)).val();
+                }
+            }
+        );
     };
 
     private func _refreshIncome(positionId : Nat) : Result.Result<{ tokensOwed0 : Nat; tokensOwed1 : Nat }, Text> {
@@ -653,7 +639,6 @@ shared ({ caller }) actor class SwapPool(
         token1ChangeAmount : Nat,
         zeroForOne : Bool,
     ) : () {
-        var timestamp = Time.now();
         var poolCid : Text = Principal.toText(Principal.fromActor(this));
         let (token0Id, token1Id, token0Standard, token1Standard, token0Amount, token1Amount) = if (zeroForOne) {
             (_token0.address, _token1.address, _token0.standard, _token1.standard, _tokenAmountService.getTokenAmount0(), _tokenAmountService.getTokenAmount1());
@@ -681,51 +666,9 @@ shared ({ caller }) actor class SwapPool(
             _fee,
         );
     };
-
-    private func _saveBackupData() : () {
-        _tickBak := _tick;
-        _sqrtPriceX96Bak := _sqrtPriceX96;
-        _liquidityBak := _liquidity;
-        _feeGrowthGlobal0X128Bak := _feeGrowthGlobal0X128;
-        _feeGrowthGlobal1X128Bak := _feeGrowthGlobal1X128;
-        _userPositionsEntriesBak := Iter.toArray(_positionTickService.getUserPositions().entries());
-        _positionsEntriesBak := Iter.toArray(_positionTickService.getPositions().entries());
-        _userPositionIdsEntriesBak := Iter.toArray(_positionTickService.getUserPositionIds().entries());
-        _tickBitmapsEntriesBak := Iter.toArray(_positionTickService.getTickBitmaps().entries());
-        _ticksEntriesBak := Iter.toArray(_positionTickService.getTicks().entries());
-        _tokenAmountStateBak := _tokenAmountService.getState();
-    };
-
-    private func _releaseBackupData() : () {
-        _tickBak := 0;
-        _sqrtPriceX96Bak := 0;
-        _liquidityBak := 0;
-        _feeGrowthGlobal0X128Bak := 0;
-        _feeGrowthGlobal1X128Bak := 0;
-        _userPositionsEntriesBak := [];
-        _positionsEntriesBak := [];
-        _userPositionIdsEntriesBak := [];
-        _tickBitmapsEntriesBak := [];
-        _ticksEntriesBak := [];
-        _tokenAmountStateBak := {
-            tokenAmount0 = 0;
-            tokenAmount1 = 0;
-            swapFee0Repurchase = 0;
-            swapFee1Repurchase = 0;
-            withdrawErrorLogIndex = 0;
-            withdrawErrorLog = [];
-        };
-    };
-
-    private func _rollbackBackupData() : () {
-        _tick := _tickBak;
-        _sqrtPriceX96 := _sqrtPriceX96Bak;
-        _liquidity := _liquidityBak;
-        _feeGrowthGlobal0X128 := _feeGrowthGlobal0X128Bak;
-        _feeGrowthGlobal1X128 := _feeGrowthGlobal1X128Bak;
-        _positionTickService.resetPositionsAndTicks(_userPositionsEntriesBak, _positionsEntriesBak, _tickBitmapsEntriesBak, _ticksEntriesBak, _userPositionIdsEntriesBak);
-        _tokenAmountService := TokenAmount.Service(_tokenAmountStateBak);
-        _releaseBackupData();
+    private func _submit(): async () {};
+    private func _rollback() : () {
+        assert(false);
     };
 
     public shared ({ caller }) func deposit(args : Types.DepositArgs) : async Result.Result<Nat, Types.Error> {
@@ -937,6 +880,8 @@ shared ({ caller }) actor class SwapPool(
                 };
             };
         };
+        // Submit the above message to prevent an incorrect rollback of the token holder balance when a trap occurs below.
+        await _submit();
 
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
         var amount1Desired = SafeUint.Uint256(TextUtils.toNat(args.amount1Desired));
@@ -971,11 +916,10 @@ shared ({ caller }) actor class SwapPool(
                 throw Error.reject("Balance of token1: " # debug_show (amount1) # " is less than amount1Desired");
             };
         };
-
         let positionId = _nextPositionId;
         _nextPositionId := _nextPositionId + 1;
         try {
-            _saveBackupData();
+            // _saveBackupData();
 
             var addResult = switch (_addLiquidity(args.tickLower, args.tickUpper, amount0Desired, amount1Desired)) {
                 case (#ok(result)) { result };
@@ -1002,12 +946,12 @@ shared ({ caller }) actor class SwapPool(
 
             ignore _tokenHolderService.withdraw2(args.positionOwner, _token0, addResult.amount0, _token1, addResult.amount1);
 
-            _releaseBackupData();
+            // _releaseBackupData();
 
             _pushSwapInfoCache(#addLiquidity, Principal.toText(args.positionOwner), Principal.toText(Principal.fromActor(this)), Principal.toText(args.positionOwner), addResult.liquidityDelta, addResult.amount0, addResult.amount1, true);
         } catch (e) {
-            _rollbackBackupData();
-            return #err(#InternalError("DepositAllAndMint.mint failed: " # Error.message(e)));
+            _rollback();
+            // return #err(#InternalError("DepositAllAndMint.mint failed: " # Error.message(e)));
         };
 
         return #ok(positionId);
@@ -1033,7 +977,7 @@ shared ({ caller }) actor class SwapPool(
             ));
         };
         try {
-            _saveBackupData();
+            // _saveBackupData();
 
             var addResult = switch (_addLiquidity(args.tickLower, args.tickUpper, amount0Desired, amount1Desired)) {
                 case (#ok(result)) { result };
@@ -1062,10 +1006,10 @@ shared ({ caller }) actor class SwapPool(
 
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
 
-            _releaseBackupData();
+            // _releaseBackupData();
         } catch (e) {
-            _rollbackBackupData();
-            return #err(#InternalError("mint failed: " # Error.message(e)));
+            _rollback();
+            // return #err(#InternalError("mint failed: " # Error.message(e)));
         };
         return #ok(positionId);
     };
@@ -1087,7 +1031,7 @@ shared ({ caller }) actor class SwapPool(
         };
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         try {
-            _saveBackupData();
+            // _saveBackupData();
 
             var addResult = switch (_addLiquidity(userPositionInfo.tickLower, userPositionInfo.tickUpper, amount0Desired, amount1Desired)) {
                 case (#ok(result)) { result };
@@ -1118,10 +1062,10 @@ shared ({ caller }) actor class SwapPool(
 
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
 
-            _releaseBackupData();
+            // _releaseBackupData();
         } catch (e) {
-            _rollbackBackupData();
-            return #err(#InternalError("increase liquidity failed: " # Error.message(e)));
+            _rollback();
+            // return #err(#InternalError("increase liquidity failed: " # Error.message(e)));
         };
 
         return #ok(args.positionId);
@@ -1140,7 +1084,7 @@ shared ({ caller }) actor class SwapPool(
         };
         var collectResult = { amount0 = 0; amount1 = 0 };
         try {
-            _saveBackupData();
+            // _saveBackupData();
 
             ignore switch (_removeLiquidity(args.positionId, liquidityDelta)) {
                 case (#ok(result)) { result };
@@ -1164,10 +1108,10 @@ shared ({ caller }) actor class SwapPool(
                 ignore _tokenHolderService.deposit2(msg.caller, _token0, collectResult.amount0, _token1, collectResult.amount1);
             };
 
-            _releaseBackupData();
+            // _releaseBackupData();
         } catch (e) {
-            _rollbackBackupData();
-            return #err(#InternalError("decrease liquidity failed: " # Error.message(e)));
+            _rollback();
+            // return #err(#InternalError("decrease liquidity failed: " # Error.message(e)));
         };
 
         return #ok({
@@ -1185,7 +1129,7 @@ shared ({ caller }) actor class SwapPool(
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         var collectResult = { amount0 = 0; amount1 = 0 };
         try {
-            _saveBackupData();
+            // _saveBackupData();
 
             if (userPositionInfo.liquidity > 0) {
                 ignore switch (_removeLiquidity(args.positionId, 0)) {
@@ -1208,10 +1152,10 @@ shared ({ caller }) actor class SwapPool(
                 ignore _tokenHolderService.deposit2(msg.caller, _token0, collectResult.amount0, _token1, collectResult.amount1);
             };
 
-            _releaseBackupData();
+            // _releaseBackupData();
         } catch (e) {
-            _rollbackBackupData();
-            return #err(#InternalError("claim failed: " # Error.message(e)));
+            _rollback();
+            // return #err(#InternalError("claim failed: " # Error.message(e)));
         };
 
         return #ok({
@@ -1235,7 +1179,7 @@ shared ({ caller }) actor class SwapPool(
 
         var swapAmount = 0;
         try {
-            _saveBackupData();
+            // _saveBackupData();
 
             var swapResult = switch (_computeSwap(args, msg.caller, true)) {
                 case (#ok(result)) { result };
@@ -1262,10 +1206,10 @@ shared ({ caller }) actor class SwapPool(
                 ignore _tokenHolderService.swap(msg.caller, _token1, IntUtils.toNat(amount1, 256), _token0, swapAmount);
             };
 
-            _releaseBackupData();
+            // _releaseBackupData();
         } catch (e) {
-            _rollbackBackupData();
-            return #err(#InternalError("swap failed: " # Error.message(e)));
+            _rollback();
+            // return #err(#InternalError("swap failed: " # Error.message(e)));
         };
         return #ok(swapAmount);
     };

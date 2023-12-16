@@ -14,7 +14,6 @@ import EvictingQueue "mo:commons/collections/EvictingQueue";
 module SwapRecord {
 
     public type State = {
-        // infoCid : Text;
         records : [Types.SwapRecordInfo];
         retryCount : Nat;
         errors : [Types.PushError];

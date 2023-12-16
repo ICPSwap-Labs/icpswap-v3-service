@@ -50,7 +50,7 @@ cat > dfx.json <<- EOF
       "candid": "./test/price/price.did"
     }
   },
-  "defaults": { "build": { "packtool": "vessel sources" } }, "dfx": "0.14.3", "networks": { "local": { "bind": "127.0.0.1:8000", "type": "ephemeral" } }, "version": 1
+  "defaults": { "build": { "packtool": "vessel sources" } }, "networks": { "local": { "bind": "127.0.0.1:8000", "type": "ephemeral" } }, "version": 1
 }
 EOF
 TOTAL_SUPPLY="1000000000000000000"
