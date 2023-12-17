@@ -888,7 +888,7 @@ shared ({ caller }) actor class SwapPool(
         if (Text.notEqual(_token0.standard, "ICP") and Text.notEqual(_token0.standard, "ICRC1") and Text.notEqual(_token0.standard, "ICRC2") and Text.notEqual(_token0.standard, "ICRC3")) {
             return #err(#InternalError("Illegal token0 standard: " # debug_show (_token0.standard)));
         };
-        if (Text.notEqual(_token1.standard, "ICP") and Text.notEqual(_token1.standard, "ICRC1") and Text.notEqual(_token1.standard, "ICRC2") and Text.notEqual(_token0.standard, "ICRC3")) {
+        if (Text.notEqual(_token1.standard, "ICP") and Text.notEqual(_token1.standard, "ICRC1") and Text.notEqual(_token1.standard, "ICRC2") and Text.notEqual(_token1.standard, "ICRC3")) {
             return #err(#InternalError("Illegal token1 standard: " # debug_show (_token1.standard)));
         };
         var fee0 = switch _token0Fee {
@@ -1860,7 +1860,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.2.5";
+    private var _version : Text = "3.2.6";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
