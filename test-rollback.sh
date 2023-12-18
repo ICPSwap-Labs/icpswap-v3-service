@@ -304,6 +304,8 @@ metadataBefore=""
 metadataAfter=""
 tokenStateBefore=""
 tokenStateAfter=""
+recordBefore=""
+recordAfter=""
 function checkRollback() 
 {
     if [ "$positionsBefore" = "$positionsAfter" ]; then
@@ -336,6 +338,12 @@ function checkRollback()
       echo "\033[31m token state are not same. \033[0m"
     fi
 
+    if [ "$recordBefore" = "$recordAfter" ]; then
+      echo "\033[32m record are same. \033[0m"
+    else
+      echo "\033[31m record are not same. \033[0m"
+    fi
+
     echo $metadataBefore
     echo $metadataAfter
 }
@@ -347,6 +355,7 @@ function recordBefore()
     userPositionsBefore=`dfx canister call $poolId getUserPositions "(0: nat, 100: nat)"`
     metadataBefore=`dfx canister call $poolId metadata`
     tokenStateBefore=`dfx canister call $poolId getTokenAmountState`
+    recordBefore=`dfx canister call $poolId getSwapRecordState`
 }
 function recordAfter() 
 {
@@ -356,6 +365,7 @@ function recordAfter()
     userPositionsAfter=`dfx canister call $poolId getUserPositions "(0: nat, 100: nat)"`
     metadataAfter=`dfx canister call $poolId metadata`
     tokenStateAfter=`dfx canister call $poolId getTokenAmountState`
+    recordAfter=`dfx canister call $poolId getSwapRecordState`
 }
 
 function testMintSwap()
