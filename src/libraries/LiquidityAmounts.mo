@@ -4,6 +4,7 @@ import SafeUint "mo:commons/math/SafeUint";
 import UintUtils "mo:commons/math/SafeUint/UintUtils";
 import FullMath "./FullMath";
 import FixedPoint96 "./FixedPoint96";
+import Prim "mo:⛔";
 
 module {
 
@@ -12,7 +13,9 @@ module {
 
     public func toUint128(x: Uint256) : Uint128 {
         var y = SafeUint.Uint128(x).val();
-        assert(y == x);
+        if (not (y == x)) {
+            Prim.trap("Liquidity amount overflows");
+        };
         return y;
     };
 
