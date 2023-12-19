@@ -306,7 +306,7 @@ module {
         #getUserPositionsByPrincipal : () -> Principal;
         #getUserPositionIdsByPrincipal : () -> Principal;
         #getVersion : () -> ();
-        #getWithdrawErrorLog : () -> ();
+        #getTransferLogs : () -> ();
         #increaseLiquidity : () -> IncreaseLiquidityArgs;
         #metadata : () -> ();
         #mint : () -> MintArgs;
@@ -325,7 +325,7 @@ module {
         #depositAllAndMint : () -> DepositAndMintArgs;
         #setAvailable : () -> Bool;
         #setWhiteList : () -> [Principal];
-        #removeWithdrawErrorLog : () -> (Nat, Bool);
+        #removeErrorTransferLog : () -> (Nat, Bool);
         // --------  Controller permission required.  ---------
         #init : () -> (Nat, Int, Nat);
         #setAdmins : () -> [Principal];
