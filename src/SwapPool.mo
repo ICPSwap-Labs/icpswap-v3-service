@@ -42,6 +42,7 @@ import TokenFactory "mo:token-adapter/TokenFactory";
 import TokenAdapterTypes "mo:token-adapter/Types";
 import ListUtils "mo:commons/utils/ListUtils";
 import CollectionUtils "mo:commons/utils/CollectionUtils";
+import Bool "mo:base/Bool";
 import Prim "mo:⛔";
 import Hash "mo:base/Hash";
 
@@ -1398,7 +1399,7 @@ shared ({ caller }) actor class SwapPool(
             case (?log) {
                 _postTransferComplete(index);
                 if (rollback ) { 
-                    if (Text.equal("error", log.result) or (Text.equal(log.result, "processing") and Nat.sub(Int.abs(Time.now()), log.timestamp) > 86400)) {
+                    if (Text.equal("error", log.result) or (Text.equal(log.result, "processing") and ((Nat.sub(Int.abs(Time.now()), log.timestamp) / 1000000000) > 86400))) {
                         ignore _tokenHolderService.deposit(log.owner, log.token, log.amount);
                     } else {
                         Prim.trap("rollback error: Error status or insufficient time interval");
@@ -1992,9 +1993,9 @@ shared ({ caller }) actor class SwapPool(
         };
     };
 
-
     // jobs...
-    let _clearExpiredTransferLogsJob = Timer.recurringTimer(#seconds(60), func (): async () {
+    // Clear transfer logs older than 60 days every 12 hours.
+    let _clearExpiredTransferLogsJob = Timer.recurringTimer(#seconds(43200), func (): async () {
         let today: Nat = Int.abs(Time.now()) / 86400;
         for ((index, log) in _transferLog.entries()) {
             if (Nat.sub(today, log.daysFrom19700101) > 60) {
