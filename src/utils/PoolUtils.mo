@@ -1,5 +1,9 @@
 import Text "mo:base/Text";
 import Nat "mo:base/Nat";
+import Blob "mo:base/Blob";
+import Nat8 "mo:base/Nat8";
+import Nat64 "mo:base/Nat64";
+import Array "mo:base/Array";
 import Types "../Types";
 
 module {
@@ -19,5 +23,16 @@ module {
             (token0, token1)
         };
     };
-    
+    public func natToBlob(x: Nat): Blob {
+        let arr: [Nat8] = fromNat(8, x);
+        return Blob.fromArray(arr);
+    };
+    public func fromNat(len : Nat, n : Nat) : [Nat8] {
+        let ith_byte = func(i : Nat) : Nat8 {
+        	assert(i < len);
+            let shift : Nat = 8 * (len - 1 - i);
+            Nat8.fromIntWrap(n / 2 ** shift)
+        };
+        return Array.tabulate<Nat8>(len, ith_byte);
+    };
 }

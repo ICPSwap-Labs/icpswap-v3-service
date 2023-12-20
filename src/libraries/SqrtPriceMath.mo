@@ -55,7 +55,9 @@ module SqrtPriceMath {
         } else {
             // if the product overflows, we know the denominator underflows
             // in addition, we must check that the denominator does not underflow
-            if((product.div(amount).val() != sqrtPX96.val()) and (numerator1.val() < product.val())){ return #err("SqrtPriceMath illegal args"); };
+            // require((product = amount * sqrtPX96) / amount == sqrtPX96 && numerator1 > product);
+            if(not ((product.div(amount).val() == sqrtPX96.val()) and (numerator1.val() > product.val()))){ return #err("SqrtPriceMath illegal args"); };
+            
             var denominator:SafeUint.Uint256 = numerator1.sub(product);
             return switch(FullMath.mulDivRoundingUp(SafeUint.Uint256(numerator1.val()), SafeUint.Uint256(sqrtPX96.val()), SafeUint.Uint256(denominator.val()))) {
                 case (#ok(result)) {

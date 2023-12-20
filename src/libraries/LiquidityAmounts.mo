@@ -4,11 +4,20 @@ import SafeUint "mo:commons/math/SafeUint";
 import UintUtils "mo:commons/math/SafeUint/UintUtils";
 import FullMath "./FullMath";
 import FixedPoint96 "./FixedPoint96";
+import Prim "mo:⛔";
 
 module {
 
     type Uint128 = Nat;
     type Uint256 = Nat;
+
+    public func toUint128(x: Uint256) : Uint128 {
+        var y = SafeUint.Uint128(x).val();
+        if (not (y == x)) {
+            Prim.trap("Liquidity amount overflows");
+        };
+        return y;
+    };
 
     public func getLiquidityForAmount0(
         sqrtRatioAX96: SafeUint.Uint160, 
@@ -24,11 +33,11 @@ module {
             SafeUint.Uint256(FixedPoint96.Q96)
         );
         
-        return SafeUint.Uint128(FullMath.mulDiv(
+        return toUint128(FullMath.mulDiv(
             amount0,
             SafeUint.Uint256(_intermediate),
             SafeUint.Uint256(_sqrtRatioBX96.sub(_sqrtRatioAX96).val())
-        )).val();
+        ));
     };
 
     public func getLiquidityForAmount1(
@@ -39,11 +48,11 @@ module {
         var _sqrtRatioAX96 = if(sqrtRatioAX96.val() > sqrtRatioBX96.val()){ sqrtRatioBX96 } else{ sqrtRatioAX96 };
         var _sqrtRatioBX96 = if(sqrtRatioAX96.val() > sqrtRatioBX96.val()){ sqrtRatioAX96 } else{ sqrtRatioBX96 };
 
-        return SafeUint.Uint128(FullMath.mulDiv(
+        return toUint128(FullMath.mulDiv(
             amount1,
             SafeUint.Uint256(FixedPoint96.Q96), 
             SafeUint.Uint256(_sqrtRatioBX96.sub(_sqrtRatioAX96).val())
-        )).val();
+        ));
     };
 
     public func getLiquidityForAmounts(

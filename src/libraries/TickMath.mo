@@ -64,10 +64,9 @@ module {
         return #ok(sqrtPriceX96.val());
     };
 
-
     public func getTickAtSqrtRatio(sqrtPriceX96: SafeUint.Uint160): Result.Result<Int24, Text> {
         // second inequality must be < because the price can never reach the price at the max tick
-        if(Bool.lognot((sqrtPriceX96.val() >= SqrtPriceMath.MIN_SQRT_RATIO) and (sqrtPriceX96.val() < SqrtPriceMath.MAX_SQRT_RATIO))){ return #err("TickMath getTickAtSqrtRatio illegal args") };
+        if(not ((sqrtPriceX96.val() >= SqrtPriceMath.MIN_SQRT_RATIO) and (sqrtPriceX96.val() < SqrtPriceMath.MAX_SQRT_RATIO))){ return #err("TickMath getTickAtSqrtRatio illegal args") };
         var ratio: SafeUint.Uint256 = SafeUint.Uint256(sqrtPriceX96.val()).bitshiftLeft(32);
         var r: SafeUint.Uint256 = ratio;
         var msb: SafeUint.Uint256 = SafeUint.Uint256(0);

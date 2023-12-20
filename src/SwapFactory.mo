@@ -77,8 +77,8 @@ shared (msg) actor class SwapFactory(
                 case (_) {
                     Cycles.add(_initCycles);
                     let pool = await SwapPool.SwapPool(token0, token1, _infoCid, _feeReceiverCid);
-                    await pool.init(fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(sqrtPriceX96)).val());
                     let poolId : Principal = Principal.fromActor(pool);
+                    await pool.init(fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(sqrtPriceX96)).val());
                     let poolData = {
                         key = poolKey;
                         token0 = _token0;
@@ -334,7 +334,7 @@ shared (msg) actor class SwapFactory(
     };
 
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.2.6";
+    private var _version : Text = "3.2.7";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {
