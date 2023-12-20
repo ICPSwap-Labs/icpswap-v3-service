@@ -307,6 +307,7 @@ module {
         #getUserPositionIdsByPrincipal : () -> Principal;
         #getVersion : () -> ();
         #getTransferLogs : () -> ();
+        #getWithdrawErrorLog : () -> ();
         #increaseLiquidity : () -> IncreaseLiquidityArgs;
         #metadata : () -> ();
         #mint : () -> MintArgs;

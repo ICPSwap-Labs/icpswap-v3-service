@@ -1864,9 +1864,9 @@ shared ({ caller }) actor class SwapPool(
         });
     };
 
-    // public query func getWithdrawErrorLog() : async Result.Result<[(Nat, Types.WithdrawErrorLog)], Types.Error> {
-    //     return #ok(Iter.toArray(_tokenAmountService.getWithdrawErrorLog().entries()));
-    // };
+    public query func getWithdrawErrorLog() : async Result.Result<[(Nat, Types.WithdrawErrorLog)], Types.Error> {
+        return #ok(Iter.toArray(_tokenAmountService.getWithdrawErrorLog().entries()));
+    };
     public query func getTransferLogs() : async Result.Result<[TransferLog], Types.Error> {
         return #ok(Iter.toArray(_transferLog.vals()));
     };
