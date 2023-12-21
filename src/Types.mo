@@ -42,6 +42,7 @@ module {
         liquidity : Nat;
         sqrtPriceX96 : Nat;
         maxLiquidityPerTick : Nat;
+        nextPositionId : Nat;
     };
     public type PoolData = {
         key : Text;
