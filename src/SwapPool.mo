@@ -59,13 +59,13 @@ shared ({ caller }) actor class SwapPool(
         sqrtPriceX96 : Nat,
     ) : async () {
         if (not _inited) {
-            _fee := fee;
-            _tickSpacing := tickSpacing;
-            _sqrtPriceX96 := sqrtPriceX96;
             _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) { 
                 case (#ok(r)) { r }; 
                 case (#err(code)) { throw Error.reject("init pool failed: " # code); }; 
             };
+            _fee := fee;
+            _tickSpacing := tickSpacing;
+            _sqrtPriceX96 := sqrtPriceX96;
             _maxLiquidityPerTick := Tick.tickSpacingToMaxLiquidityPerTick(SafeInt.Int24(tickSpacing));
             _inited := true;
             _canisterId := ?Principal.fromActor(this);
@@ -1093,9 +1093,6 @@ shared ({ caller }) actor class SwapPool(
 
         _saveAddressPrincipal(msg.caller);
 
-        let positionId = _nextPositionId;
-        _nextPositionId := _nextPositionId + 1;
-
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
         var amount1Desired = SafeUint.Uint256(TextUtils.toNat(args.amount1Desired));
         if (not _checkAmounts(amount0Desired.val(), amount1Desired.val(), msg.caller)) {
@@ -1106,6 +1103,9 @@ shared ({ caller }) actor class SwapPool(
             ));
         };
         try {
+            let positionId = _nextPositionId;
+            _nextPositionId := _nextPositionId + 1;
+
             // _saveBackupData();
 
             var addResult = switch (_addLiquidity(args.tickLower, args.tickUpper, amount0Desired, amount1Desired)) {
@@ -1135,12 +1135,12 @@ shared ({ caller }) actor class SwapPool(
 
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
 
+            return #ok(positionId);
             // _releaseBackupData();
         } catch (e) {
             _rollback("mint failed: " # Error.message(e));
-            // return #err(#InternalError("mint failed: " # Error.message(e)));
+            return #err(#InternalError("mint failed: " # Error.message(e)));
         };
-        return #ok(positionId);
     };
 
     public shared (msg) func increaseLiquidity(args : Types.IncreaseLiquidityArgs) : async Result.Result<Nat, Types.Error> {
@@ -1812,8 +1812,7 @@ shared ({ caller }) actor class SwapPool(
             liquidity = _liquidity;
             sqrtPriceX96 = _sqrtPriceX96;
             maxLiquidityPerTick = _maxLiquidityPerTick;
-            feeGrowthGlobal0X128 = _feeGrowthGlobal0X128;
-            feeGrowthGlobal1X128 = _feeGrowthGlobal1X128;
+            nextPositionId = _nextPositionId;
         };
         #ok(metadata);
     };
