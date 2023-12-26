@@ -989,7 +989,7 @@ shared ({ caller }) actor class SwapPool(
         if (args.amount1 > 0) {
             if (args.amount1 > args.fee1) {
                 var amount1 : Nat = Nat.sub(args.amount1, args.fee1);
-                let preTransIndex = _preTransfer(args.positionOwner, canisterId, subaccount, canisterId, "deposit", token0, amount1, args.fee1);
+                let preTransIndex = _preTransfer(args.positionOwner, canisterId, subaccount, canisterId, "deposit", token1, amount1, args.fee1);
                 switch (await _token1Act.transfer({ 
                     from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; 
                     to = { owner = canisterId; subaccount = null }; 
