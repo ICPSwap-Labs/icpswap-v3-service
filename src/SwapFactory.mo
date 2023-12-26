@@ -100,6 +100,9 @@ shared (msg) actor class SwapFactory(
     };
 
     public shared (msg) func createPool(args : Types.CreatePoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
+        if (Text.equal(args.token0.address, args.token1.address)) {
+            return #err(#InternalError("Can not use the same token"));
+        };
         var tickSpacing = switch (_feeTickSpacingMap.get(args.fee)) {
             case (?feeAmountTickSpacingFee) { feeAmountTickSpacingFee };
             case (_) { 0 };
