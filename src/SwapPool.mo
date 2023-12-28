@@ -148,7 +148,8 @@ shared ({ caller }) actor class SwapPool(
 
     private var _token0Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token0.address, _token0.standard);
     private var _token1Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token1.address, _token1.standard);
-
+    private let NANOSECONDS_PER_SECOND : Nat = 1_000_000_000;
+    private let SECOND_PER_DAY : Nat = 86400;
     private func _syncRecord() : async () { await _swapRecordService.syncRecord(); };
     let _syncRecordPerMinute = Timer.recurringTimer(#seconds(60), _syncRecord);
 
@@ -173,7 +174,7 @@ shared ({ caller }) actor class SwapPool(
             token = token;
             result = "processing";
             errorMsg = "";
-            daysFrom19700101 = time / 86400;
+            daysFrom19700101 = time / NANOSECONDS_PER_SECOND / SECOND_PER_DAY;
             timestamp = time;
         };
         _transferLog.put(ind, transferLog);
@@ -1399,7 +1400,9 @@ shared ({ caller }) actor class SwapPool(
             case (?log) {
                 _postTransferComplete(index);
                 if (rollback ) { 
-                    if (Text.equal("error", log.result) or (Text.equal(log.result, "processing") and ((Nat.sub(Int.abs(Time.now()), log.timestamp) / 1000000000) > 86400))) {
+                    // The log with error status can be removed immediately.
+                    // The log with processing status can be cleaned up after 24 hours
+                    if (Text.equal("error", log.result) or (Text.equal(log.result, "processing") and ((Nat.sub(Int.abs(Time.now()), log.timestamp) / NANOSECONDS_PER_SECOND) > SECOND_PER_DAY))) {
                         ignore _tokenHolderService.deposit(log.owner, log.token, log.amount);
                     } else {
                         Prim.trap("rollback error: Error status or insufficient time interval");
@@ -1995,7 +1998,7 @@ shared ({ caller }) actor class SwapPool(
     // jobs...
     // Clear transfer logs older than 60 days every 12 hours.
     let _clearExpiredTransferLogsJob = Timer.recurringTimer(#seconds(43200), func (): async () {
-        let today: Nat = Int.abs(Time.now()) / 86400;
+        let today: Nat = Int.abs(Time.now()) / NANOSECONDS_PER_SECOND / SECOND_PER_DAY;
         for ((index, log) in _transferLog.entries()) {
             if (Nat.sub(today, log.daysFrom19700101) > 60) {
                 _postTransferComplete(index);
