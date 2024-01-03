@@ -434,8 +434,8 @@ module PositionTick {
             };
 
             if (liquidityDelta.val() < 0) {
-                if (flippedLower) { _ticks.delete(Int.toText(tick.val())); };
-                if (flippedUpper) { _ticks.delete(Int.toText(tick.val())); };
+                if (flippedLower) { _ticks.delete(Int.toText(tickLower.val())); };
+                if (flippedUpper) { _ticks.delete(Int.toText(tickUpper.val())); };
             };
             return #ok(position);
         };
