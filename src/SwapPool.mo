@@ -916,7 +916,7 @@ shared ({ caller }) actor class SwapPool(
                     return #ok(amount);
                 };
                 case (#Err(msg)) {
-                    _postTransferComplete(preTransIndex);
+                    _postTransferError(preTransIndex, debug_show(msg));
                     return #err(#InternalError(debug_show (msg)));
                 };
             };
