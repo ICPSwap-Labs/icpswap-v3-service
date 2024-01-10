@@ -902,23 +902,29 @@ shared ({ caller }) actor class SwapPool(
         if (_tokenHolderService.withdraw(caller, token, args.amount)) {
             // var logIndex = _tokenAmountService.addWithdrawErrorLog(caller, token, Time.now(), amount);
             var preTransIndex = _preTransfer(caller, canisterId, null, caller, "withdraw", token, amount, args.fee);
-            switch (await tokenAct.transfer({ 
-                from = { owner = canisterId; subaccount = null }; from_subaccount = null; 
-                to = { owner = caller; subaccount = null }; 
-                amount = amount; 
-                fee = ?args.fee; 
-                memo = Option.make(PoolUtils.natToBlob(preTransIndex));  
-                created_at_time = null 
-            })) {
-                case (#Ok(index)) {
-                    // _tokenAmountService.removeWithdrawErrorLog(logIndex);
-                    _postTransferComplete(preTransIndex);
-                    return #ok(amount);
+            try{
+                switch (await tokenAct.transfer({ 
+                    from = { owner = canisterId; subaccount = null }; from_subaccount = null; 
+                    to = { owner = caller; subaccount = null }; 
+                    amount = amount; 
+                    fee = ?args.fee; 
+                    memo = Option.make(PoolUtils.natToBlob(preTransIndex));  
+                    created_at_time = null 
+                })) {
+                    case (#Ok(index)) {
+                        // _tokenAmountService.removeWithdrawErrorLog(logIndex);
+                        _postTransferComplete(preTransIndex);
+                        return #ok(amount);
+                    };
+                    case (#Err(msg)) {
+                        _postTransferError(preTransIndex, debug_show(msg));
+                        return #err(#InternalError(debug_show (msg)));
+                    };
                 };
-                case (#Err(msg)) {
-                    _postTransferError(preTransIndex, debug_show(msg));
-                    return #err(#InternalError(debug_show (msg)));
-                };
+            } catch (e) {        
+                let msg: Text = debug_show (Error.message(e));
+                _postTransferError(preTransIndex, msg);   
+                return #err(#InternalError(msg));
             };
         } else {
             return #err(#InsufficientFunds);
