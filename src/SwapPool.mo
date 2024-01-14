@@ -1392,15 +1392,15 @@ shared ({ caller }) actor class SwapPool(
         };
     };
 
-    // public shared (msg) func removeWithdrawErrorLog(id : Nat, rollback : Bool) : async () {
-    //     switch (_tokenAmountService.getWithdrawErrorLog().get(id)) {
-    //         case (?log) {
-    //             if (rollback) { ignore _tokenHolderService.deposit(log.user, log.token, log.amount); };
-    //             _tokenAmountService.getWithdrawErrorLog().delete(id);
-    //         };
-    //         case (_) {};
-    //     };
-    // };
+    public shared (msg) func removeWithdrawErrorLog(id : Nat, rollback : Bool) : async () {
+        switch (_tokenAmountService.getWithdrawErrorLog().get(id)) {
+            case (?log) {
+                if (rollback) { ignore _tokenHolderService.deposit(log.user, log.token, log.amount); };
+                _tokenAmountService.getWithdrawErrorLog().delete(id);
+            };
+            case (_) {};
+        };
+    };
     public shared(msg) func removeErrorTransferLog(index: Nat, rollback: Bool) : async () {
         switch (_transferLog.get(index)) {
             case (?log) {
@@ -1954,6 +1954,7 @@ shared ({ caller }) actor class SwapPool(
             case (#removeErrorTransferLog args) { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setAvailable args)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setWhiteList args)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
+            case (#removeWithdrawErrorLog args) { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             // Anyone
             case (_)                            { true };
         }
