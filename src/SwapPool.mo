@@ -1418,17 +1418,17 @@ shared ({ caller }) actor class SwapPool(
             case (_) {};
         };
     };
-    public shared (msg) func resetTokenAmountState(tokenAmount0: Nat, tokenAmount1: Nat, swapFee0Repurchase: Nat, swapFee1Repurchase: Nat) : async () {
-        _tokenAmountState := {
-            tokenAmount0 = tokenAmount0;
-            tokenAmount1 = tokenAmount1;
-            swapFee0Repurchase = swapFee0Repurchase;
-            swapFee1Repurchase = swapFee1Repurchase;
-            withdrawErrorLogIndex = _tokenAmountState.withdrawErrorLogIndex;
-            withdrawErrorLog = _tokenAmountState.withdrawErrorLog;
-        };
-        _tokenAmountService := TokenAmount.Service(_tokenAmountState);
-    };
+    // public shared (msg) func resetTokenAmountState(tokenAmount0: Nat, tokenAmount1: Nat, swapFee0Repurchase: Nat, swapFee1Repurchase: Nat) : async () {
+    //     _tokenAmountState := {
+    //         tokenAmount0 = tokenAmount0;
+    //         tokenAmount1 = tokenAmount1;
+    //         swapFee0Repurchase = swapFee0Repurchase;
+    //         swapFee1Repurchase = swapFee1Repurchase;
+    //         withdrawErrorLogIndex = _tokenAmountState.withdrawErrorLogIndex;
+    //         withdrawErrorLog = _tokenAmountState.withdrawErrorLog;
+    //     };
+    //     _tokenAmountService := TokenAmount.Service(_tokenAmountState);
+    // };
     public shared (msg) func upgradeTokenStandard(tokenCid: Principal) : async Result.Result<Text, Types.Error> {
         let address = Principal.toText(tokenCid);
         Debug.print("==>upgradeTokenStandard" # address);
@@ -1961,7 +1961,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.3.1";
+    private var _version : Text = "3.3.2";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
