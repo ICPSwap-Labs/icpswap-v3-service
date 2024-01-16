@@ -40,6 +40,7 @@ shared (msg) actor class SwapFeeReceiver() = this {
     };
 
     public shared ({ caller }) func transfer(token : Principal, standard : Text, recipient : Principal, value : Nat) : async Result.Result<Nat, Types.Error> {
+        _checkPermission(caller);
         if (not _checkStandard(standard)) { return #err(#UnsupportedToken("Wrong token standard.")); };
         var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(Principal.toText(token), standard);
         var fee : Nat = await tokenAct.fee();
@@ -55,18 +56,15 @@ shared (msg) actor class SwapFeeReceiver() = this {
         };
     };
 
-    public shared ({ caller }) func balance(token : Principal, standard : Text) : async Result.Result<Nat, Types.Error> {
-        if (not _checkStandard(standard)) { return #err(#UnsupportedToken("Wrong token standard.")); };
-        var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(Principal.toText(token), standard);
-        var balance = await tokenAct.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
-        return #ok(balance);
-    };
-
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
             available = Cycles.available();
         });
+    };
+
+    private func _checkPermission(caller: Principal) {
+        assert(Prim.isController(caller));
     };
 
     system func preupgrade() {};
