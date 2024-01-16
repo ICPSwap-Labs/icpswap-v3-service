@@ -128,6 +128,7 @@ shared (msg) actor class SwapFactory(
     };
 
     public shared (msg) func upgradePoolTokenStandard(poolCid : Principal, tokenCid : Principal) : async Result.Result<Text, Types.Error> {
+        _checkPermission(msg.caller);
         var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
         switch (await poolAct.metadata()) {
             case (#ok(metadata)) {
@@ -184,6 +185,7 @@ shared (msg) actor class SwapFactory(
         };
     };
     public shared (msg) func validateUpgradePoolTokenStandard(poolCid : Principal, tokenCid : Principal) : async Bool {
+        _checkPermission(msg.caller);
         var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
         switch (await poolAct.metadata()) {
             case (#ok(metadata)) {
@@ -262,21 +264,26 @@ shared (msg) actor class SwapFactory(
     };
 
     // ---------------        Governance Functions              ----------------------
-    public func restorePool(poolId : Principal) : async Text {
+    public shared (msg) func restorePool(poolId : Principal) : async Text {
+        _checkPermission(msg.caller);
         let poolCid = _poolDataService.restorePool(Principal.toText(poolId));
     };
-    public func validateRestorePool(poolId : Principal) : async Bool {
+    public shared (msg) func validateRestorePool(poolId : Principal) : async Bool {
+        _checkPermission(msg.caller);
         true
     };
-    public func removePool(args : Types.GetPoolArgs) : async Text {
+    public shared (msg) func removePool(args : Types.GetPoolArgs) : async Text {
+        _checkPermission(msg.caller);
         let poolKey : Text = PoolUtils.getPoolKey(args.token0, args.token1, args.fee);
         let poolCid = _poolDataService.removePool(poolKey);
     };
-    public func validateRemovePool(args : Types.GetPoolArgs) : async Bool {
+    public shared (msg) func validateRemovePool(args : Types.GetPoolArgs) : async Bool {
+        _checkPermission(msg.caller);
         true
     };
     // ---------------        Pools Governance Functions        ----------------------
     public shared (msg) func removePoolWithdrawErrorLog(poolCid : Principal, id : Nat, rollback : Bool) : async Result.Result<(), Types.Error> {
+        _checkPermission(msg.caller);
         var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
         try {
             await poolAct.removeWithdrawErrorLog(id, rollback);
@@ -285,31 +292,39 @@ shared (msg) actor class SwapFactory(
             return #err(#InternalError("Remove withdraw error log failed: " # Error.message(e)));
         }
     };
-    public shared func validateRemovePoolWithdrawErrorLog(poolCid : Principal, id : Nat, rollback : Bool) : async Bool {
+    public shared (msg) func validateRemovePoolWithdrawErrorLog(poolCid : Principal, id : Nat, rollback : Bool) : async Bool {
+        _checkPermission(msg.caller);
         true;
     };
     public shared (msg) func setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
+        _checkPermission(msg.caller);
         var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
         await poolAct.setAdmins(admins);
     };
     public shared (msg) func validateSetPoolAdmins(poolCid : Principal, admins : [Principal]) : async Bool {
+        _checkPermission(msg.caller);
         true;
     };
-    public func clearRemovedPool(canisterId : Principal) : async Text {
+    public shared (msg) func clearRemovedPool(canisterId : Principal) : async Text {
+        _checkPermission(msg.caller);
         let poolCid = _poolDataService.deletePool(Principal.toText(canisterId));
     };
-    public func validateClearRemovedPool(canisterId : Principal) : async Bool {
+    public shared (msg) func validateClearRemovedPool(canisterId : Principal) : async Bool {
+        _checkPermission(msg.caller);
         true;
     };
     public shared (msg) func addPoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
+        _checkPermission(msg.caller);
         let { settings } = await IC0.canister_status({ canister_id = poolCid });
         var controllerList = List.append(List.fromArray(settings.controllers), List.fromArray(controllers));
         IC0.update_settings({ canister_id = poolCid; settings = { controllers = List.toArray(controllerList) }; });
     };
     public shared (msg) func validateAddPoolControllers(poolCid : Principal, controllers : [Principal]) : async Bool {
+        _checkPermission(msg.caller);
         true;
     };
     public shared (msg) func removePoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
+        _checkPermission(msg.caller);
         let factoryCid : Principal = Principal.fromActor(this);
         for (it in controllers.vals()) {
             if (Principal.equal(it, factoryCid)) {
@@ -327,6 +342,7 @@ shared (msg) actor class SwapFactory(
         IC0.update_settings({ canister_id = poolCid; settings = { controllers = Buffer.toArray<Principal>(buffer) }; });
     };
     public shared (msg) func validateRemovePoolControllers(poolCid : Principal, controllers : [Principal]) : async Bool {
+        _checkPermission(msg.caller);
         let factoryCid : Principal = Principal.fromActor(this);
         for (it in controllers.vals()) {
             if (Principal.equal(it, factoryCid)) {
@@ -336,8 +352,12 @@ shared (msg) actor class SwapFactory(
         true;
     };
 
+    private func _checkPermission(caller : Principal) {
+        assert(Prim.isController(caller));
+    };
+
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.3.1";
+    private var _version : Text = "3.3.2";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {
