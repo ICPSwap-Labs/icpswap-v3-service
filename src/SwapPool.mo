@@ -46,31 +46,33 @@ import Bool "mo:base/Bool";
 import Prim "mo:⛔";
 import Hash "mo:base/Hash";
 
-shared ({ caller }) actor class SwapPool(
+shared (initMsg) actor class SwapPool(
     token0 : Types.Token,
     token1 : Types.Token,
     infoCid : Principal,
     feeReceiverCid : Principal,
 ) = this {
     private stable var _inited : Bool = false;
-    public shared ({ caller }) func init(
+    public shared ({ caller }) func init (
         fee : Nat,
         tickSpacing : Int,
         sqrtPriceX96 : Nat,
     ) : async () {
-        if (not _inited) {
-            _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) { 
-                case (#ok(r)) { r }; 
-                case (#err(code)) { throw Error.reject("init pool failed: " # code); }; 
-            };
-            _fee := fee;
-            _tickSpacing := tickSpacing;
-            _sqrtPriceX96 := sqrtPriceX96;
-            _maxLiquidityPerTick := Tick.tickSpacingToMaxLiquidityPerTick(SafeInt.Int24(tickSpacing));
-            _inited := true;
-            _canisterId := ?Principal.fromActor(this);
-            await _syncTokenFee();
+        assert(not _inited);
+        _checkControllerPermission(caller);
+        // if (not _inited) {
+        _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) { 
+            case (#ok(r)) { r }; 
+            case (#err(code)) { throw Error.reject("init pool failed: " # code); }; 
         };
+        _fee := fee;
+        _tickSpacing := tickSpacing;
+        _sqrtPriceX96 := sqrtPriceX96;
+        _maxLiquidityPerTick := Tick.tickSpacingToMaxLiquidityPerTick(SafeInt.Int24(tickSpacing));
+        _inited := true;
+        _canisterId := ?Principal.fromActor(this);
+        await _syncTokenFee();
+        // };
     };
     public type TransferLog = {
         index: Nat;
@@ -932,6 +934,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     public shared ({ caller }) func depositAllAndMint(args : Types.DepositAndMintArgs) : async Result.Result<Nat, Types.Error> {
+        _checkAdminPermission(caller);
         if (not _checkUserPositionLimit()) {
             return #err(#InternalError("Number of user position exceeds limit"));
         };
@@ -1151,7 +1154,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     public shared (msg) func increaseLiquidity(args : Types.IncreaseLiquidityArgs) : async Result.Result<Nat, Types.Error> {
-        _saveAddressPrincipal(caller);
+        _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("check operator failed"));
@@ -1208,7 +1211,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     public shared (msg) func decreaseLiquidity(args : Types.DecreaseLiquidityArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
-        _saveAddressPrincipal(caller);
+        _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("check operator failed"));
@@ -1257,7 +1260,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
-        _saveAddressPrincipal(caller);
+        _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("check operator failed"));
@@ -1393,6 +1396,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     public shared (msg) func removeWithdrawErrorLog(id : Nat, rollback : Bool) : async () {
+        _checkAdminPermission(msg.caller);
         switch (_tokenAmountService.getWithdrawErrorLog().get(id)) {
             case (?log) {
                 if (rollback) { ignore _tokenHolderService.deposit(log.user, log.token, log.amount); };
@@ -1402,6 +1406,7 @@ shared ({ caller }) actor class SwapPool(
         };
     };
     public shared(msg) func removeErrorTransferLog(index: Nat, rollback: Bool) : async () {
+        _checkAdminPermission(msg.caller);
         switch (_transferLog.get(index)) {
             case (?log) {
                 _postTransferComplete(index);
@@ -1419,17 +1424,19 @@ shared ({ caller }) actor class SwapPool(
         };
     };
     public shared (msg) func resetTokenAmountState(tokenAmount0: Nat, tokenAmount1: Nat, swapFee0Repurchase: Nat, swapFee1Repurchase: Nat) : async () {
-        _tokenAmountState := {
-            tokenAmount0 = tokenAmount0;
-            tokenAmount1 = tokenAmount1;
-            swapFee0Repurchase = swapFee0Repurchase;
-            swapFee1Repurchase = swapFee1Repurchase;
-            withdrawErrorLogIndex = _tokenAmountState.withdrawErrorLogIndex;
-            withdrawErrorLog = _tokenAmountState.withdrawErrorLog;
-        };
-        _tokenAmountService := TokenAmount.Service(_tokenAmountState);
+        _checkControllerPermission(msg.caller);
+    //     _tokenAmountState := {
+    //         tokenAmount0 = tokenAmount0;
+    //         tokenAmount1 = tokenAmount1;
+    //         swapFee0Repurchase = swapFee0Repurchase;
+    //         swapFee1Repurchase = swapFee1Repurchase;
+    //         withdrawErrorLogIndex = _tokenAmountState.withdrawErrorLogIndex;
+    //         withdrawErrorLog = _tokenAmountState.withdrawErrorLog;
+    //     };
+    //     _tokenAmountService := TokenAmount.Service(_tokenAmountState);
     };
     public shared (msg) func upgradeTokenStandard(tokenCid: Principal) : async Result.Result<Text, Types.Error> {
+        _checkControllerPermission(msg.caller);
         let address = Principal.toText(tokenCid);
         Debug.print("==>upgradeTokenStandard" # address);
         if ((not Text.equal(address, _token0.address)) and (not Text.equal(address, _token1.address))) {
@@ -1906,16 +1913,19 @@ shared ({ caller }) actor class SwapPool(
 
     // --------------------------- ACL ------------------------------------
     public shared (msg) func setAdmins(admins : [Principal]) : async () {
+        _checkControllerPermission(msg.caller);
         _admins := admins;
     };
     public query func getAdmins(): async [Principal] {
         return _admins;
     };
     
-    public shared func setAvailable(available : Bool) : async () {
+    public shared (msg) func setAvailable(available : Bool) : async () {
+        _checkAdminPermission(msg.caller);
         _available := available;
     };
-    public shared func setWhiteList(whiteList: [Principal]): async () {
+    public shared (msg) func setWhiteList(whiteList: [Principal]): async () {
+        _checkAdminPermission(msg.caller);
         _whiteList := whiteList;
     };
     public query func getAvailabilityState() : async {
@@ -1942,6 +1952,12 @@ shared ({ caller }) actor class SwapPool(
         };
         return false;
     };
+    private func _checkControllerPermission(caller: Principal) {
+        assert(Prim.isController(caller));
+    };
+    private func _checkAdminPermission(caller: Principal) {
+        assert(CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller));
+    };
     private func _hasPermission(msg: Types.SwapPoolMsg, caller: Principal): Bool {
         switch (msg) {
             // Controller
@@ -1961,7 +1977,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.3.1";
+    private var _version : Text = "3.3.4";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
