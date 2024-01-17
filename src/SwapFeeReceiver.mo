@@ -21,7 +21,7 @@ import Prim "mo:⛔";
 import TokenAdapterTypes "mo:token-adapter/Types";
 import TokenFactory "mo:token-adapter/TokenFactory";
 
-shared (msg) actor class SwapFeeReceiver() = this {
+shared (initMsg) actor class SwapFeeReceiver() = this {
 
     private func _checkStandard(standard : Text) : Bool {
         if (

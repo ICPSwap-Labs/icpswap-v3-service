@@ -22,7 +22,7 @@ import CollectionUtils "mo:commons/utils/CollectionUtils";
 import PrincipalUtils "mo:commons/utils/PrincipalUtils";
 import Prim "mo:⛔";
 
-shared (msg) actor class PositionIndex(
+shared (initMsg) actor class PositionIndex(
     factoryCid : Principal
 ) {
 
