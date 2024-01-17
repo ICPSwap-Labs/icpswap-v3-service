@@ -32,7 +32,7 @@ import Func "./Functions";
 import TokenAdapterTypes "mo:token-adapter/Types";
 import TokenFactory "mo:token-adapter/TokenFactory";
 
-shared (msg) actor class SwapFactory(
+shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
     feeReceiverCid : Principal,
 ) = this {
@@ -88,7 +88,7 @@ shared (msg) actor class SwapFactory(
                         canisterId = poolId;
                     } : Types.PoolData;
                     _poolDataService.putPool(poolKey, poolData);
-                    await IC0Utils.update_settings_add_controller(poolId, msg.caller);
+                    await IC0Utils.update_settings_add_controller(poolId, initMsg.caller);
                     await _infoAct.addClient(poolId);
                     return poolData;
                 };
@@ -357,7 +357,7 @@ shared (msg) actor class SwapFactory(
     };
 
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.3.3";
+    private var _version : Text = "3.3.4";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {

@@ -46,7 +46,7 @@ import Bool "mo:base/Bool";
 import Prim "mo:⛔";
 import Hash "mo:base/Hash";
 
-shared ({ caller }) actor class SwapPool(
+shared (initMsg) actor class SwapPool(
     token0 : Types.Token,
     token1 : Types.Token,
     infoCid : Principal,
@@ -1154,7 +1154,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     public shared (msg) func increaseLiquidity(args : Types.IncreaseLiquidityArgs) : async Result.Result<Nat, Types.Error> {
-        _saveAddressPrincipal(caller);
+        _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("check operator failed"));
@@ -1211,7 +1211,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     public shared (msg) func decreaseLiquidity(args : Types.DecreaseLiquidityArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
-        _saveAddressPrincipal(caller);
+        _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("check operator failed"));
@@ -1260,7 +1260,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
-        _saveAddressPrincipal(caller);
+        _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("check operator failed"));
@@ -1977,7 +1977,7 @@ shared ({ caller }) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.3.3";
+    private var _version : Text = "3.3.4";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
