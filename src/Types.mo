@@ -362,8 +362,9 @@ module {
         #validateRemovePoolControllers : () -> (Principal, [Principal]);
     };
     public type SwapFeeReceiverMsg = {
-        #balance : () -> (Principal, Text);
+        #claim : () -> (Principal, Principal, Nat, Nat);
         #getCycleInfo : () -> ();
+        #getVersion : () -> ();
         #transfer : () -> (Principal, Text, Principal, Nat);
     };
     public type SwapPoolActor = actor {
@@ -374,6 +375,8 @@ module {
         metadata : query () -> async Result.Result<PoolMetadata, Error>;
         upgradeTokenStandard : shared (Principal) -> async ();
         removeWithdrawErrorLog : shared (Nat, Bool) -> async ();
+        getUserUnusedBalance : shared (Principal) -> async Result.Result<{ balance0 : Nat; balance1 : Nat }, Error>;
+        withdraw : shared (WithdrawArgs) -> async Result.Result<Nat, Error>;
     };
     public type SwapFactoryActor = actor {
         getPools : query () -> async Result.Result<[PoolData], Error>;

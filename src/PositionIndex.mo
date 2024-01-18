@@ -133,6 +133,10 @@ shared (initMsg) actor class PositionIndex(
         });
     };
 
+    // --------------------------- Version Control ------------------------------------
+    private var _version : Text = "3.3.0";
+    public query func getVersion() : async Text { _version };
+
     system func preupgrade() {
         _userPoolEntries := Iter.toArray(_userPools.entries());
     };
