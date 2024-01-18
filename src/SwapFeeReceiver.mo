@@ -39,6 +39,15 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
         return true;
     };
 
+    public shared ({ caller }) func claim(pool : Principal, token : Principal, fee : Nat, amount : Nat) : async Result.Result<Nat, Types.Error> {
+        _checkPermission(caller);
+        var poolAct = actor (Principal.toText(pool)) : Types.SwapPoolActor;
+        switch (await poolAct.withdraw({token = Principal.toText(token); fee = fee; amount = amount;})) {
+            case (#ok(amount)) { return #ok(amount) };
+            case (#err(msg)) { return #err(#InternalError(debug_show (msg))); };
+        };
+    };
+
     public shared ({ caller }) func transfer(token : Principal, standard : Text, recipient : Principal, value : Nat) : async Result.Result<Nat, Types.Error> {
         _checkPermission(caller);
         if (not _checkStandard(standard)) { return #err(#UnsupportedToken("Wrong token standard.")); };
@@ -46,7 +55,7 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
         var fee : Nat = await tokenAct.fee();
         if (value > fee) {
             var amount : Nat = Nat.sub(value, fee);
-            switch (await tokenAct.transfer({ from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; to = { owner = recipient; subaccount = null }; amount = amount; fee = null; memo = null; created_at_time = null })) {
+            switch (await tokenAct.transfer({ from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; to = { owner = recipient; subaccount = null }; amount = amount; fee = ?fee; memo = null; created_at_time = null })) {
                 case (#Ok(index)) { return #ok(amount) };
                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
             };
@@ -66,6 +75,10 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
     private func _checkPermission(caller: Principal) {
         assert(Prim.isController(caller));
     };
+
+    // --------------------------- Version Control ------------------------------------
+    private var _version : Text = "3.3.0";
+    public query func getVersion() : async Text { _version };
 
     system func preupgrade() {};
 
