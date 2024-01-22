@@ -338,6 +338,7 @@ module {
     public type SwapFactoryMsg = {
         #createPool : () -> CreatePoolArgs;
         #getCycleInfo : () -> ();
+        #getGovernanceCid : () -> ();
         #getInvalidPools : () -> ();
         #getPool : () -> GetPoolArgs;
         #getPools : () -> ();
