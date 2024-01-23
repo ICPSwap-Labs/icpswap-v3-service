@@ -361,11 +361,8 @@ shared (initMsg) actor class SwapFactory(
         assert(_hasPermission(caller));
     };
 
-    private func _hasPermission(caller : Principal) : Bool {
-        switch (governanceCid) { 
-            case (?g) { if (Prim.isController(caller) or Principal.equal(caller, g)) { true } else { false }; }; 
-            case (_) { Prim.isController(caller) }; 
-        }
+    private func _hasPermission(caller: Principal): Bool {
+        return Prim.isController(caller) or (switch (governanceCid) {case (?cid) { Principal.equal(caller, cid) }; case (_) { false };});
     };
 
     // --------------------------- Version Control      -------------------------------
