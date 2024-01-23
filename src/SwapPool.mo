@@ -59,6 +59,7 @@ shared (initMsg) actor class SwapPool(
         sqrtPriceX96 : Nat,
     ) : async () {
         assert(not _inited);
+        assert(_isAvailable(caller));
         _checkControllerPermission(caller);
         // if (not _inited) {
         _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) { 
@@ -210,7 +211,7 @@ shared (initMsg) actor class SwapPool(
     };
     private stable var _claimLog : [Text] = [];
     private var _claimLogBuffer : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
-    public query (msg) func getClaimLog() : async [Text] { return Buffer.toArray(_claimLogBuffer); };
+    public query (msg) func getClaimLog() : async [Text] { assert(_isAvailable(msg.caller)); return Buffer.toArray(_claimLogBuffer); };
     private func _claimSwapFeeRepurchase() : async () {
         var time = BlockTimestamp.blockTimestamp();
         let balance0 = _tokenAmountService.getSwapFee0Repurchase();
@@ -742,6 +743,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared ({ caller }) func deposit(args : Types.DepositArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(caller));
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (args.token != _token0.address and args.token != _token1.address) {
             return #err(#UnsupportedToken(args.token));
@@ -807,6 +809,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared ({ caller }) func depositFrom(args : Types.DepositArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(caller));
         if (args.token != _token0.address and args.token != _token1.address) {
             return #err(#UnsupportedToken(args.token));
         };
@@ -864,6 +867,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared ({ caller }) func withdraw(args : Types.WithdrawArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(caller));
         if (AccountUtils.isEmptyIdentity(caller)) {
             return #err(#InternalError("Do not accept anonymous calls"));
         };
@@ -934,6 +938,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared ({ caller }) func depositAllAndMint(args : Types.DepositAndMintArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(caller));
         _checkAdminPermission(caller);
         if (not _checkUserPositionLimit()) {
             return #err(#InternalError("Number of user position exceeds limit"));
@@ -1097,6 +1102,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared (msg) func mint(args : Types.MintArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(msg.caller));
         if (not _checkUserPositionLimit()) {
             return #err(#InternalError("Number of user position exceeds limit"));
         };
@@ -1154,6 +1160,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared (msg) func increaseLiquidity(args : Types.IncreaseLiquidityArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(msg.caller));
         _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
@@ -1211,6 +1218,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared (msg) func decreaseLiquidity(args : Types.DecreaseLiquidityArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
+        assert(_isAvailable(msg.caller));
         _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
@@ -1260,6 +1268,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
+        assert(_isAvailable(msg.caller));
         _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
@@ -1304,6 +1313,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared (msg) func swap(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(msg.caller));
         if (TextUtils.toInt(args.amountOutMinimum) > 0) {
             var preCheckAmount = switch (_preSwap(args, msg.caller)) {
                 case (#ok(result)) { result };
@@ -1354,6 +1364,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared (msg) func approvePosition(spender : Principal, positionId : Nat) : async Result.Result<Bool, Types.Error> {
+        assert(_isAvailable(msg.caller));
         switch (_positionTickService.getUserPositionIds().get(PrincipalUtils.toAddress(msg.caller))) {
             case (?positionArray) {
                 if (ListUtils.arrayContains(positionArray, positionId, Nat.equal)) {
@@ -1370,6 +1381,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared (msg) func transferPosition(from : Principal, to : Principal, positionId : Nat) : async Result.Result<Bool, Types.Error> {
+        assert(_isAvailable(msg.caller));
         var sender = PrincipalUtils.toAddress(msg.caller);
         var spender = _positionTickService.getAllowancedUserPosition(positionId);
         if ((not Text.equal(sender, spender)) and (not Principal.equal(msg.caller, from))) {
@@ -1396,6 +1408,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared (msg) func removeWithdrawErrorLog(id : Nat, rollback : Bool) : async () {
+        assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
         switch (_tokenAmountService.getWithdrawErrorLog().get(id)) {
             case (?log) {
@@ -1406,6 +1419,7 @@ shared (initMsg) actor class SwapPool(
         };
     };
     public shared(msg) func removeErrorTransferLog(index: Nat, rollback: Bool) : async () {
+        assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
         switch (_transferLog.get(index)) {
             case (?log) {
@@ -1424,6 +1438,7 @@ shared (initMsg) actor class SwapPool(
         };
     };
     public shared (msg) func resetTokenAmountState(tokenAmount0: Nat, tokenAmount1: Nat, swapFee0Repurchase: Nat, swapFee1Repurchase: Nat) : async () {
+        assert(_isAvailable(msg.caller));
         _checkControllerPermission(msg.caller);
     //     _tokenAmountState := {
     //         tokenAmount0 = tokenAmount0;
@@ -1436,6 +1451,7 @@ shared (initMsg) actor class SwapPool(
     //     _tokenAmountService := TokenAmount.Service(_tokenAmountState);
     };
     public shared (msg) func upgradeTokenStandard(tokenCid: Principal) : async Result.Result<Text, Types.Error> {
+        assert(_isAvailable(msg.caller));
         _checkControllerPermission(msg.caller);
         let address = Principal.toText(tokenCid);
         Debug.print("==>upgradeTokenStandard" # address);
@@ -1479,14 +1495,17 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func quote(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(msg.caller));
         return _preSwap(args, msg.caller);
     };
 
     public query (msg) func quoteForAll(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(msg.caller));
         return _preSwapForAll(args, msg.caller);
     };
 
-    public query func refreshIncome(positionId : Nat) : async Result.Result<{ tokensOwed0 : Nat; tokensOwed1 : Nat }, Types.Error> {
+    public query (msg) func refreshIncome(positionId : Nat) : async Result.Result<{ tokensOwed0 : Nat; tokensOwed1 : Nat }, Types.Error> {
+        assert(_isAvailable(msg.caller));
         let result = switch (_refreshIncome(positionId)) {
             case (#ok(result)) { result };
             case (#err(code)) { throw Error.reject(code) };
@@ -1497,7 +1516,8 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query func batchRefreshIncome(positionIds : [Nat]) : async Result.Result<{ totalTokensOwed0 : Nat; totalTokensOwed1 : Nat; tokenIncome : [(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })] }, Types.Error> {
+    public query (msg) func batchRefreshIncome(positionIds : [Nat]) : async Result.Result<{ totalTokensOwed0 : Nat; totalTokensOwed1 : Nat; tokenIncome : [(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })] }, Types.Error> {
+        assert(_isAvailable(msg.caller));
         var totalTokensOwed0 : Nat = 0;
         var totalTokensOwed1 : Nat = 0;
         var tokenIncomeBuffer : Buffer.Buffer<(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })> = Buffer.Buffer<(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })>(0);
@@ -1522,7 +1542,8 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query func allTokenBalance(offset : Nat, limit : Nat) : async Result.Result<Types.Page<(Principal, TokenHolder.AccountBalance)>, Types.Error> {
+    public query (msg) func allTokenBalance(offset : Nat, limit : Nat) : async Result.Result<Types.Page<(Principal, TokenHolder.AccountBalance)>, Types.Error> {
+        assert(_isAvailable(msg.caller));
         let resultArr : Buffer.Buffer<(Principal, TokenHolder.AccountBalance)> = Buffer.Buffer<(Principal, TokenHolder.AccountBalance)>(0);
         var begin : Nat = 0;
         label l {
@@ -1546,6 +1567,7 @@ shared (initMsg) actor class SwapPool(
         token0 : [(Text, Types.Value)];
         token1 : [(Text, Types.Value)];
     } {
+        assert(_isAvailable(msg.caller));
         return {
             token0 = await _token0Act.metadata();
             token1 = await _token1Act.metadata();
@@ -1556,6 +1578,7 @@ shared (initMsg) actor class SwapPool(
         token0 : Nat;
         token1 : Nat;
     } {
+        assert(_isAvailable(msg.caller));
         var canisterId = Principal.fromActor(this);
         return {
             token0 = await _token0Act.balanceOf({
@@ -1569,7 +1592,8 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
-    public query func getTickInfos(offset : Nat, limit : Nat) : async Result.Result<Types.Page<Types.TickLiquidityInfo>, Types.Error> {
+    public query (msg) func getTickInfos(offset : Nat, limit : Nat) : async Result.Result<Types.Page<Types.TickLiquidityInfo>, Types.Error> {
+        assert(_isAvailable(msg.caller));
         var tempTickList = List.nil<(Text, Types.TickInfo)>();
         var begin : Nat = 0;
         label l {
@@ -1607,7 +1631,8 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query func sumTick() : async Result.Result<Int, Types.Error> {
+    public query (msg) func sumTick() : async Result.Result<Int, Types.Error> {
+        assert(_isAvailable(msg.caller));
         var tempTickList = List.nil<(Text, Types.TickInfo)>();
         var sum : Int = 0;
         for ((tickIndex, tickInfo) in _positionTickService.getTicks().entries()) {
@@ -1617,6 +1642,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func getUserPositionWithTokenAmount(offset : Nat, limit : Nat) : async Result.Result<Types.Page<Types.UserPositionInfoWithTokenAmount>, Types.Error> {
+        assert(_isAvailable(msg.caller));
         var tempUserPositionList = List.nil<(Nat, Types.UserPositionInfo)>();
         var begin : Nat = 0;
         label l {
@@ -1692,6 +1718,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func getUserByPositionId(positionId : Nat) : async Result.Result<Text, Types.Error> {
+        assert(_isAvailable(msg.caller));
         var userAccount = "";
         label l {
             for ((user, positionIds) in _positionTickService.getUserPositionIds().entries()) {
@@ -1705,11 +1732,13 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func getUserPositionIdsByPrincipal(owner : Principal) : async Result.Result<[Nat], Types.Error> {
+        assert(_isAvailable(msg.caller));
         let positionIds = _positionTickService.getUserPositionIdsByOwner(PrincipalUtils.toAddress(owner));
         return #ok(positionIds);
     };
 
     public query (msg) func getUserPositionsByPrincipal(owner : Principal) : async Result.Result<[Types.UserPositionInfoWithId], Types.Error> {
+        assert(_isAvailable(msg.caller));
         let resultArr : Buffer.Buffer<Types.UserPositionInfoWithId> = Buffer.Buffer<Types.UserPositionInfoWithId>(0);
         let positionIds = _positionTickService.getUserPositionIdsByOwner(PrincipalUtils.toAddress(owner));
         for (positionId in positionIds.vals()) {
@@ -1729,6 +1758,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func getUserPositions(offset : Nat, limit : Nat) : async Result.Result<Types.Page<Types.UserPositionInfoWithId>, Types.Error> {
+        assert(_isAvailable(msg.caller));
         let resultArr : Buffer.Buffer<Types.UserPositionInfoWithId> = Buffer.Buffer<Types.UserPositionInfoWithId>(0);
         var begin : Nat = 0;
         label l {
@@ -1758,6 +1788,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func getPositions(offset : Nat, limit : Nat) : async Result.Result<Types.Page<Types.PositionInfoWithId>, Types.Error> {
+        assert(_isAvailable(msg.caller));
         let resultArr : Buffer.Buffer<Types.PositionInfoWithId> = Buffer.Buffer<Types.PositionInfoWithId>(0);
         var begin : Nat = 0;
         label l {
@@ -1785,6 +1816,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func getTicks(offset : Nat, limit : Nat) : async Result.Result<Types.Page<Types.TickInfoWithId>, Types.Error> {
+        assert(_isAvailable(msg.caller));
         let resultArr : Buffer.Buffer<Types.TickInfoWithId> = Buffer.Buffer<Types.TickInfoWithId>(0);
         var begin : Nat = 0;
         label l {
@@ -1815,10 +1847,12 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func getUserPositionIds() : async Result.Result<[(Text, [Nat])], Types.Error> {
+        assert(_isAvailable(msg.caller));
         return #ok(Iter.toArray(_positionTickService.getUserPositionIds().entries()));
     };
 
-    public query func metadata() : async Result.Result<Types.PoolMetadata, Types.Error> {
+    public query (msg) func metadata() : async Result.Result<Types.PoolMetadata, Types.Error> {
+        assert(_isAvailable(msg.caller));
         var metadata = {
             key = PoolUtils.getPoolKey(_token0, _token1, _fee);
             token0 = _token0;
@@ -1833,7 +1867,8 @@ shared (initMsg) actor class SwapPool(
         #ok(metadata);
     };
 
-    public query func getUserPosition(positionId : Nat) : async Result.Result<Types.UserPositionInfo, Types.Error> {
+    public query (msg) func getUserPosition(positionId : Nat) : async Result.Result<Types.UserPositionInfo, Types.Error> {
+        assert(_isAvailable(msg.caller));
         let refreshResult = switch (_refreshIncome(positionId)) {
             case (#ok(result)) { result };
             case (#err(code)) { throw Error.reject(code) };
@@ -1850,26 +1885,31 @@ shared (initMsg) actor class SwapPool(
         });
     };
     
-    public query func getUserUnusedBalance(account : Principal) : async Result.Result<{ balance0 : Nat; balance1 : Nat }, Types.Error> {
+    public query (msg) func getUserUnusedBalance(account : Principal) : async Result.Result<{ balance0 : Nat; balance1 : Nat }, Types.Error> {
+        assert(_isAvailable(msg.caller));
         return #ok(_tokenHolderService.getBalances(account));
     };
 
-    public query func getPosition(args : Types.GetPositionArgs) : async Result.Result<Types.PositionInfo, Types.Error> {
+    public query (msg) func getPosition(args : Types.GetPositionArgs) : async Result.Result<Types.PositionInfo, Types.Error> {
+        assert(_isAvailable(msg.caller));
         return #ok(_positionTickService.getPosition("" # Int.toText(args.tickLower) # "_" # Int.toText(args.tickUpper) # ""));
     };
 
-    public query func getPrincipal(address : Text) : async Result.Result<Principal, Types.Error> {
+    public query (msg) func getPrincipal(address : Text) : async Result.Result<Principal, Types.Error> {
+        assert(_isAvailable(msg.caller));
         return switch (_addressPrincipalMap.get(address)) {
             case (?_p) { return #ok(_p) };
             case (_) { return #err(#InternalError("no principal")) };
         };
     };
 
-    public query func getAddressPrincipals() : async Result.Result<[(Text, Principal)], Types.Error> {
+    public query (msg) func getAddressPrincipals() : async Result.Result<[(Text, Principal)], Types.Error> {
+        assert(_isAvailable(msg.caller));
         return #ok(Iter.toArray(_addressPrincipalMap.entries()));
     };
 
-    public query func getTokenAmountState() : async Result.Result<{ token0Amount : Nat; token1Amount : Nat; swapFee0Repurchase : Nat; swapFee1Repurchase : Nat; swapFeeReceiver : Text;}, Types.Error> {
+    public query (msg) func getTokenAmountState() : async Result.Result<{ token0Amount : Nat; token1Amount : Nat; swapFee0Repurchase : Nat; swapFee1Repurchase : Nat; swapFeeReceiver : Text;}, Types.Error> {
+        assert(_isAvailable(msg.caller));
         return #ok({
             token0Amount = _tokenAmountService.getTokenAmount0();
             token1Amount = _tokenAmountService.getTokenAmount1();
@@ -1879,18 +1919,21 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query func getWithdrawErrorLog() : async Result.Result<[(Nat, Types.WithdrawErrorLog)], Types.Error> {
+    public query (msg) func getWithdrawErrorLog() : async Result.Result<[(Nat, Types.WithdrawErrorLog)], Types.Error> {
+        assert(_isAvailable(msg.caller));
         return #ok(Iter.toArray(_tokenAmountService.getWithdrawErrorLog().entries()));
     };
-    public query func getTransferLogs() : async Result.Result<[TransferLog], Types.Error> {
+    public query (msg) func getTransferLogs() : async Result.Result<[TransferLog], Types.Error> {
+        assert(_isAvailable(msg.caller));
         return #ok(Iter.toArray(_transferLog.vals()));
     };
-    public query func getSwapRecordState() : async Result.Result<{
+    public query (msg) func getSwapRecordState() : async Result.Result<{
         infoCid : Text;
         records : [Types.SwapRecordInfo];
         retryCount : Nat;
         errors : [Types.PushError];
     }, Types.Error> {
+        assert(_isAvailable(msg.caller));
         var swapRecordState = _swapRecordService.getState();
         return #ok({
             infoCid = Principal.toText(infoCid);
@@ -1900,11 +1943,13 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query func checkOwnerOfUserPosition(owner : Principal, positionId : Nat) : async Result.Result<Bool, Types.Error> {
+    public query (msg) func checkOwnerOfUserPosition(owner : Principal, positionId : Nat) : async Result.Result<Bool, Types.Error> {
+        assert(_isAvailable(msg.caller));
         return #ok(_positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(owner), positionId));
     };
 
-    public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
+    public shared (msg) func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
+        assert(_isAvailable(msg.caller));
         return #ok({
             balance = Cycles.balance();
             available = Cycles.available();
@@ -1913,25 +1958,30 @@ shared (initMsg) actor class SwapPool(
 
     // --------------------------- ACL ------------------------------------
     public shared (msg) func setAdmins(admins : [Principal]) : async () {
+        assert(_isAvailable(msg.caller));
         _checkControllerPermission(msg.caller);
         _admins := admins;
     };
-    public query func getAdmins(): async [Principal] {
+    public query (msg) func getAdmins(): async [Principal] {
+        assert(_isAvailable(msg.caller));
         return _admins;
     };
     
     public shared (msg) func setAvailable(available : Bool) : async () {
+        assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
         _available := available;
     };
     public shared (msg) func setWhiteList(whiteList: [Principal]): async () {
+        assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
         _whiteList := whiteList;
     };
-    public query func getAvailabilityState() : async {
+    public query (msg) func getAvailabilityState() : async {
         available : Bool;
         whiteList : [Principal];
     } {
+        assert(_isAvailable(msg.caller));
         return {
             available = _available;
             whiteList = _whiteList;
@@ -1978,9 +2028,10 @@ shared (initMsg) actor class SwapPool(
 
     // --------------------------- Version Control ------------------------------------
     private var _version : Text = "3.3.4";
-    public query func getVersion() : async Text { _version };
+    public query (msg) func getVersion() : async Text { assert(_isAvailable(msg.caller)); _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(caller));
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
@@ -1988,6 +2039,7 @@ shared (initMsg) actor class SwapPool(
         return #ok(await act.balanceOf({ owner = Principal.fromActor(this); subaccount = Option.make(AccountUtils.principalToBlob(caller)); }))
     };
     public shared({caller}) func withdrawMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(caller));
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
