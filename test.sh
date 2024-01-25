@@ -81,7 +81,7 @@ dfx deploy base_index --argument="(principal \"$(dfx canister id price)\", princ
 echo "==> install node_index"
 dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx canister id price)\")"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\")"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", null)"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 

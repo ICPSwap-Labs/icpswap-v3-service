@@ -35,6 +35,7 @@ import TokenFactory "mo:token-adapter/TokenFactory";
 shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
     feeReceiverCid : Principal,
+    governanceCid : ?Principal,
 ) = this {
     private type LockState = {
         locked : Bool;
@@ -256,6 +257,10 @@ shared (initMsg) actor class SwapFactory(
         return #ok(Iter.toArray(_poolDataService.getRemovedPools().vals()));
     };
 
+    public query func getGovernanceCid() : async Result.Result<?Principal, Types.Error> {
+        return #ok(governanceCid);
+    };
+
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
@@ -353,7 +358,11 @@ shared (initMsg) actor class SwapFactory(
     };
 
     private func _checkPermission(caller : Principal) {
-        assert(Prim.isController(caller));
+        assert(_hasPermission(caller));
+    };
+
+    private func _hasPermission(caller: Principal): Bool {
+        return Prim.isController(caller) or (switch (governanceCid) {case (?cid) { Principal.equal(caller, cid) }; case (_) { false };});
     };
 
     // --------------------------- Version Control      -------------------------------
@@ -376,22 +385,22 @@ shared (initMsg) actor class SwapFactory(
     }) : Bool {
         return switch (msg) {
             // Controller
-            case (#clearRemovedPool args)                   { Prim.isController(caller) };
-            case (#removePool args)                         { Prim.isController(caller) };
-            case (#removePoolWithdrawErrorLog args)         { Prim.isController(caller) };
-            case (#restorePool args)                        { Prim.isController(caller) };
-            case (#upgradePoolTokenStandard args)           { Prim.isController(caller) };
-            case (#addPoolControllers args)                 { Prim.isController(caller) };
-            case (#removePoolControllers args)              { Prim.isController(caller) };
-            case (#setPoolAdmins args)                      { Prim.isController(caller) };
-            case (#validateUpgradePoolTokenStandard args)   { Prim.isController(caller) };
-            case (#validateRestorePool args)                { Prim.isController(caller) };
-            case (#validateRemovePool args)                 { Prim.isController(caller) };
-            case (#validateRemovePoolWithdrawErrorLog args) { Prim.isController(caller) };
-            case (#validateSetPoolAdmins args)              { Prim.isController(caller) };
-            case (#validateClearRemovedPool args)           { Prim.isController(caller) };
-            case (#validateAddPoolControllers args)         { Prim.isController(caller) };
-            case (#validateRemovePoolControllers args)      { Prim.isController(caller) };
+            case (#clearRemovedPool args)                   { _hasPermission(caller) };
+            case (#removePool args)                         { _hasPermission(caller) };
+            case (#removePoolWithdrawErrorLog args)         { _hasPermission(caller) };
+            case (#restorePool args)                        { _hasPermission(caller) };
+            case (#upgradePoolTokenStandard args)           { _hasPermission(caller) };
+            case (#addPoolControllers args)                 { _hasPermission(caller) };
+            case (#removePoolControllers args)              { _hasPermission(caller) };
+            case (#setPoolAdmins args)                      { _hasPermission(caller) };
+            case (#validateUpgradePoolTokenStandard args)   { _hasPermission(caller) };
+            case (#validateRestorePool args)                { _hasPermission(caller) };
+            case (#validateRemovePool args)                 { _hasPermission(caller) };
+            case (#validateRemovePoolWithdrawErrorLog args) { _hasPermission(caller) };
+            case (#validateSetPoolAdmins args)              { _hasPermission(caller) };
+            case (#validateClearRemovedPool args)           { _hasPermission(caller) };
+            case (#validateAddPoolControllers args)         { _hasPermission(caller) };
+            case (#validateRemovePoolControllers args)      { _hasPermission(caller) };
             // Anyone
             case (_)                                   { true };
         };
