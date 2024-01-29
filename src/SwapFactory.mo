@@ -443,6 +443,12 @@ shared (initMsg) actor class SwapFactory(
             case (#validateClearRemovedPool args)           { _hasPermission(caller) };
             case (#validateAddPoolControllers args)         { _hasPermission(caller) };
             case (#validateRemovePoolControllers args)      { _hasPermission(caller) };
+            case (#batchAddPoolControllers args)            { _hasPermission(caller) };
+            case (#validateBatchAddPoolControllers args)    { _hasPermission(caller) };
+            case (#batchRemovePoolControllers args)         { _hasPermission(caller) };
+            case (#validateBatchRemovePoolControllers args) { _hasPermission(caller) };
+            case (#batchSetPoolAdmins args)                 { _hasPermission(caller) };
+            case (#validateBatchSetPoolAdmins args)         { _hasPermission(caller) };
             // Anyone
             case (_)                                   { true };
         };
