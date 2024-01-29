@@ -361,6 +361,12 @@ module {
         #validateUpgradePoolTokenStandard : () -> (Principal, Principal);
         #removePoolControllers : () -> (Principal, [Principal]);
         #validateRemovePoolControllers : () -> (Principal, [Principal]);
+        #batchSetPoolAdmins : () -> ([Principal], [Principal]);
+        #validateBatchSetPoolAdmins : () -> ([Principal], [Principal]);
+        #batchAddPoolControllers : () -> ([Principal], [Principal]);
+        #validateBatchAddPoolControllers : () -> ([Principal], [Principal]);
+        #batchRemovePoolControllers : () -> ([Principal], [Principal]);
+        #validateBatchRemovePoolControllers : () -> ([Principal], [Principal]);
     };
     public type SwapFeeReceiverMsg = {
         #claim : () -> (Principal, Principal, Nat, Nat);
