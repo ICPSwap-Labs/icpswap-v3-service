@@ -303,8 +303,7 @@ shared (initMsg) actor class SwapFactory(
     };
     public shared (msg) func setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
         _checkPermission(msg.caller);
-        var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
-        await poolAct.setAdmins(admins);
+        await _setPoolAdmins(poolCid, admins);
     };
     public shared (msg) func validateSetPoolAdmins(poolCid : Principal, admins : [Principal]) : async Bool {
         _checkPermission(msg.caller);
@@ -320,9 +319,7 @@ shared (initMsg) actor class SwapFactory(
     };
     public shared (msg) func addPoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
-        let { settings } = await IC0.canister_status({ canister_id = poolCid });
-        var controllerList = List.append(List.fromArray(settings.controllers), List.fromArray(controllers));
-        IC0.update_settings({ canister_id = poolCid; settings = { controllers = List.toArray(controllerList) }; });
+        await _addPoolControllers(poolCid, controllers);
     };
     public shared (msg) func validateAddPoolControllers(poolCid : Principal, controllers : [Principal]) : async Bool {
         _checkPermission(msg.caller);
@@ -330,14 +327,60 @@ shared (initMsg) actor class SwapFactory(
     };
     public shared (msg) func removePoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
-        let factoryCid : Principal = Principal.fromActor(this);
-        for (it in controllers.vals()) {
-            if (Principal.equal(it, factoryCid)) {
-                throw Error.reject("Factory cannot be removed from pool");
-            };
+        if (not _checkPoolControllers(controllers)){
+            throw Error.reject("SwapFactory must be the controller of SwapPool");
         };
-        let buffer: Buffer.Buffer<Principal> = Buffer.Buffer<Principal>(0);
+        await _removePoolControllers(poolCid, controllers);
+    };
+    public shared (msg) func validateRemovePoolControllers(poolCid : Principal, controllers : [Principal]) : async Bool {
+        _checkPermission(msg.caller);
+        _checkPoolControllers(controllers);
+    };
+    public shared (msg) func batchSetPoolAdmins(poolCids : [Principal], admins : [Principal]) : async () {
+        _checkPermission(msg.caller);
+        for (poolCid in poolCids.vals()) {
+            await _setPoolAdmins(poolCid, admins);
+        };
+    };
+    public shared (msg) func validateBatchSetPoolAdmins(poolCids : [Principal], admins : [Principal]) : async Bool {
+        _checkPermission(msg.caller);
+        true;
+    };
+    public shared (msg) func batchAddPoolControllers(poolCids : [Principal], controllers : [Principal]) : async () {
+        _checkPermission(msg.caller);
+        for (poolCid in poolCids.vals()) {
+            await _addPoolControllers(poolCid, controllers);
+        };
+    };
+    public shared (msg) func validateBatchAddPoolControllers(poolCids : [Principal], controllers : [Principal]) : async Bool {
+        _checkPermission(msg.caller);
+        true;
+    };
+    public shared (msg) func batchRemovePoolControllers(poolCids : [Principal], controllers : [Principal]) : async () {
+        _checkPermission(msg.caller);
+        if (not _checkPoolControllers(controllers)){
+            throw Error.reject("SwapFactory must be the controller of SwapPool");
+        };
+        for (poolCid in poolCids.vals()) {
+            await _removePoolControllers(poolCid, controllers);
+        };
+    };
+    public shared (msg) func validateBatchRemovePoolControllers(poolCids : [Principal], controllers : [Principal]) : async Bool {
+        _checkPermission(msg.caller);
+        _checkPoolControllers(controllers);
+    };
 
+    private func _setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
+        var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
+        await poolAct.setAdmins(admins);
+    };
+    private func _addPoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
+        let { settings } = await IC0.canister_status({ canister_id = poolCid });
+        var controllerList = List.append(List.fromArray(settings.controllers), List.fromArray(controllers));
+        IC0.update_settings({ canister_id = poolCid; settings = { controllers = List.toArray(controllerList) }; });
+    };
+    private func _removePoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
+        let buffer: Buffer.Buffer<Principal> = Buffer.Buffer<Principal>(0);
         let { settings } = await IC0.canister_status({ canister_id = poolCid });
         for (it in settings.controllers.vals()) {
             if (not CollectionUtils.arrayContains<Principal>(controllers, it, Principal.equal)) {
@@ -346,8 +389,7 @@ shared (initMsg) actor class SwapFactory(
         };
         IC0.update_settings({ canister_id = poolCid; settings = { controllers = Buffer.toArray<Principal>(buffer) }; });
     };
-    public shared (msg) func validateRemovePoolControllers(poolCid : Principal, controllers : [Principal]) : async Bool {
-        _checkPermission(msg.caller);
+    private func _checkPoolControllers(controllers : [Principal]) : Bool {
         let factoryCid : Principal = Principal.fromActor(this);
         for (it in controllers.vals()) {
             if (Principal.equal(it, factoryCid)) {
@@ -366,7 +408,7 @@ shared (initMsg) actor class SwapFactory(
     };
 
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.3.4";
+    private var _version : Text = "3.3.5";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {
@@ -401,6 +443,12 @@ shared (initMsg) actor class SwapFactory(
             case (#validateClearRemovedPool args)           { _hasPermission(caller) };
             case (#validateAddPoolControllers args)         { _hasPermission(caller) };
             case (#validateRemovePoolControllers args)      { _hasPermission(caller) };
+            case (#batchAddPoolControllers args)            { _hasPermission(caller) };
+            case (#validateBatchAddPoolControllers args)    { _hasPermission(caller) };
+            case (#batchRemovePoolControllers args)         { _hasPermission(caller) };
+            case (#validateBatchRemovePoolControllers args) { _hasPermission(caller) };
+            case (#batchSetPoolAdmins args)                 { _hasPermission(caller) };
+            case (#validateBatchSetPoolAdmins args)         { _hasPermission(caller) };
             // Anyone
             case (_)                                   { true };
         };
