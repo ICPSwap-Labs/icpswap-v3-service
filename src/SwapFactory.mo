@@ -59,7 +59,7 @@ shared (initMsg) actor class SwapFactory(
 
     private func _lock() : Bool {
         let now = Time.now();
-        if ((not _lockState.locked) or ((now - _lockState.time) > 1000000000 * 30)) {
+        if ((not _lockState.locked) or ((now - _lockState.time) > 1000000000 * 90)) {
             _lockState := { locked = true; time = now; };
             return true;
         };
@@ -101,6 +101,7 @@ shared (initMsg) actor class SwapFactory(
     };
 
     public shared (msg) func createPool(args : Types.CreatePoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
+        // todo Require a fee for pool creation, controller and admin can create for free
         if (Text.equal(args.token0.address, args.token1.address)) {
             return #err(#InternalError("Can not use the same token"));
         };
@@ -151,27 +152,41 @@ shared (initMsg) actor class SwapFactory(
                     };
                     let poolKey : Text = PoolUtils.getPoolKey(metadata.token0, metadata.token1, metadata.fee);
                     if (isSupportedICRC2) {
-                        await poolAct.upgradeTokenStandard(tokenCid);
-                        let poolData = switch (_poolDataService.getPools().get(poolKey)) {
-                            case (?poolData) { poolData }; case (_) { return #err(#InternalError("Get pool data failed")); };
+                        let result = await poolAct.upgradeTokenStandard(tokenCid);
+                        switch (await poolAct.metadata()) {
+                            case (#ok(verifiedMetadata)) {
+                                let verifiedToken = if (Text.equal(Principal.toText(tokenCid), verifiedMetadata.token0.address)) { 
+                                    verifiedMetadata.token0
+                                } else {
+                                    verifiedMetadata.token1
+                                };
+                                if (Text.equal("ICRC2", verifiedToken.standard)) {
+                                    let poolData = switch (_poolDataService.getPools().get(poolKey)) {
+                                        case (?poolData) { poolData }; case (_) { return #err(#InternalError("Get pool data failed")); };
+                                    };
+                                    _poolDataService.putPool(
+                                        poolKey,
+                                        {
+                                            key = poolData.key;
+                                            token0 = {
+                                                address = poolData.token0.address;
+                                                standard = if (Text.equal(Principal.toText(tokenCid), poolData.token0.address)) { "ICRC2" } else { poolData.token0.standard };
+                                            };
+                                            token1 = {
+                                                address = poolData.token1.address;
+                                                standard = if (Text.equal(Principal.toText(tokenCid), poolData.token1.address)) { "ICRC2" } else { poolData.token1.standard };
+                                            };
+                                            fee = poolData.fee;
+                                            tickSpacing = poolData.tickSpacing;
+                                            canisterId = poolData.canisterId;
+                                        },
+                                    );
+                                } else {
+                                    return #err(#InternalError("Check upgrading failed"));
+                                };
+                            };
+                            case (#err(code)) { return #err(#InternalError("Verify pool metadata failed: " # debug_show (code))); };
                         };
-                        _poolDataService.putPool(
-                            poolKey,
-                            {
-                                key = poolData.key;
-                                token0 = {
-                                    address = poolData.token0.address;
-                                    standard = if (Text.equal(Principal.toText(tokenCid), poolData.token0.address)) { "ICRC2" } else { poolData.token0.standard };
-                                };
-                                token1 = {
-                                    address = poolData.token1.address;
-                                    standard = if (Text.equal(Principal.toText(tokenCid), poolData.token1.address)) { "ICRC2" } else { poolData.token1.standard };
-                                };
-                                fee = poolData.fee;
-                                tickSpacing = poolData.tickSpacing;
-                                canisterId = poolData.canisterId;
-                            },
-                        );
                     } else {
                         return #err(#InternalError("Check icrc1_supported_standards failed"));
                     };
@@ -233,25 +248,26 @@ shared (initMsg) actor class SwapFactory(
         return #ok(Iter.toArray(_poolDataService.getPools().vals()));
     };
 
-    public query (msg) func getPagedPools(offset : Nat, limit : Nat) : async Result.Result<Types.Page<Types.PoolData>, Types.Error> {
-        let resultArr : Buffer.Buffer<Types.PoolData> = Buffer.Buffer<Types.PoolData>(0);
-        var begin : Nat = 0;
-        label l {
-            for (poolData in _poolDataService.getPools().vals()) {
-                if (begin >= offset and begin < (offset + limit)) {
-                    resultArr.add(poolData);
-                };
-                if (begin >= (offset + limit)) { break l };
-                begin := begin + 1;
-            };
-        };
-        return #ok({
-            totalElements = _poolDataService.getPools().size();
-            content = Buffer.toArray(resultArr);
-            offset = offset;
-            limit = limit;
-        });
-    };
+    // todo verify if anywhere in frontend uses this function
+    // public query (msg) func getPagedPools(offset : Nat, limit : Nat) : async Result.Result<Types.Page<Types.PoolData>, Types.Error> {
+    //     let resultArr : Buffer.Buffer<Types.PoolData> = Buffer.Buffer<Types.PoolData>(0);
+    //     var begin : Nat = 0;
+    //     label l {
+    //         for (poolData in _poolDataService.getPools().vals()) {
+    //             if (begin >= offset and begin < (offset + limit)) {
+    //                 resultArr.add(poolData);
+    //             };
+    //             if (begin >= (offset + limit)) { break l };
+    //             begin := begin + 1;
+    //         };
+    //     };
+    //     return #ok({
+    //         totalElements = _poolDataService.getPools().size();
+    //         content = Buffer.toArray(resultArr);
+    //         offset = offset;
+    //         limit = limit;
+    //     });
+    // };
 
     public query func getRemovedPools() : async Result.Result<[Types.PoolData], Types.Error> {
         return #ok(Iter.toArray(_poolDataService.getRemovedPools().vals()));
@@ -271,7 +287,16 @@ shared (initMsg) actor class SwapFactory(
     // ---------------        Governance Functions              ----------------------
     public shared (msg) func restorePool(poolId : Principal) : async Text {
         _checkPermission(msg.caller);
-        let poolCid = _poolDataService.restorePool(Principal.toText(poolId));
+        switch (_poolDataService.getRemovedPools().get(Principal.toText(poolId))) {
+            case (?poolData) {
+                // check if the pool is existed
+                switch (_poolDataService.getPools().get(poolData.key)) {
+                    case (?poolData) { return "Failed: A new SwapPool of identical pairs has been created."; };
+                    case (_) { return _poolDataService.restorePool(Principal.toText(poolId)); };
+                };
+            };
+            case (_) { return "Failed: No such SwapPool."; };
+        };
     };
     public shared (msg) func validateRestorePool(poolId : Principal) : async Bool {
         _checkPermission(msg.caller);

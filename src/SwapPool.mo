@@ -141,8 +141,8 @@ shared (initMsg) actor class SwapPool(
     private stable var _allowancedUserPositionEntries : [(Nat, Text)] = [];
 
     // principal address pair
-    private stable var _addressPrincipals : [(Text, Principal)] = [];
-    private var _addressPrincipalMap : HashMap.HashMap<Text, Principal> = HashMap.fromIter(_addressPrincipals.vals(), 0, Text.equal, Text.hash);
+    // private stable var _addressPrincipals : [(Text, Principal)] = [];
+    // private var _addressPrincipalMap : HashMap.HashMap<Text, Principal> = HashMap.fromIter(_addressPrincipals.vals(), 0, Text.equal, Text.hash);
 
     private var _positionTickService : PositionTick.Service = PositionTick.Service(_userPositionsEntries, _positionsEntries, _tickBitmapsEntries, _ticksEntries, _userPositionIdsEntries, _allowancedUserPositionEntries);
     private var _tokenHolderService : TokenHolder.Service = TokenHolder.Service(_tokenHolderState);
@@ -227,10 +227,10 @@ shared (initMsg) actor class SwapPool(
     };
     let _claimSwapFeeRepurchasePerWeek = Timer.recurringTimer(#seconds(604800), _claimSwapFeeRepurchase);
 
-    private func _saveAddressPrincipal(operator : Principal) : () {
-        let callerAddress : Text = PrincipalUtils.toAddress(operator);
-        _addressPrincipalMap.put(callerAddress, operator);
-    };
+    // private func _saveAddressPrincipal(operator : Principal) : () {
+    //     let callerAddress : Text = PrincipalUtils.toAddress(operator);
+    //     _addressPrincipalMap.put(callerAddress, operator);
+    // };
 
     private func _checkAmount(amountDesired : Nat, operator : Principal, token : Types.Token) : Bool {
         var balance = _tokenHolderService.getBalance(operator, token);
@@ -943,7 +943,7 @@ shared (initMsg) actor class SwapPool(
         if (not _checkUserPositionLimit()) {
             return #err(#InternalError("Number of user position exceeds limit"));
         };
-        _saveAddressPrincipal(caller);
+        // _saveAddressPrincipal(caller);
         if ((args.tickLower >= args.tickUpper) or (args.tickLower < Tick.MIN_TICK) or (args.tickUpper > Tick.MAX_TICK)) {
             return #err(#InternalError("Illegal tick number"));
         };
@@ -1103,14 +1103,12 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func mint(args : Types.MintArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(msg.caller));
-        if (not _checkUserPositionLimit()) {
-            return #err(#InternalError("Number of user position exceeds limit"));
-        };
-
-        _saveAddressPrincipal(msg.caller);
-
+        if (not _checkUserPositionLimit()) { return #err(#InternalError("Number of user position exceeds limit")); };
+        // _saveAddressPrincipal(msg.caller);
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
         var amount1Desired = SafeUint.Uint256(TextUtils.toNat(args.amount1Desired));
+        if (Nat.equal(amount0Desired.val(), 0) and Nat.equal(amount1Desired.val(), 0)) { return #err(#InternalError("Amount desired can't be both 0")); };
+
         if (not _checkAmounts(amount0Desired.val(), amount1Desired.val(), msg.caller)) {
             var accountBalance : TokenHolder.AccountBalance = _tokenHolderService.getBalances(msg.caller);
             return #err(#InternalError("illegal balance in pool. " 
@@ -1161,13 +1159,15 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func increaseLiquidity(args : Types.IncreaseLiquidityArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(msg.caller));
-        _saveAddressPrincipal(msg.caller);
+        // _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("check operator failed"));
         };
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
         var amount1Desired = SafeUint.Uint256(TextUtils.toNat(args.amount1Desired));
+        if (Nat.equal(amount0Desired.val(), 0) and Nat.equal(amount1Desired.val(), 0)) { return #err(#InternalError("Amount desired can't be both 0")); };
+
         if (not _checkAmounts(amount0Desired.val(), amount1Desired.val(), msg.caller)) {
             var accountBalance : TokenHolder.AccountBalance = _tokenHolderService.getBalances(msg.caller);
             return #err(#InternalError("illegal balance in pool. " 
@@ -1219,16 +1219,15 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func decreaseLiquidity(args : Types.DecreaseLiquidityArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
         assert(_isAvailable(msg.caller));
-        _saveAddressPrincipal(msg.caller);
+        // _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("check operator failed"));
         };
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         var liquidityDelta = TextUtils.toNat(args.liquidity);
-        if (liquidityDelta > userPositionInfo.liquidity) {
-            return #err(#InternalError("illegal liquidity delta"));
-        };
+        if (Nat.equal(liquidityDelta, 0)) { return #err(#InternalError("illegal liquidity delta")); };
+        if (liquidityDelta > userPositionInfo.liquidity) { return #err(#InternalError("illegal liquidity delta")); };
         var collectResult = { amount0 = 0; amount1 = 0 };
         try {
             // _saveBackupData();
@@ -1269,7 +1268,7 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
         assert(_isAvailable(msg.caller));
-        _saveAddressPrincipal(msg.caller);
+        // _saveAddressPrincipal(msg.caller);
         // verify msg.caller matches the owner of position
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("check operator failed"));
@@ -1895,18 +1894,18 @@ shared (initMsg) actor class SwapPool(
         return #ok(_positionTickService.getPosition("" # Int.toText(args.tickLower) # "_" # Int.toText(args.tickUpper) # ""));
     };
 
-    public query (msg) func getPrincipal(address : Text) : async Result.Result<Principal, Types.Error> {
-        assert(_isAvailable(msg.caller));
-        return switch (_addressPrincipalMap.get(address)) {
-            case (?_p) { return #ok(_p) };
-            case (_) { return #err(#InternalError("no principal")) };
-        };
-    };
+    // public query (msg) func getPrincipal(address : Text) : async Result.Result<Principal, Types.Error> {
+    //     assert(_isAvailable(msg.caller));
+    //     return switch (_addressPrincipalMap.get(address)) {
+    //         case (?_p) { return #ok(_p) };
+    //         case (_) { return #err(#InternalError("no principal")) };
+    //     };
+    // };
 
-    public query (msg) func getAddressPrincipals() : async Result.Result<[(Text, Principal)], Types.Error> {
-        assert(_isAvailable(msg.caller));
-        return #ok(Iter.toArray(_addressPrincipalMap.entries()));
-    };
+    // public query (msg) func getAddressPrincipals() : async Result.Result<[(Text, Principal)], Types.Error> {
+    //     assert(_isAvailable(msg.caller));
+    //     return #ok(Iter.toArray(_addressPrincipalMap.entries()));
+    // };
 
     public query (msg) func getTokenAmountState() : async Result.Result<{ token0Amount : Nat; token1Amount : Nat; swapFee0Repurchase : Nat; swapFee1Repurchase : Nat; swapFeeReceiver : Text;}, Types.Error> {
         assert(_isAvailable(msg.caller));
@@ -2088,7 +2087,7 @@ shared (initMsg) actor class SwapPool(
         _ticksEntries := Iter.toArray(_positionTickService.getTicks().entries());
         _userPositionIdsEntries := Iter.toArray(_positionTickService.getUserPositionIds().entries());
         _allowancedUserPositionEntries := Iter.toArray(_positionTickService.getAllowancedUserPositions().entries());
-        _addressPrincipals := Iter.toArray(_addressPrincipalMap.entries());
+        // _addressPrincipals := Iter.toArray(_addressPrincipalMap.entries());
         _recordState := _swapRecordService.getState();
         _tokenHolderState := _tokenHolderService.getState();
         _tokenAmountState := _tokenAmountService.getState();
@@ -2103,7 +2102,7 @@ shared (initMsg) actor class SwapPool(
         _positionsEntries := [];
         _tickBitmapsEntries := [];
         _ticksEntries := [];
-        _addressPrincipals := [];
+        // _addressPrincipals := [];
         _canisterId := ?Principal.fromActor(this);
         _claimLogBuffer := Buffer.fromArray(_claimLog);
         _transferLogArray := [];
