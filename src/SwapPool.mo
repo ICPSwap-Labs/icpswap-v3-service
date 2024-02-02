@@ -810,6 +810,7 @@ shared (initMsg) actor class SwapPool(
 
     public shared ({ caller }) func depositFrom(args : Types.DepositArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(caller));
+        if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (args.token != _token0.address and args.token != _token1.address) {
             return #err(#UnsupportedToken(args.token));
         };
@@ -1103,6 +1104,7 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func mint(args : Types.MintArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(msg.caller));
+        if (Principal.isAnonymous(msg.caller)) return #err(#InternalError("Illegal anonymous call"));
         if (not _checkUserPositionLimit()) { return #err(#InternalError("Number of user position exceeds limit")); };
         // _saveAddressPrincipal(msg.caller);
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
@@ -1313,6 +1315,7 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func swap(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(msg.caller));
+        if (Principal.isAnonymous(msg.caller)) return #err(#InternalError("Illegal anonymous call"));
         if (TextUtils.toInt(args.amountOutMinimum) > 0) {
             var preCheckAmount = switch (_preSwap(args, msg.caller)) {
                 case (#ok(result)) { result };
