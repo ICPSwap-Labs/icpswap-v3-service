@@ -1130,6 +1130,16 @@ shared (initMsg) actor class SwapPool(
                     throw Error.reject("mint " # debug_show (code));
                 };
             };
+            // check actualAmount
+            if (addResult.amount0 > amount0Desired.val() or addResult.amount1  > amount1Desired.val()) {
+                // throw error to rollback
+                throw Error.reject("Illegal balance in pool. " 
+                # "amount0Desired=" # debug_show (amount0Desired.val()) 
+                # ", amount1Desired=" # debug_show (amount1Desired.val())
+                # ". actualAmount0=" # debug_show (addResult.amount0) 
+                # ", actualAmount1=" # debug_show (addResult.amount1));
+            };
+
             var positionInfo = _positionTickService.getPosition("" # Int.toText(args.tickLower) # "_" # Int.toText(args.tickUpper) # "");
             _positionTickService.addPositionForUser(
                 PrincipalUtils.toAddress(msg.caller),
@@ -1146,9 +1156,7 @@ shared (initMsg) actor class SwapPool(
             );
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(addResult.amount0)).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
-
             _pushSwapInfoCache(#addLiquidity, Principal.toText(msg.caller), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), addResult.liquidityDelta, addResult.amount0, addResult.amount1, true);
-
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
 
             return #ok(positionId);
@@ -1187,8 +1195,18 @@ shared (initMsg) actor class SwapPool(
                     throw Error.reject("increaseLiquidity " # debug_show (code));
                 };
             };
-            var positionInfo = _positionTickService.getPosition("" # Int.toText(userPositionInfo.tickLower) # "_" # Int.toText(userPositionInfo.tickUpper) # "");
 
+            // check actualAmount
+            if (addResult.amount0 > amount0Desired.val() or addResult.amount1  > amount1Desired.val()) {
+                // throw error to rollback
+                throw Error.reject("illegal balance in pool. " 
+                # "amount0Desired=" # debug_show (amount0Desired.val()) 
+                # ", amount1Desired=" # debug_show (amount1Desired.val())
+                # ". actualAmount0=" # debug_show (addResult.amount0) 
+                # ", actualAmount1=" # debug_show (addResult.amount1));
+            };
+
+            var positionInfo = _positionTickService.getPosition("" # Int.toText(userPositionInfo.tickLower) # "_" # Int.toText(userPositionInfo.tickUpper) # "");
             let distributedFeeResult = _distributeFee(positionInfo, userPositionInfo);
             _tokenAmountService.setSwapFee0Repurchase(SafeUint.Uint128(_tokenAmountService.getSwapFee0Repurchase()).add(SafeUint.Uint128(distributedFeeResult.swapFee0Repurchase)).val());
             _tokenAmountService.setSwapFee1Repurchase(SafeUint.Uint128(_tokenAmountService.getSwapFee1Repurchase()).add(SafeUint.Uint128(distributedFeeResult.swapFee1Repurchase)).val());
