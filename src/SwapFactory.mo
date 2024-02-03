@@ -59,7 +59,7 @@ shared (initMsg) actor class SwapFactory(
 
     private func _lock() : Bool {
         let now = Time.now();
-        if ((not _lockState.locked) or ((now - _lockState.time) > 1000000000 * 90)) {
+        if ((not _lockState.locked) or ((now - _lockState.time) > 1000000000 * 60)) {
             _lockState := { locked = true; time = now; };
             return true;
         };
