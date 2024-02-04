@@ -2008,7 +2008,7 @@ shared (initMsg) actor class SwapPool(
         };
     };
     private func _isAvailable(caller: Principal) : Bool {
-        if (_available) {
+        if (_available and _transferLog.size() < 2000) {
             return true;
         };
         if (CollectionUtils.arrayContains<Principal>(_whiteList, caller, Principal.equal)) {
