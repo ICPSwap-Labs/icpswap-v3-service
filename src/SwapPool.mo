@@ -2044,7 +2044,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.3.5";
+    private var _version : Text = "3.4.0";
     public query (msg) func getVersion() : async Text { assert(_isAvailable(msg.caller)); _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {

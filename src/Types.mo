@@ -279,7 +279,6 @@ module {
         token1: Principal;
         fee: Nat;
     };
-    public 
     public type SwapPoolMsg = {
         #allTokenBalance : () -> (Nat, Nat);
         #approvePosition : () -> (Principal, Nat);
@@ -352,8 +351,8 @@ module {
         #getPagedPools : () -> (Nat, Nat);
         #getRemovedPools : () -> ();
         #getVersion : () -> ();
-        #addPasscode : () -> (Principal, Text);
-        #removePasscode : () -> (Principal, Text);
+        #addPasscode : () -> (Principal, Passcode);
+        #deletePasscode : () -> (Principal, Passcode);
         #removePool : () -> GetPoolArgs;
         #validateRemovePool : () -> GetPoolArgs;
         #restorePool : () -> Principal;
@@ -396,7 +395,7 @@ module {
     };
     public type SwapFactoryActor = actor {
         getPools : query () -> async Result.Result<[PoolData], Error>;
-        addPasscode: (Principal, Passcode) -> async Result.Result<Bool, Error>;
-        deletePasscode: (Principal, Passcode) -> async Result.Result<Bool, Error>;
+        addPasscode: (Principal, Passcode) -> async ();
+        deletePasscode: (Principal, Passcode) -> async ();
     };
 };

@@ -48,8 +48,8 @@ shared (initMsg) actor class SwapFactory(
     private stable var _feeTickSpacingEntries : [(Nat, Int)] = [(500, 10), (3000, 60), (10000, 200)];
     private stable var _poolDataState : PoolData.State = { poolEntries = []; removedPoolEntries = []; };
 
-    private stable var _principalPasscodes : [(Principal, [Text])] = [];
-    private var _principalPasscodeMap : HashMap.HashMap<Principal, [Text]> = HashMap.fromIter(_principalPasscodes.vals(), 0, Principal.equal, Principal.hash);
+    private stable var _principalPasscodes : [(Principal, [Types.Passcode])] = [];
+    private var _principalPasscodeMap : HashMap.HashMap<Principal, [Types.Passcode]> = HashMap.fromIter(_principalPasscodes.vals(), 0, Principal.equal, Principal.hash);
 
     private var _feeTickSpacingMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(_feeTickSpacingEntries.vals(), 10, Nat.equal, Hash.hash);
     private var _poolDataService : PoolData.Service = PoolData.Service(_poolDataState);
@@ -79,7 +79,7 @@ shared (initMsg) actor class SwapFactory(
             case (?feeAmountTickSpacingFee) { feeAmountTickSpacingFee };
             case (_) { return #err(#InternalError("TickSpacing cannot be 0")); };
         };
-        
+
         if (not _lock()) { return #err(#InternalError("Please wait for previous creating job finished")); };
 
         let (token0, token1) = PoolUtils.sort(args.token0, args.token1);
@@ -88,7 +88,7 @@ shared (initMsg) actor class SwapFactory(
             case (?pool) { pool };
             case (_) {
                 try {
-                    if(not _removePasscode(msg.caller, Principal.toText(msg.caller) # "_" # token0.address # "_" # token1.address # "_" # debug_show(args.fee))) {
+                    if(not _deletePasscode(msg.caller, { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; })) {
                         return #err(#InternalError("Passcode does not exist."));
                     };
                     Cycles.add(_initCycles);
@@ -117,35 +117,27 @@ shared (initMsg) actor class SwapFactory(
         return #ok(poolData);
     };
 
-    public shared (msg) func addPasscode(principal: Principal, passcode: Text): async Result.Result<Bool, Types.Error> {
+    public shared (msg) func addPasscode(principal: Principal, passcode: Types.Passcode): async () {
         assert(Principal.equal(passcoderCid, msg.caller));
         switch (_principalPasscodeMap.get(principal)) {
             case (?passcodes) {
-                var passcodeList : List.List<Text> = List.fromArray(passcodes);
-                if (CollectionUtils.arrayContains<Text>(passcodes, passcode, Text.equal)) {
-                    return #err(#InternalError("Passcode exists."));
-                } else {
+                var passcodeList : List.List<Types.Passcode> = List.fromArray(passcodes);
+                if (not CollectionUtils.arrayContains<Types.Passcode>(passcodes, passcode, _passcodeEqual)) {
                     passcodeList := List.push(passcode, passcodeList);
                     _principalPasscodeMap.put(principal, List.toArray(passcodeList));
-                    return #ok(true);
                 };
             };
             case (_) {
-                var passcodeList = List.nil<Text>();
+                var passcodeList = List.nil<Types.Passcode>();
                 passcodeList := List.push(passcode, passcodeList);
                 _principalPasscodeMap.put(principal, List.toArray(passcodeList));
-                return #ok(true);
             };
         };
     };
 
-    public shared (msg) func removePasscode(principal: Principal, passcode: Text): async Result.Result<Bool, Types.Error> {
+    public shared (msg) func deletePasscode(principal: Principal, passcode: Types.Passcode): async () {
         assert(Principal.equal(passcoderCid, msg.caller));
-        if (_removePasscode(principal, passcode)) {
-            return #ok(true);
-        } else {
-            return #err(#InternalError("Passcode does not exist."));
-        };
+        ignore _deletePasscode(principal, passcode);
     };
 
     public shared (msg) func upgradePoolTokenStandard(poolCid : Principal, tokenCid : Principal) : async Result.Result<Text, Types.Error> {
@@ -219,39 +211,6 @@ shared (initMsg) actor class SwapFactory(
             };
         };
     };
-    public shared (msg) func validateUpgradePoolTokenStandard(poolCid : Principal, tokenCid : Principal) : async Bool {
-        _checkPermission(msg.caller);
-        var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
-        switch (await poolAct.metadata()) {
-            case (#ok(metadata)) {
-                let token = if (Text.equal(Principal.toText(tokenCid), metadata.token0.address)) { 
-                    metadata.token0
-                } else if (Text.equal(Principal.toText(tokenCid), metadata.token1.address)) {
-                    metadata.token1
-                } else { 
-                    return false;
-                };
-                let tokenAct = actor (token.address) : actor {
-                    icrc1_supported_standards : query () -> async [{ url : Text; name : Text; }];
-                };
-                try {
-                    var supportStandards = await tokenAct.icrc1_supported_standards();
-                    var isSupportedICRC2 = false;
-                    for (supportStandard in supportStandards.vals()) {
-                        if (Text.equal("ICRC-2", supportStandard.name)) {
-                            return true;
-                        };
-                    };
-                } catch (e) {
-                    return false;
-                };
-                return false;
-            };
-            case (#err(code)) {
-                return false;
-            };
-        };
-    };
 
     /// get pool by token addresses and fee.
     public query func getPool(args : Types.GetPoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
@@ -275,11 +234,11 @@ shared (initMsg) actor class SwapFactory(
         return #ok(governanceCid);
     };
 
-    public query func getPrincipalPasscodes(): async Result.Result<[(Principal, [Text])], Types.Error> {
+    public query func getPrincipalPasscodes(): async Result.Result<[(Principal, [Types.Passcode])], Types.Error> {
         return #ok(Iter.toArray(_principalPasscodeMap.entries()));
     };
 
-    public query func getPasscodesByPrincipal(principal: Principal): async Result.Result<[Text], Types.Error> {
+    public query func getPasscodesByPrincipal(principal: Principal): async Result.Result<[Types.Passcode], Types.Error> {
         switch (_principalPasscodeMap.get(principal)) {
             case (?passcodes) { return #ok(passcodes); };
             case (_) { return #ok([]); };
@@ -307,19 +266,13 @@ shared (initMsg) actor class SwapFactory(
             case (_) { return "Failed: No such SwapPool."; };
         };
     };
-    public shared (msg) func validateRestorePool(poolId : Principal) : async Bool {
-        _checkPermission(msg.caller);
-        true
-    };
+
     public shared (msg) func removePool(args : Types.GetPoolArgs) : async Text {
         _checkPermission(msg.caller);
         let poolKey : Text = PoolUtils.getPoolKey(args.token0, args.token1, args.fee);
         let poolCid = _poolDataService.removePool(poolKey);
     };
-    public shared (msg) func validateRemovePool(args : Types.GetPoolArgs) : async Bool {
-        _checkPermission(msg.caller);
-        true
-    };
+
     // ---------------        Pools Governance Functions        ----------------------
     public shared (msg) func removePoolWithdrawErrorLog(poolCid : Principal, id : Nat, rollback : Bool) : async Result.Result<(), Types.Error> {
         _checkPermission(msg.caller);
@@ -331,34 +284,22 @@ shared (initMsg) actor class SwapFactory(
             return #err(#InternalError("Remove withdraw error log failed: " # Error.message(e)));
         }
     };
-    public shared (msg) func validateRemovePoolWithdrawErrorLog(poolCid : Principal, id : Nat, rollback : Bool) : async Bool {
-        _checkPermission(msg.caller);
-        true;
-    };
+
     public shared (msg) func setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
         _checkPermission(msg.caller);
         await _setPoolAdmins(poolCid, admins);
     };
-    public shared (msg) func validateSetPoolAdmins(poolCid : Principal, admins : [Principal]) : async Bool {
-        _checkPermission(msg.caller);
-        true;
-    };
+
     public shared (msg) func clearRemovedPool(canisterId : Principal) : async Text {
         _checkPermission(msg.caller);
         let poolCid = _poolDataService.deletePool(Principal.toText(canisterId));
     };
-    public shared (msg) func validateClearRemovedPool(canisterId : Principal) : async Bool {
-        _checkPermission(msg.caller);
-        true;
-    };
+
     public shared (msg) func addPoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
         await _addPoolControllers(poolCid, controllers);
     };
-    public shared (msg) func validateAddPoolControllers(poolCid : Principal, controllers : [Principal]) : async Bool {
-        _checkPermission(msg.caller);
-        true;
-    };
+
     public shared (msg) func removePoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
         if (not _checkPoolControllers(controllers)){
@@ -366,30 +307,21 @@ shared (initMsg) actor class SwapFactory(
         };
         await _removePoolControllers(poolCid, controllers);
     };
-    public shared (msg) func validateRemovePoolControllers(poolCid : Principal, controllers : [Principal]) : async Bool {
-        _checkPermission(msg.caller);
-        _checkPoolControllers(controllers);
-    };
+
     public shared (msg) func batchSetPoolAdmins(poolCids : [Principal], admins : [Principal]) : async () {
         _checkPermission(msg.caller);
         for (poolCid in poolCids.vals()) {
             await _setPoolAdmins(poolCid, admins);
         };
     };
-    public shared (msg) func validateBatchSetPoolAdmins(poolCids : [Principal], admins : [Principal]) : async Bool {
-        _checkPermission(msg.caller);
-        true;
-    };
+
     public shared (msg) func batchAddPoolControllers(poolCids : [Principal], controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
         for (poolCid in poolCids.vals()) {
             await _addPoolControllers(poolCid, controllers);
         };
     };
-    public shared (msg) func validateBatchAddPoolControllers(poolCids : [Principal], controllers : [Principal]) : async Bool {
-        _checkPermission(msg.caller);
-        true;
-    };
+
     public shared (msg) func batchRemovePoolControllers(poolCids : [Principal], controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
         if (not _checkPoolControllers(controllers)){
@@ -399,20 +331,18 @@ shared (initMsg) actor class SwapFactory(
             await _removePoolControllers(poolCid, controllers);
         };
     };
-    public shared (msg) func validateBatchRemovePoolControllers(poolCids : [Principal], controllers : [Principal]) : async Bool {
-        _checkPermission(msg.caller);
-        _checkPoolControllers(controllers);
-    };
 
     private func _setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
         var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
         await poolAct.setAdmins(admins);
     };
+
     private func _addPoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
         let { settings } = await IC0.canister_status({ canister_id = poolCid });
         var controllerList = List.append(List.fromArray(settings.controllers), List.fromArray(controllers));
         IC0.update_settings({ canister_id = poolCid; settings = { controllers = List.toArray(controllerList) }; });
     };
+
     private func _removePoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
         let buffer: Buffer.Buffer<Principal> = Buffer.Buffer<Principal>(0);
         let { settings } = await IC0.canister_status({ canister_id = poolCid });
@@ -423,6 +353,7 @@ shared (initMsg) actor class SwapFactory(
         };
         IC0.update_settings({ canister_id = poolCid; settings = { controllers = Buffer.toArray<Principal>(buffer) }; });
     };
+
     private func _checkPoolControllers(controllers : [Principal]) : Bool {
         let factoryCid : Principal = Principal.fromActor(this);
         for (it in controllers.vals()) {
@@ -445,18 +376,18 @@ shared (initMsg) actor class SwapFactory(
         switch (_principalPasscodeMap.get(principal)) {
             case (?passcodes) {
                 let (token0, token1) = PoolUtils.sort(args.token0, args.token1);
-                var passcode = Principal.toText(principal) # "_" # token0.address # "_" # token1.address # "_" # debug_show(args.fee);
-                if (CollectionUtils.arrayContains<Text>(passcodes, passcode, Text.equal)) { return true; } else { return false; };
+                var passcode = { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; };
+                if (CollectionUtils.arrayContains<Types.Passcode>(passcodes, passcode, _passcodeEqual)) { return true; } else { return false; };
             };
             case (_) { return false; };
         };
     };
 
-    private func _removePasscode(principal: Principal, passcode: Text): Bool {
+    private func _deletePasscode(principal: Principal, passcode: Types.Passcode): Bool {
         switch (_principalPasscodeMap.get(principal)) {
             case (?passcodes) {
-                if (CollectionUtils.arrayContains<Text>(passcodes, passcode, Text.equal)) {
-                    _principalPasscodeMap.put(principal, CollectionUtils.arrayRemove(passcodes, passcode, Text.equal));
+                if (CollectionUtils.arrayContains<Types.Passcode>(passcodes, passcode, _passcodeEqual)) {
+                    _principalPasscodeMap.put(principal, CollectionUtils.arrayRemove(passcodes, passcode, _passcodeEqual));
                     return true;
                 } else {
                     return false;
@@ -466,8 +397,12 @@ shared (initMsg) actor class SwapFactory(
         };
     };
 
+    private func _passcodeEqual(p1 : Types.Passcode, p2 : Types.Passcode) : Bool { 
+        Principal.equal(p1.token0, p2.token0) and  Principal.equal(p1.token1, p2.token1) and Nat.equal(p1.fee, p2.fee)
+    };
+
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.3.5";
+    private var _version : Text = "3.4.0";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {
