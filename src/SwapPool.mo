@@ -31,7 +31,6 @@ import TickBitmap "./libraries/TickBitmap";
 import FullMath "./libraries/FullMath";
 import SwapMath "./libraries/SwapMath";
 import FixedPoint128 "./libraries/FixedPoint128";
-import Func "./Functions";
 import SafeUint "mo:commons/math/SafeUint";
 import SafeInt "mo:commons/math/SafeInt";
 import IntUtils "mo:commons/math/SafeInt/IntUtils";
@@ -869,9 +868,7 @@ shared (initMsg) actor class SwapPool(
 
     public shared ({ caller }) func withdraw(args : Types.WithdrawArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(caller));
-        if (AccountUtils.isEmptyIdentity(caller)) {
-            return #err(#InternalError("Do not accept anonymous calls"));
-        };
+        if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (args.token != _token0.address and args.token != _token1.address) {
             return #err(#UnsupportedToken(args.token));
         };
