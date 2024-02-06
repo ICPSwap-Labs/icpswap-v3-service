@@ -274,7 +274,12 @@ module {
         offset : Nat;
         limit : Nat;
     };
-
+    public type Passcode = {
+        token0: Principal;
+        token1: Principal;
+        fee: Nat;
+    };
+    public 
     public type SwapPoolMsg = {
         #allTokenBalance : () -> (Nat, Nat);
         #approvePosition : () -> (Principal, Nat);
@@ -391,5 +396,7 @@ module {
     };
     public type SwapFactoryActor = actor {
         getPools : query () -> async Result.Result<[PoolData], Error>;
+        addPasscode: (Principal, Passcode) -> async Result.Result<Bool, Error>;
+        deletePasscode: (Principal, Passcode) -> async Result.Result<Bool, Error>;
     };
 };
