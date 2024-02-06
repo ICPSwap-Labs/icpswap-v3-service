@@ -342,9 +342,13 @@ module {
         #getInvalidPools : () -> ();
         #getPool : () -> GetPoolArgs;
         #getPools : () -> ();
+        #getPrincipalPasscodes : () -> ();
+        #getPasscodesByPrincipal : () -> Principal;
         #getPagedPools : () -> (Nat, Nat);
         #getRemovedPools : () -> ();
         #getVersion : () -> ();
+        #addPasscode : () -> (Principal, Text);
+        #removePasscode : () -> (Principal, Text);
         #removePool : () -> GetPoolArgs;
         #validateRemovePool : () -> GetPoolArgs;
         #restorePool : () -> Principal;

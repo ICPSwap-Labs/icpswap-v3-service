@@ -28,13 +28,13 @@ import PoolUtils "./utils/PoolUtils";
 import PoolData "./components/PoolData";
 import SwapPool "./SwapPool";
 import Types "./Types";
-import Func "./Functions";
 import TokenAdapterTypes "mo:token-adapter/Types";
 import TokenFactory "mo:token-adapter/TokenFactory";
 
 shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
     feeReceiverCid : Principal,
+    passcoderCid : Principal,
     governanceCid : ?Principal,
 ) = this {
     private type LockState = {
@@ -47,6 +47,9 @@ shared (initMsg) actor class SwapFactory(
     private stable var _initCycles : Nat = 1860000000000;
     private stable var _feeTickSpacingEntries : [(Nat, Int)] = [(500, 10), (3000, 60), (10000, 200)];
     private stable var _poolDataState : PoolData.State = { poolEntries = []; removedPoolEntries = []; };
+
+    private stable var _principalPasscodes : [(Principal, [Text])] = [];
+    private var _principalPasscodeMap : HashMap.HashMap<Principal, [Text]> = HashMap.fromIter(_principalPasscodes.vals(), 0, Principal.equal, Principal.hash);
 
     private var _feeTickSpacingMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(_feeTickSpacingEntries.vals(), 10, Nat.equal, Hash.hash);
     private var _poolDataService : PoolData.Service = PoolData.Service(_poolDataState);
@@ -68,65 +71,81 @@ shared (initMsg) actor class SwapFactory(
     private func _unlock() {
         _lockState := { locked = false; time = 0};
     };
-    /// create token pool, returns principal id.
-    private func _createPool(token0 : Types.Token, token1 : Types.Token, fee : Nat, sqrtPriceX96 : Text, tickSpacing : Int) : async Types.PoolData {
-        let (_token0, _token1) = PoolUtils.sort(token0, token1);
-        try {
-            let poolKey : Text = PoolUtils.getPoolKey(_token0, _token1, fee);
-            switch (_poolDataService.getPools().get(poolKey)) {
-                case (?pool) { return pool };
-                case (_) {
-                    Cycles.add(_initCycles);
-                    let pool = await SwapPool.SwapPool(token0, token1, _infoCid, _feeReceiverCid);
-                    let poolId : Principal = Principal.fromActor(pool);
-                    await pool.init(fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(sqrtPriceX96)).val());
-                    let poolData = {
-                        key = poolKey;
-                        token0 = _token0;
-                        token1 = _token1;
-                        fee = fee;
-                        tickSpacing = tickSpacing;
-                        canisterId = poolId;
-                    } : Types.PoolData;
-                    _poolDataService.putPool(poolKey, poolData);
-                    await IC0Utils.update_settings_add_controller(poolId, initMsg.caller);
-                    await _infoAct.addClient(poolId);
-                    return poolData;
-                };
-            };
-        } catch (e) {
-            var errMsg = Error.message(e);
-            throw Error.reject("create pool failed: " # errMsg);
-        };
-    };
 
     public shared (msg) func createPool(args : Types.CreatePoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
-        // todo Require a fee for pool creation, controller and admin can create for free
-        if (Text.equal(args.token0.address, args.token1.address)) {
-            return #err(#InternalError("Can not use the same token"));
-        };
+        if (not _validatePasscode(msg.caller, args)) { return #err(#InternalError("Please pay the fee for creating SwapPool.")); };
+        if (Text.equal(args.token0.address, args.token1.address)) { return #err(#InternalError("Can not use the same token")); };
         var tickSpacing = switch (_feeTickSpacingMap.get(args.fee)) {
             case (?feeAmountTickSpacingFee) { feeAmountTickSpacingFee };
-            case (_) { 0 };
+            case (_) { return #err(#InternalError("TickSpacing cannot be 0")); };
         };
-        if (tickSpacing == 0) {
-            return #err(#InternalError("TickSpacing cannot be 0"));
-        };
-        let poolKey : Text = PoolUtils.getPoolKey(args.token0, args.token1, args.fee);
+        
+        if (not _lock()) { return #err(#InternalError("Please wait for previous creating job finished")); };
 
-        if (not _lock()) {
-            return #err(#InternalError("Please wait for previous creating job finished"));
-        };
+        let (token0, token1) = PoolUtils.sort(args.token0, args.token1);
+        let poolKey : Text = PoolUtils.getPoolKey(token0, token1, args.fee);
         var poolData = switch (_poolDataService.getPools().get(poolKey)) {
             case (?pool) { pool };
             case (_) {
-                let pool = await _createPool(args.token0, args.token1, args.fee, args.sqrtPriceX96, tickSpacing);
-                pool
+                try {
+                    if(not _removePasscode(msg.caller, Principal.toText(msg.caller) # "_" # token0.address # "_" # token1.address # "_" # debug_show(args.fee))) {
+                        return #err(#InternalError("Passcode does not exist."));
+                    };
+                    Cycles.add(_initCycles);
+                    let pool = await SwapPool.SwapPool(token0, token1, _infoCid, _feeReceiverCid);
+                    await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
+                    await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), initMsg.caller);
+                    await _infoAct.addClient(Principal.fromActor(pool));
+                    let poolData = {
+                        key = poolKey;
+                        token0 = token0;
+                        token1 = token1;
+                        fee = args.fee;
+                        tickSpacing = tickSpacing;
+                        canisterId = Principal.fromActor(pool);
+                    } : Types.PoolData;
+                    _poolDataService.putPool(poolKey, poolData);
+                    poolData;
+                } catch (e) {
+                    throw Error.reject("create pool failed: " # Error.message(e));
+                };
             };
         };
+
         _unlock();
         
         return #ok(poolData);
+    };
+
+    public shared (msg) func addPasscode(principal: Principal, passcode: Text): async Result.Result<Bool, Types.Error> {
+        assert(Principal.equal(passcoderCid, msg.caller));
+        switch (_principalPasscodeMap.get(principal)) {
+            case (?passcodes) {
+                var passcodeList : List.List<Text> = List.fromArray(passcodes);
+                if (CollectionUtils.arrayContains<Text>(passcodes, passcode, Text.equal)) {
+                    return #err(#InternalError("Passcode exists."));
+                } else {
+                    passcodeList := List.push(passcode, passcodeList);
+                    _principalPasscodeMap.put(principal, List.toArray(passcodeList));
+                    return #ok(true);
+                };
+            };
+            case (_) {
+                var passcodeList = List.nil<Text>();
+                passcodeList := List.push(passcode, passcodeList);
+                _principalPasscodeMap.put(principal, List.toArray(passcodeList));
+                return #ok(true);
+            };
+        };
+    };
+
+    public shared (msg) func removePasscode(principal: Principal, passcode: Text): async Result.Result<Bool, Types.Error> {
+        assert(Principal.equal(passcoderCid, msg.caller));
+        if (_removePasscode(principal, passcode)) {
+            return #ok(true);
+        } else {
+            return #err(#InternalError("Passcode does not exist."));
+        };
     };
 
     public shared (msg) func upgradePoolTokenStandard(poolCid : Principal, tokenCid : Principal) : async Result.Result<Text, Types.Error> {
@@ -248,33 +267,23 @@ shared (initMsg) actor class SwapFactory(
         return #ok(Iter.toArray(_poolDataService.getPools().vals()));
     };
 
-    // todo verify if anywhere in frontend uses this function
-    // public query (msg) func getPagedPools(offset : Nat, limit : Nat) : async Result.Result<Types.Page<Types.PoolData>, Types.Error> {
-    //     let resultArr : Buffer.Buffer<Types.PoolData> = Buffer.Buffer<Types.PoolData>(0);
-    //     var begin : Nat = 0;
-    //     label l {
-    //         for (poolData in _poolDataService.getPools().vals()) {
-    //             if (begin >= offset and begin < (offset + limit)) {
-    //                 resultArr.add(poolData);
-    //             };
-    //             if (begin >= (offset + limit)) { break l };
-    //             begin := begin + 1;
-    //         };
-    //     };
-    //     return #ok({
-    //         totalElements = _poolDataService.getPools().size();
-    //         content = Buffer.toArray(resultArr);
-    //         offset = offset;
-    //         limit = limit;
-    //     });
-    // };
-
     public query func getRemovedPools() : async Result.Result<[Types.PoolData], Types.Error> {
         return #ok(Iter.toArray(_poolDataService.getRemovedPools().vals()));
     };
 
     public query func getGovernanceCid() : async Result.Result<?Principal, Types.Error> {
         return #ok(governanceCid);
+    };
+
+    public query func getPrincipalPasscodes(): async Result.Result<[(Principal, [Text])], Types.Error> {
+        return #ok(Iter.toArray(_principalPasscodeMap.entries()));
+    };
+
+    public query func getPasscodesByPrincipal(principal: Principal): async Result.Result<[Text], Types.Error> {
+        switch (_principalPasscodeMap.get(principal)) {
+            case (?passcodes) { return #ok(passcodes); };
+            case (_) { return #ok([]); };
+        };
     };
 
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
@@ -432,17 +441,44 @@ shared (initMsg) actor class SwapFactory(
         return Prim.isController(caller) or (switch (governanceCid) {case (?cid) { Principal.equal(caller, cid) }; case (_) { false };});
     };
 
+    private func _validatePasscode(principal: Principal, args: Types.CreatePoolArgs): Bool {
+        switch (_principalPasscodeMap.get(principal)) {
+            case (?passcodes) {
+                let (token0, token1) = PoolUtils.sort(args.token0, args.token1);
+                var passcode = Principal.toText(principal) # "_" # token0.address # "_" # token1.address # "_" # debug_show(args.fee);
+                if (CollectionUtils.arrayContains<Text>(passcodes, passcode, Text.equal)) { return true; } else { return false; };
+            };
+            case (_) { return false; };
+        };
+    };
+
+    private func _removePasscode(principal: Principal, passcode: Text): Bool {
+        switch (_principalPasscodeMap.get(principal)) {
+            case (?passcodes) {
+                if (CollectionUtils.arrayContains<Text>(passcodes, passcode, Text.equal)) {
+                    _principalPasscodeMap.put(principal, CollectionUtils.arrayRemove(passcodes, passcode, Text.equal));
+                    return true;
+                } else {
+                    return false;
+                };
+            };
+            case (_) { return false; };
+        };
+    };
+
     // --------------------------- Version Control      -------------------------------
     private var _version : Text = "3.3.5";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {
         _feeTickSpacingEntries := Iter.toArray(_feeTickSpacingMap.entries());
+        _principalPasscodes := Iter.toArray(_principalPasscodeMap.entries());
         _poolDataState := _poolDataService.getState();
     };
 
     system func postupgrade() {
         _feeTickSpacingEntries := [];
+        _principalPasscodes := [];
     };
 
     system func inspect({
