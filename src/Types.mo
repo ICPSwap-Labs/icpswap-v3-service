@@ -395,7 +395,7 @@ module {
     };
     public type SwapFactoryActor = actor {
         getPools : query () -> async Result.Result<[PoolData], Error>;
-        addPasscode: (Principal, Passcode) -> async ();
-        deletePasscode: (Principal, Passcode) -> async ();
+        addPasscode: (Principal, Passcode) -> async Result.Result<(), Error>;
+        deletePasscode: (Principal, Passcode) -> async Result.Result<(), Error>;
     };
 };
