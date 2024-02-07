@@ -354,27 +354,16 @@ module {
         #addPasscode : () -> (Principal, Passcode);
         #deletePasscode : () -> (Principal, Passcode);
         #removePool : () -> GetPoolArgs;
-        #validateRemovePool : () -> GetPoolArgs;
         #restorePool : () -> Principal;
-        #validateRestorePool : () -> Principal;
         #removePoolWithdrawErrorLog : () -> (Principal, Nat, Bool);
-        #validateRemovePoolWithdrawErrorLog : () -> (Principal, Nat, Bool);
         #clearRemovedPool : () -> Principal;
-        #validateClearRemovedPool : () -> Principal;
         #setPoolAdmins : () -> (Principal, [Principal]);
-        #validateSetPoolAdmins : () -> (Principal, [Principal]);
         #addPoolControllers : () -> (Principal, [Principal]);
-        #validateAddPoolControllers : () -> (Principal, [Principal]);
         #upgradePoolTokenStandard : () -> (Principal, Principal);
-        #validateUpgradePoolTokenStandard : () -> (Principal, Principal);
         #removePoolControllers : () -> (Principal, [Principal]);
-        #validateRemovePoolControllers : () -> (Principal, [Principal]);
         #batchSetPoolAdmins : () -> ([Principal], [Principal]);
-        #validateBatchSetPoolAdmins : () -> ([Principal], [Principal]);
         #batchAddPoolControllers : () -> ([Principal], [Principal]);
-        #validateBatchAddPoolControllers : () -> ([Principal], [Principal]);
         #batchRemovePoolControllers : () -> ([Principal], [Principal]);
-        #validateBatchRemovePoolControllers : () -> ([Principal], [Principal]);
     };
     public type SwapFeeReceiverMsg = {
         #claim : () -> (Principal, Principal, Nat, Nat);

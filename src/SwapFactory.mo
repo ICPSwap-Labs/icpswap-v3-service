@@ -438,20 +438,9 @@ shared (initMsg) actor class SwapFactory(
             case (#addPoolControllers args)                 { _hasPermission(caller) };
             case (#removePoolControllers args)              { _hasPermission(caller) };
             case (#setPoolAdmins args)                      { _hasPermission(caller) };
-            case (#validateUpgradePoolTokenStandard args)   { _hasPermission(caller) };
-            case (#validateRestorePool args)                { _hasPermission(caller) };
-            case (#validateRemovePool args)                 { _hasPermission(caller) };
-            case (#validateRemovePoolWithdrawErrorLog args) { _hasPermission(caller) };
-            case (#validateSetPoolAdmins args)              { _hasPermission(caller) };
-            case (#validateClearRemovedPool args)           { _hasPermission(caller) };
-            case (#validateAddPoolControllers args)         { _hasPermission(caller) };
-            case (#validateRemovePoolControllers args)      { _hasPermission(caller) };
             case (#batchAddPoolControllers args)            { _hasPermission(caller) };
-            case (#validateBatchAddPoolControllers args)    { _hasPermission(caller) };
             case (#batchRemovePoolControllers args)         { _hasPermission(caller) };
-            case (#validateBatchRemovePoolControllers args) { _hasPermission(caller) };
             case (#batchSetPoolAdmins args)                 { _hasPermission(caller) };
-            case (#validateBatchSetPoolAdmins args)         { _hasPermission(caller) };
             // Anyone
             case (_)                                   { true };
         };
