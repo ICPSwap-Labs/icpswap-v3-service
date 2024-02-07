@@ -89,7 +89,7 @@ shared (initMsg) actor class SwapFactory(
             case (_) {
                 try {
                     if(not _deletePasscode(msg.caller, { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; })) {
-                        return #err(#InternalError("Passcode does not exist."));
+                        return #err(#InternalError("Passcode is not existed."));
                     };
                     Cycles.add(_initCycles);
                     let pool = await SwapPool.SwapPool(token0, token1, _infoCid, _feeReceiverCid);
@@ -117,7 +117,7 @@ shared (initMsg) actor class SwapFactory(
         return #ok(poolData);
     };
 
-    public shared (msg) func addPasscode(principal: Principal, passcode: Types.Passcode): async () {
+    public shared (msg) func addPasscode(principal: Principal, passcode: Types.Passcode): async Result.Result<(), Types.Error> {
         assert(Principal.equal(passcoderCid, msg.caller));
         switch (_principalPasscodeMap.get(principal)) {
             case (?passcodes) {
@@ -125,19 +125,26 @@ shared (initMsg) actor class SwapFactory(
                 if (not CollectionUtils.arrayContains<Types.Passcode>(passcodes, passcode, _passcodeEqual)) {
                     passcodeList := List.push(passcode, passcodeList);
                     _principalPasscodeMap.put(principal, List.toArray(passcodeList));
+                    return #ok;
                 };
+                return #err(#InternalError("Passcode is existed."));
             };
             case (_) {
                 var passcodeList = List.nil<Types.Passcode>();
                 passcodeList := List.push(passcode, passcodeList);
                 _principalPasscodeMap.put(principal, List.toArray(passcodeList));
+                return #ok;
             };
         };
     };
 
-    public shared (msg) func deletePasscode(principal: Principal, passcode: Types.Passcode): async () {
+    public shared (msg) func deletePasscode(principal: Principal, passcode: Types.Passcode): async Result.Result<(), Types.Error> {
         assert(Principal.equal(passcoderCid, msg.caller));
-        ignore _deletePasscode(principal, passcode);
+        if (_deletePasscode(principal, passcode)){
+            return #ok;
+        } else {
+            return #err(#InternalError("Passcode is not exist."));
+        };
     };
 
     public shared (msg) func upgradePoolTokenStandard(poolCid : Principal, tokenCid : Principal) : async Result.Result<Text, Types.Error> {
