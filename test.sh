@@ -15,6 +15,10 @@ cat > dfx.json <<- EOF
       "main": "./src/SwapFactory.mo",
       "type": "motoko"
     },
+    "PasscodeManager": {
+      "main": "./src/PasscodeManager.mo",
+      "type": "motoko"
+    },
     "PositionIndex": {
       "main": "./src/PositionIndex.mo",
       "type": "motoko",
@@ -33,6 +37,11 @@ cat > dfx.json <<- EOF
       "wasm": "./test/dip20/lib.wasm",
       "type": "custom",
       "candid": "./test/dip20/lib.did"
+    },
+    "ICRC2": {
+      "wasm": "./test/icrc2/icrc2.wasm",
+      "type": "custom",
+      "candid": "./test/icrc2/icrc2.did"
     },
     "base_index": {
       "wasm": "./test/base_index/base_index.wasm",
@@ -66,6 +75,8 @@ dfx build
 echo
 echo "==> Install canisters"
 echo
+echo "==> install ICRC2"
+dfx canister install ICRC2 --argument="( record {name = \"ICRC2\"; symbol = \"ICRC2\"; decimals = 8; fee = 0; max_supply = 1_000_000_000_000; initial_balances = vec {record {record {owner = principal \"$MINTER_PRINCIPAL\";subaccount = null;};100_000_000}};min_burn_amount = 10_000;minting_account = null;advanced_settings = null; })"
 echo "==>install DIP20"
 dfx canister install DIP20A --argument="(\"DIPA Logo\", \"DIPA\", \"DIPA\", 8, $TOTAL_SUPPLY, principal \"$MINTER_PRINCIPAL\", $TRANS_FEE)"
 dfx canister install DIP20B --argument="(\"DIPB Logo\", \"DIPB\", \"DIPB\", 8, $TOTAL_SUPPLY, principal \"$MINTER_PRINCIPAL\", $TRANS_FEE)"
@@ -81,9 +92,10 @@ dfx deploy base_index --argument="(principal \"$(dfx canister id price)\", princ
 echo "==> install node_index"
 dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx canister id price)\")"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", null)"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", null)"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
+dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\")"
 
 dipAId=`dfx canister id DIP20A`
 dipBId=`dfx canister id DIP20B`
@@ -128,6 +140,10 @@ function balanceOf()
 # create pool
 function create_pool() #sqrtPriceX96
 {
+    dfx canister call ICRC2 icrc2_approve "(record{amount=1000000000000;created_at_time=null;expected_allowance=null;expires_at=null;fee=null;from_subaccount=null;memo=null;spender=record {owner= principal \"$(dfx canister id PasscodeManager)\";subaccount=null;}})"
+    dfx canister call PasscodeManager depositFrom "(record {amount=100000000;fee=0;})"
+    dfx canister call PasscodeManager requestPasscode "(principal \"$token0\", principal \"$token1\", 3000)"
+    
     result=`dfx canister call SwapFactory createPool "(record {token0 = record {address = \"$token0\"; standard = \"DIP20\";}; token1 = record {address = \"$token1\"; standard = \"DIP20\";}; fee = 3000; sqrtPriceX96 = \"$1\"})"`
     if [[ ! "$result" =~ " ok = record " ]]; then
         echo "\033[31mcreate pool fail. $result - \033[0m"
