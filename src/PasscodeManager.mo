@@ -234,6 +234,22 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
             };
         };
     };
+    
+    public func deletePasscode(owner: Principal, token0: Principal, token1: Principal, fee: Nat) : async Result.Result<Text, Types.Error> {
+        switch(await FACTORY.deletePasscode(owner, {
+            token0 = token0;
+            token1 = token1;
+            fee = fee;
+        })) {
+            case(#ok(())) {
+                return #ok("ok");
+            };
+            case(#err(msg)) {
+                return #err(#InternalError(debug_show (msg)));
+            };
+        };
+    };
+
     public query func getTokenCid(): async Principal {
         return tokenCid;
     };
