@@ -34,7 +34,7 @@ import TokenFactory "mo:token-adapter/TokenFactory";
 shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
     feeReceiverCid : Principal,
-    passcoderCid : Principal,
+    passcodeManagerCid : Principal,
     governanceCid : ?Principal,
 ) = this {
     private type LockState = {
@@ -118,7 +118,7 @@ shared (initMsg) actor class SwapFactory(
     };
 
     public shared (msg) func addPasscode(principal: Principal, passcode: Types.Passcode): async Result.Result<(), Types.Error> {
-        assert(Principal.equal(passcoderCid, msg.caller));
+        assert(Principal.equal(passcodeManagerCid, msg.caller));
         switch (_principalPasscodeMap.get(principal)) {
             case (?passcodes) {
                 var passcodeList : List.List<Types.Passcode> = List.fromArray(passcodes);
@@ -139,7 +139,7 @@ shared (initMsg) actor class SwapFactory(
     };
 
     public shared (msg) func deletePasscode(principal: Principal, passcode: Types.Passcode): async Result.Result<(), Types.Error> {
-        assert(Principal.equal(passcoderCid, msg.caller));
+        assert(Principal.equal(passcodeManagerCid, msg.caller));
         if (_deletePasscode(principal, passcode)){
             return #ok;
         } else {
