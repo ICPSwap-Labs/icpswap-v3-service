@@ -206,7 +206,7 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
                 token1 = token1;
                 fee = fee;
             })) {
-                case(#ok(())) {
+                case(#ok()) {
                     return #ok("ok");
                 };
                 case(#err(msg)) {
@@ -225,26 +225,11 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
             token1 = token1;
             fee = fee;
         })) {
-            case(#ok(())) {
+            case(#ok()) {
                 return #ok("ok");
             };
             case(#err(msg)) {
                 _walletDeposit(caller, passcodePrice);
-                return #err(#InternalError(debug_show (msg)));
-            };
-        };
-    };
-    
-    public func deletePasscode(owner: Principal, token0: Principal, token1: Principal, fee: Nat) : async Result.Result<Text, Types.Error> {
-        switch(await FACTORY.deletePasscode(owner, {
-            token0 = token0;
-            token1 = token1;
-            fee = fee;
-        })) {
-            case(#ok(())) {
-                return #ok("ok");
-            };
-            case(#err(msg)) {
                 return #err(#InternalError(debug_show (msg)));
             };
         };
