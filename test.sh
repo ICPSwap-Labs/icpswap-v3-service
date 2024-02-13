@@ -308,6 +308,84 @@ function income() #positionId tickLower tickUpper
     result=`dfx canister call $poolId getPosition "(record {tickLower = $2: int; tickUpper = $3: int})"`
 }
 
+#----------------- test rollback ------------------------
+allBalanceBefore=""
+allBalanceAfter=""
+positionsBefore=""
+positionsAfter=""
+ticksBefore=""
+ticksAfter=""
+userPositionsBefore=""
+userPositionsAfter=""
+metadataBefore=""
+metadataAfter=""
+tokenStateBefore=""
+tokenStateAfter=""
+recordBefore=""
+recordAfter=""
+function checkRollback() 
+{
+    if [ "$positionsBefore" = "$positionsAfter" ]; then
+      echo "\033[32m positions are same. \033[0m"
+    else
+      echo "\033[31m positions are not same. \033[0m"
+    fi
+
+    if [ "$ticksBefore" = "$ticksAfter" ]; then
+      echo "\033[32m ticks are same. \033[0m"
+    else
+      echo "\033[31m ticks are not same. \033[0m"
+    fi
+
+    if [ "$userPositionsBefore" = "$userPositionsAfter" ]; then
+      echo "\033[32m user positions are same. \033[0m"
+    else
+      echo "\033[31m user positions are not same. \033[0m"
+    fi
+
+    if [ "$allBalanceBefore" = "$allBalanceAfter" ]; then
+      echo "\033[32m user balance are same. \033[0m"
+    else
+      echo "\033[31m user balance are not same. \033[0m"
+    fi
+
+    if [ "$tokenStateBefore" = "$tokenStateAfter" ]; then
+      echo "\033[32m token state are same. \033[0m"
+    else
+      echo "\033[31m token state are not same. \033[0m"
+    fi
+
+    if [ "$recordBefore" = "$recordAfter" ]; then
+      echo "\033[32m record are same. \033[0m"
+    else
+      echo "\033[31m record are not same. \033[0m"
+    fi
+
+    echo $metadataBefore
+    echo $metadataAfter
+}
+function recordBefore() 
+{
+    allBalanceBefore=`dfx canister call $poolId allTokenBalance "(0: nat, 100: nat)"`
+    positionsBefore=`dfx canister call $poolId getPositions "(0: nat, 100: nat)"`
+    ticksBefore=`dfx canister call $poolId getTicks "(0: nat, 100: nat)"`
+    userPositionsBefore=`dfx canister call $poolId getUserPositions "(0: nat, 100: nat)"`
+    metadataBefore=`dfx canister call $poolId metadata`
+    tokenStateBefore=`dfx canister call $poolId getTokenAmountState`
+    recordBefore=`dfx canister call $poolId getSwapRecordState`
+}
+function recordAfter() 
+{
+    allBalanceAfter=`dfx canister call $poolId allTokenBalance "(0: nat, 100: nat)"`
+    positionsAfter=`dfx canister call $poolId getPositions "(0: nat, 100: nat)"`
+    ticksAfter=`dfx canister call $poolId getTicks "(0: nat, 100: nat)"`
+    userPositionsAfter=`dfx canister call $poolId getUserPositions "(0: nat, 100: nat)"`
+    metadataAfter=`dfx canister call $poolId metadata`
+    tokenStateAfter=`dfx canister call $poolId getTokenAmountState`
+    recordAfter=`dfx canister call $poolId getSwapRecordState`
+}
+#----------------- test rollback ------------------------
+
 function testMintSwap()
 {   
     echo
