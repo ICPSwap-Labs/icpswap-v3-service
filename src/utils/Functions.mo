@@ -8,7 +8,7 @@ import Nat32 "mo:base/Nat32";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
-import Types "./Types";
+import Types "../Types";
 
 module {
 

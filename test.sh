@@ -15,6 +15,10 @@ cat > dfx.json <<- EOF
       "main": "./src/SwapFactory.mo",
       "type": "motoko"
     },
+    "PasscodeManager": {
+      "main": "./src/PasscodeManager.mo",
+      "type": "motoko"
+    },
     "PositionIndex": {
       "main": "./src/PositionIndex.mo",
       "type": "motoko",
@@ -33,6 +37,11 @@ cat > dfx.json <<- EOF
       "wasm": "./test/dip20/lib.wasm",
       "type": "custom",
       "candid": "./test/dip20/lib.did"
+    },
+    "ICRC2": {
+      "wasm": "./test/icrc2/icrc2.wasm",
+      "type": "custom",
+      "candid": "./test/icrc2/icrc2.did"
     },
     "base_index": {
       "wasm": "./test/base_index/base_index.wasm",
@@ -66,6 +75,8 @@ dfx build
 echo
 echo "==> Install canisters"
 echo
+echo "==> install ICRC2"
+dfx canister install ICRC2 --argument="( record {name = \"ICRC2\"; symbol = \"ICRC2\"; decimals = 8; fee = 0; max_supply = 1_000_000_000_000; initial_balances = vec {record {record {owner = principal \"$MINTER_PRINCIPAL\";subaccount = null;};100_000_000}};min_burn_amount = 10_000;minting_account = null;advanced_settings = null; })"
 echo "==>install DIP20"
 dfx canister install DIP20A --argument="(\"DIPA Logo\", \"DIPA\", \"DIPA\", 8, $TOTAL_SUPPLY, principal \"$MINTER_PRINCIPAL\", $TRANS_FEE)"
 dfx canister install DIP20B --argument="(\"DIPB Logo\", \"DIPB\", \"DIPB\", 8, $TOTAL_SUPPLY, principal \"$MINTER_PRINCIPAL\", $TRANS_FEE)"
@@ -81,9 +92,10 @@ dfx deploy base_index --argument="(principal \"$(dfx canister id price)\", princ
 echo "==> install node_index"
 dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx canister id price)\")"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", null)"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", null)"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
+dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\")"
 
 dipAId=`dfx canister id DIP20A`
 dipBId=`dfx canister id DIP20B`
@@ -128,6 +140,10 @@ function balanceOf()
 # create pool
 function create_pool() #sqrtPriceX96
 {
+    dfx canister call ICRC2 icrc2_approve "(record{amount=1000000000000;created_at_time=null;expected_allowance=null;expires_at=null;fee=null;from_subaccount=null;memo=null;spender=record {owner= principal \"$(dfx canister id PasscodeManager)\";subaccount=null;}})"
+    dfx canister call PasscodeManager depositFrom "(record {amount=100000000;fee=0;})"
+    dfx canister call PasscodeManager requestPasscode "(principal \"$token0\", principal \"$token1\", 3000)"
+    
     result=`dfx canister call SwapFactory createPool "(record {token0 = record {address = \"$token0\"; standard = \"DIP20\";}; token1 = record {address = \"$token1\"; standard = \"DIP20\";}; fee = 3000; sqrtPriceX96 = \"$1\"})"`
     if [[ ! "$result" =~ " ok = record " ]]; then
         echo "\033[31mcreate pool fail. $result - \033[0m"
@@ -291,6 +307,84 @@ function income() #positionId tickLower tickUpper
     result=`dfx canister call $poolId getUserPosition "($1: nat)"`
     result=`dfx canister call $poolId getPosition "(record {tickLower = $2: int; tickUpper = $3: int})"`
 }
+
+#----------------- test rollback ------------------------
+allBalanceBefore=""
+allBalanceAfter=""
+positionsBefore=""
+positionsAfter=""
+ticksBefore=""
+ticksAfter=""
+userPositionsBefore=""
+userPositionsAfter=""
+metadataBefore=""
+metadataAfter=""
+tokenStateBefore=""
+tokenStateAfter=""
+recordBefore=""
+recordAfter=""
+function checkRollback() 
+{
+    if [ "$positionsBefore" = "$positionsAfter" ]; then
+      echo "\033[32m positions are same. \033[0m"
+    else
+      echo "\033[31m positions are not same. \033[0m"
+    fi
+
+    if [ "$ticksBefore" = "$ticksAfter" ]; then
+      echo "\033[32m ticks are same. \033[0m"
+    else
+      echo "\033[31m ticks are not same. \033[0m"
+    fi
+
+    if [ "$userPositionsBefore" = "$userPositionsAfter" ]; then
+      echo "\033[32m user positions are same. \033[0m"
+    else
+      echo "\033[31m user positions are not same. \033[0m"
+    fi
+
+    if [ "$allBalanceBefore" = "$allBalanceAfter" ]; then
+      echo "\033[32m user balance are same. \033[0m"
+    else
+      echo "\033[31m user balance are not same. \033[0m"
+    fi
+
+    if [ "$tokenStateBefore" = "$tokenStateAfter" ]; then
+      echo "\033[32m token state are same. \033[0m"
+    else
+      echo "\033[31m token state are not same. \033[0m"
+    fi
+
+    if [ "$recordBefore" = "$recordAfter" ]; then
+      echo "\033[32m record are same. \033[0m"
+    else
+      echo "\033[31m record are not same. \033[0m"
+    fi
+
+    echo $metadataBefore
+    echo $metadataAfter
+}
+function recordBefore() 
+{
+    allBalanceBefore=`dfx canister call $poolId allTokenBalance "(0: nat, 100: nat)"`
+    positionsBefore=`dfx canister call $poolId getPositions "(0: nat, 100: nat)"`
+    ticksBefore=`dfx canister call $poolId getTicks "(0: nat, 100: nat)"`
+    userPositionsBefore=`dfx canister call $poolId getUserPositions "(0: nat, 100: nat)"`
+    metadataBefore=`dfx canister call $poolId metadata`
+    tokenStateBefore=`dfx canister call $poolId getTokenAmountState`
+    recordBefore=`dfx canister call $poolId getSwapRecordState`
+}
+function recordAfter() 
+{
+    allBalanceAfter=`dfx canister call $poolId allTokenBalance "(0: nat, 100: nat)"`
+    positionsAfter=`dfx canister call $poolId getPositions "(0: nat, 100: nat)"`
+    ticksAfter=`dfx canister call $poolId getTicks "(0: nat, 100: nat)"`
+    userPositionsAfter=`dfx canister call $poolId getUserPositions "(0: nat, 100: nat)"`
+    metadataAfter=`dfx canister call $poolId metadata`
+    tokenStateAfter=`dfx canister call $poolId getTokenAmountState`
+    recordAfter=`dfx canister call $poolId getSwapRecordState`
+}
+#----------------- test rollback ------------------------
 
 function testMintSwap()
 {   
