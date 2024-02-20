@@ -16,6 +16,10 @@
     "PasscodeManager": {
       "main": "./src/PasscodeManager.mo",
       "type": "motoko"
+    },
+    "MistransferTokenManager": {
+      "main": "./src/MistransferTokenManager.mo",
+      "type": "motoko"
     }
   },
   "defaults": { "build": { "packtool": "vessel sources" } },

@@ -50,6 +50,7 @@ shared (initMsg) actor class SwapPool(
     token1 : Types.Token,
     infoCid : Principal,
     feeReceiverCid : Principal,
+    mistransferTokenManagerCid : Principal,
 ) = this {
     private stable var _inited : Bool = false;
     public shared ({ caller }) func init (
@@ -2060,13 +2061,16 @@ shared (initMsg) actor class SwapPool(
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
-        let act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
-        let balance : Nat = await act.balanceOf({ owner = Principal.fromActor(this); subaccount = Option.make(AccountUtils.principalToBlob(caller)); });
-        let fee: Nat = await act.fee();
+        let mistransferTokenManagerAct = actor (Principal.toText(mistransferTokenManagerCid)) : actor { checkToken : shared query (Types.Token) -> async Bool; };
+        let checkResult = await mistransferTokenManagerAct.checkToken(token);
+        if(not checkResult) return #err(#InternalError("Unsupported token."));
+        let tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
+        let balance : Nat = await tokenAct.balanceOf({ owner = Principal.fromActor(this); subaccount = Option.make(AccountUtils.principalToBlob(caller)); });
+        let fee: Nat = await tokenAct.fee();
         if (balance > fee) {
             let amount = Nat.sub(balance, fee);
             let fromSubaccount: ?Blob = Option.make(AccountUtils.principalToBlob(caller));
-            switch (await act.transfer({ 
+            switch (await tokenAct.transfer({ 
                 from = { owner = Principal.fromActor(this); subaccount = fromSubaccount }; 
                 from_subaccount = fromSubaccount; 
                 to = { owner = caller; subaccount = null }; 

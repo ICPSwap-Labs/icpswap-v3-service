@@ -35,6 +35,7 @@ shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
     feeReceiverCid : Principal,
     passcodeManagerCid : Principal,
+    mistransferTokenManagerCid : Principal,
     governanceCid : ?Principal,
 ) = this {
     private type LockState = {
@@ -43,6 +44,7 @@ shared (initMsg) actor class SwapFactory(
     };
     private stable var _infoCid : Principal = infoCid;
     private stable var _feeReceiverCid : Principal = feeReceiverCid;
+    private stable var _mistransferTokenManagerCid : Principal = mistransferTokenManagerCid;
     /// configuration items
     private stable var _initCycles : Nat = 1860000000000;
     private stable var _feeTickSpacingEntries : [(Nat, Int)] = [(500, 10), (3000, 60), (10000, 200)];
@@ -92,7 +94,7 @@ shared (initMsg) actor class SwapFactory(
                         return #err(#InternalError("Passcode is not existed."));
                     };
                     Cycles.add(_initCycles);
-                    let pool = await SwapPool.SwapPool(token0, token1, _infoCid, _feeReceiverCid);
+                    let pool = await SwapPool.SwapPool(token0, token1, _infoCid, _feeReceiverCid, mistransferTokenManagerCid);
                     await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
                     await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), initMsg.caller);
                     await _infoAct.addClient(Principal.fromActor(pool));
