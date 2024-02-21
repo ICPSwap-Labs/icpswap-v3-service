@@ -8,53 +8,21 @@
       "main": "./src/SwapFactory.mo",
       "type": "motoko"
     },
-    "PasscodeManager": {
-      "main": "./src/PasscodeManager.mo",
-      "type": "motoko"
-    },
     "PositionIndex": {
       "main": "./src/PositionIndex.mo",
       "type": "motoko",
       "dependencies": ["SwapFactory"]
     },
+    "PasscodeManager": {
+      "main": "./src/PasscodeManager.mo",
+      "type": "motoko"
+    },
     "MistransferTokenManager": {
       "main": "./src/MistransferTokenManager.mo",
       "type": "motoko"
-    },
-    "Test": {
-      "main": "./test/Test.mo",
-      "type": "motoko"
-    },
-    "DIP20A": {
-      "wasm": "./test/dip20/lib.wasm",
-      "type": "custom",
-      "candid": "./test/dip20/lib.did"
-    },
-    "DIP20B": {
-      "wasm": "./test/dip20/lib.wasm",
-      "type": "custom",
-      "candid": "./test/dip20/lib.did"
-    },
-    "ICRC2": {
-      "wasm": "./test/icrc2/icrc2.wasm",
-      "type": "custom",
-      "candid": "./test/icrc2/icrc2.did"
-    },
-    "base_index": {
-      "wasm": "./test/base_index/base_index.wasm",
-      "type": "custom",
-      "candid": "./test/base_index/base_index.did"
-    },
-    "node_index": {
-      "wasm": "./test/node_index/node_index.wasm",
-      "type": "custom",
-      "candid": "./test/node_index/node_index.did"
-    },
-    "price": {
-      "wasm": "./test/price/price.wasm",
-      "type": "custom",
-      "candid": "./test/price/price.did"
     }
   },
-  "defaults": { "build": { "packtool": "vessel sources" } }, "networks": { "local": { "bind": "127.0.0.1:8000", "type": "ephemeral" } }, "version": 1
+  "defaults": { "build": { "packtool": "vessel sources" } },
+  "networks": { "local": { "bind": "127.0.0.1:8000", "type": "ephemeral" } },
+  "version": 1
 }
