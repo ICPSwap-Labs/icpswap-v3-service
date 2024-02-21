@@ -35,7 +35,7 @@ shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
     feeReceiverCid : Principal,
     passcodeManagerCid : Principal,
-    tokenWhitelist : Principal,
+    trustedCanisterManagerCid : Principal,
     governanceCid : ?Principal,
 ) = this {
     private type LockState = {
@@ -94,7 +94,7 @@ shared (initMsg) actor class SwapFactory(
                         return #err(#InternalError("Passcode is not existed."));
                     };
                     Cycles.add(_initCycles);
-                    let pool = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, tokenWhitelist);
+                    let pool = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
                     await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
                     await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), initMsg.caller);
                     await _infoAct.addClient(Principal.fromActor(pool));
@@ -247,14 +247,14 @@ shared (initMsg) actor class SwapFactory(
         infoCid : Principal;
         feeReceiverCid : Principal;
         passcodeManagerCid : Principal;
-        tokenWhitelist : Principal;
+        trustedCanisterManagerCid : Principal;
         governanceCid : ?Principal;
     }, Types.Error> {
         #ok({
             infoCid = infoCid;
             feeReceiverCid = feeReceiverCid;
             passcodeManagerCid = passcodeManagerCid;
-            tokenWhitelist = tokenWhitelist;
+            trustedCanisterManagerCid = trustedCanisterManagerCid;
             governanceCid = governanceCid;  
         });
     };

@@ -17,8 +17,8 @@
       "main": "./src/PasscodeManager.mo",
       "type": "motoko"
     },
-    "MistransferTokenManager": {
-      "main": "./src/MistransferTokenManager.mo",
+    "TrustedCanisterManager": {
+      "main": "./src/TrustedCanisterManager.mo",
       "type": "motoko"
     }
   },

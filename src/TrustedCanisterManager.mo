@@ -21,40 +21,40 @@ import Prim "mo:⛔";
 import CollectionUtils "mo:commons/utils/CollectionUtils";
 import Functions "./utils/Functions";
 
-shared (initMsg) actor class MistransferTokenManager(
+shared (initMsg) actor class TrustedCanisterManager(
     governanceCid : ?Principal
 ) = this {
 
-    private stable var _tokens : [Types.Token] = [];
+    private stable var _canisterIds : [Principal] = [];
 
-    public shared (msg) func addToken(token : Types.Token) : async Bool {
+    public shared (msg) func addCanisterId(canisterId : Principal) : async Bool {
         _checkPermission(msg.caller);
-        var tokenList : List.List<Types.Token> = List.fromArray(_tokens);
-        if (not CollectionUtils.listContains(tokenList, token, Functions.tokenEqual)) {
-            tokenList := List.push(token, tokenList);
-            _tokens := List.toArray(tokenList);
+        var canisterIdList : List.List<Principal> = List.fromArray(_canisterIds);
+        if (not CollectionUtils.listContains(canisterIdList, canisterId, Principal.equal)) {
+            canisterIdList := List.push(canisterId, canisterIdList);
+            _canisterIds := List.toArray(canisterIdList);
             true;
         } else {
             false;
         };
     };
 
-    public shared (msg) func deleteToken(token : Types.Token) : async Bool {
+    public shared (msg) func deleteCanisterId(canisterId : Principal) : async Bool {
         _checkPermission(msg.caller);
-        _tokens := CollectionUtils.arrayRemove(_tokens, token, Functions.tokenEqual);
+        _canisterIds := CollectionUtils.arrayRemove(_canisterIds, canisterId, Principal.equal);
         true;
     };
 
-    public query (msg) func checkToken(token : Types.Token) : async Bool {
-        if (CollectionUtils.arrayContains(_tokens, token, Functions.tokenEqual)) {
+    public query (msg) func checkCanisterId(canisterId : Principal) : async Bool {
+        if (CollectionUtils.arrayContains(_canisterIds, canisterId, Principal.equal)) {
             true;
         } else {
             false;
         };
     };
 
-    public query (msg) func getTokens() : async [Types.Token] {
-        _tokens;
+    public query (msg) func getCanisterIds() : async [Principal] {
+        _canisterIds;
     };
 
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {

@@ -50,7 +50,7 @@ shared (initMsg) actor class SwapPool(
     token1 : Types.Token,
     infoCid : Principal,
     feeReceiverCid : Principal,
-    tokenWhitelist : Principal,
+    trustedCanisterManagerCid : Principal,
 ) = this {
     private stable var _inited : Bool = false;
     public shared ({ caller }) func init (
@@ -2061,8 +2061,8 @@ shared (initMsg) actor class SwapPool(
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
-        let tokenWhitelistAct = actor (Principal.toText(tokenWhitelist)) : actor { checkToken : shared query (Types.Token) -> async Bool; };
-        let checkResult = await tokenWhitelistAct.checkToken(token);
+        let tokenWhitelistAct = actor (Principal.toText(trustedCanisterManagerCid)) : actor { checkCanisterId : shared query (Principal) -> async Bool; };
+        let checkResult = await tokenWhitelistAct.checkCanisterId(Principal.fromText(token.address));
         if(not checkResult) return #err(#InternalError("Unsupported token."));
         let tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
         let balance : Nat = await tokenAct.balanceOf({ owner = Principal.fromActor(this); subaccount = Option.make(AccountUtils.principalToBlob(caller)); });
