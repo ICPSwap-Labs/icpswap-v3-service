@@ -25,36 +25,36 @@ shared (initMsg) actor class TrustedCanisterManager(
     governanceCid : ?Principal
 ) = this {
 
-    private stable var _canisterIds : [Principal] = [];
+    private stable var _canisters : [Principal] = [];
 
-    public shared (msg) func addCanisterId(canisterId : Principal) : async Bool {
+    public shared (msg) func addCanister(canister : Principal) : async Bool {
         _checkPermission(msg.caller);
-        var canisterIdList : List.List<Principal> = List.fromArray(_canisterIds);
-        if (not CollectionUtils.listContains(canisterIdList, canisterId, Principal.equal)) {
-            canisterIdList := List.push(canisterId, canisterIdList);
-            _canisterIds := List.toArray(canisterIdList);
+        var canisterList : List.List<Principal> = List.fromArray(_canisters);
+        if (not CollectionUtils.listContains(canisterList, canister, Principal.equal)) {
+            canisterList := List.push(canister, canisterList);
+            _canisters := List.toArray(canisterList);
             true;
         } else {
             false;
         };
     };
 
-    public shared (msg) func deleteCanisterId(canisterId : Principal) : async Bool {
+    public shared (msg) func deleteCanister(canister : Principal) : async Bool {
         _checkPermission(msg.caller);
-        _canisterIds := CollectionUtils.arrayRemove(_canisterIds, canisterId, Principal.equal);
+        _canisters := CollectionUtils.arrayRemove(_canisters, canister, Principal.equal);
         true;
     };
 
-    public query (msg) func checkCanisterId(canisterId : Principal) : async Bool {
-        if (CollectionUtils.arrayContains(_canisterIds, canisterId, Principal.equal)) {
+    public query (msg) func isCanisterTrusted(canister : Principal) : async Bool {
+        if (CollectionUtils.arrayContains(_canisters, canister, Principal.equal)) {
             true;
         } else {
             false;
         };
     };
 
-    public query (msg) func getCanisterIds() : async [Principal] {
-        _canisterIds;
+    public query (msg) func getCanisters() : async [Principal] {
+        _canisters;
     };
 
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {

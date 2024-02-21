@@ -151,6 +151,7 @@ shared (initMsg) actor class SwapPool(
 
     private var _token0Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token0.address, _token0.standard);
     private var _token1Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token1.address, _token1.standard);
+    private let _trustAct = actor (Principal.toText(trustedCanisterManagerCid)) : actor { isCanisterTrusted : shared query (Principal) -> async Bool; };
     private let NANOSECONDS_PER_SECOND : Nat = 1_000_000_000;
     private let SECOND_PER_DAY : Nat = 86400;
     private func _syncRecord() : async () { await _swapRecordService.syncRecord(); };
@@ -2053,6 +2054,9 @@ shared (initMsg) actor class SwapPool(
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
+        if(not (await _trustAct.isCanisterTrusted(Principal.fromText(token.address)))) {
+            return #err(#InternalError("Untrusted canister: " # token.address));
+        };
         let act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
         return #ok(await act.balanceOf({ owner = Principal.fromActor(this); subaccount = Option.make(AccountUtils.principalToBlob(caller)); }))
     };
@@ -2061,9 +2065,10 @@ shared (initMsg) actor class SwapPool(
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
-        let tokenWhitelistAct = actor (Principal.toText(trustedCanisterManagerCid)) : actor { checkCanisterId : shared query (Principal) -> async Bool; };
-        let checkResult = await tokenWhitelistAct.checkCanisterId(Principal.fromText(token.address));
-        if(not checkResult) return #err(#InternalError("Unsupported token."));
+        // validate if the canister is trusted.
+        if(not (await _trustAct.isCanisterTrusted(Principal.fromText(token.address)))) {
+            return #err(#InternalError("Untrusted canister: " # token.address));
+        };
         let tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
         let balance : Nat = await tokenAct.balanceOf({ owner = Principal.fromActor(this); subaccount = Option.make(AccountUtils.principalToBlob(caller)); });
         let fee: Nat = await tokenAct.fee();
