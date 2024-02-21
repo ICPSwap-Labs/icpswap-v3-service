@@ -16,6 +16,10 @@
     "PasscodeManager": {
       "main": "./src/PasscodeManager.mo",
       "type": "motoko"
+    },
+    "TrustedCanisterManager": {
+      "main": "./src/TrustedCanisterManager.mo",
+      "type": "motoko"
     }
   },
   "defaults": { "build": { "packtool": "vessel sources" } },

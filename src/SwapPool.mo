@@ -50,6 +50,7 @@ shared (initMsg) actor class SwapPool(
     token1 : Types.Token,
     infoCid : Principal,
     feeReceiverCid : Principal,
+    trustedCanisterManagerCid : Principal,
 ) = this {
     private stable var _inited : Bool = false;
     public shared ({ caller }) func init (
@@ -150,6 +151,7 @@ shared (initMsg) actor class SwapPool(
 
     private var _token0Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token0.address, _token0.standard);
     private var _token1Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token1.address, _token1.standard);
+    private let _trustAct = actor (Principal.toText(trustedCanisterManagerCid)) : actor { isCanisterTrusted : shared query (Principal) -> async Bool; };
     private let NANOSECONDS_PER_SECOND : Nat = 1_000_000_000;
     private let SECOND_PER_DAY : Nat = 86400;
     private func _syncRecord() : async () { await _swapRecordService.syncRecord(); };
@@ -2052,6 +2054,9 @@ shared (initMsg) actor class SwapPool(
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
+        if(not (await _trustAct.isCanisterTrusted(Principal.fromText(token.address)))) {
+            return #err(#InternalError("Untrusted canister: " # token.address));
+        };
         let act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
         return #ok(await act.balanceOf({ owner = Principal.fromActor(this); subaccount = Option.make(AccountUtils.principalToBlob(caller)); }))
     };
@@ -2060,13 +2065,17 @@ shared (initMsg) actor class SwapPool(
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
-        let act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
-        let balance : Nat = await act.balanceOf({ owner = Principal.fromActor(this); subaccount = Option.make(AccountUtils.principalToBlob(caller)); });
-        let fee: Nat = await act.fee();
+        // validate if the canister is trusted.
+        if(not (await _trustAct.isCanisterTrusted(Principal.fromText(token.address)))) {
+            return #err(#InternalError("Untrusted canister: " # token.address));
+        };
+        let tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
+        let balance : Nat = await tokenAct.balanceOf({ owner = Principal.fromActor(this); subaccount = Option.make(AccountUtils.principalToBlob(caller)); });
+        let fee: Nat = await tokenAct.fee();
         if (balance > fee) {
             let amount = Nat.sub(balance, fee);
             let fromSubaccount: ?Blob = Option.make(AccountUtils.principalToBlob(caller));
-            switch (await act.transfer({ 
+            switch (await tokenAct.transfer({ 
                 from = { owner = Principal.fromActor(this); subaccount = fromSubaccount }; 
                 from_subaccount = fromSubaccount; 
                 to = { owner = caller; subaccount = null }; 

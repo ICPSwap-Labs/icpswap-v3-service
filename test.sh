@@ -24,6 +24,10 @@ cat > dfx.json <<- EOF
       "type": "motoko",
       "dependencies": ["SwapFactory"]
     },
+    "TrustedCanisterManager": {
+      "main": "./src/TrustedCanisterManager.mo",
+      "type": "motoko"
+    },
     "Test": {
       "main": "./test/Test.mo",
       "type": "motoko"
@@ -83,6 +87,8 @@ dfx canister install DIP20B --argument="(\"DIPB Logo\", \"DIPB\", \"DIPB\", 8, $
 
 echo "==> install SwapFeeReceiver"
 dfx canister install SwapFeeReceiver
+echo "==> install TrustedCanisterManager"
+dfx canister install TrustedCanisterManager --argument="(null)"
 echo "==> install Test"
 dfx canister install Test
 echo "==> install price"
@@ -92,7 +98,7 @@ dfx deploy base_index --argument="(principal \"$(dfx canister id price)\", princ
 echo "==> install node_index"
 dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx canister id price)\")"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", null)"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", null)"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\")"
@@ -123,7 +129,7 @@ echo "=== token0: $token0"
 echo "=== token1: $token1"
 echo "======================================="
 
-# subaccount=`dfx canister call Test getSubaccount |grep text__ |awk -F"text__" '{print substr($2,4,128)}'`
+subaccount=`dfx canister call Test getSubaccount |grep text__ |awk -F"text__" '{print substr($2,4,128)}'`
 echo 
 
 function balanceOf()
@@ -386,6 +392,28 @@ function recordAfter()
 }
 #----------------- test rollback ------------------------
 
+#----------------- test withdraw mistransfer balance ------------------------
+function withdraw_mistransfer() #sqrtPriceX96
+{
+
+    dfx canister call TrustedCanisterManager addCanisterId "(principal \"$(dfx canister id ICRC2)\")"
+    result=`dfx canister call TrustedCanisterManager getCanisterIds`
+    echo "getCanisterIds: $result"
+
+    dfx canister call ICRC2 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = 100000000:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"
+
+    result=`dfx canister call $poolId withdrawMistransferBalance "(record {address = \"$(dfx canister id ICRC2)\"; standard = \"ICRC1\";})"`
+    echo "withdrawMistransferBalance: $result"
+
+    dfx canister call TrustedCanisterManager deleteCanisterId "(principal \"$(dfx canister id ICRC2)\")"
+    result=`dfx canister call TrustedCanisterManager getCanisterIds`
+    echo "getCanisterIds: $result"
+
+    result=`dfx canister call SwapFactory getInitArgs`
+    echo "SwapFactory getInitArgs: $result"
+}
+#----------------- test withdraw mistransfer balance ------------------------
+
 function testMintSwap()
 {   
     echo
@@ -393,6 +421,9 @@ function testMintSwap()
     echo
     #sqrtPriceX96
     create_pool 274450166607934908532224538203
+
+    # withdraw_mistransfer
+
     echo
     echo "==> step 1 mint"
     depost $token0 100000000000

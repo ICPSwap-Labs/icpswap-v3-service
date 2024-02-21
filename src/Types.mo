@@ -343,6 +343,7 @@ module {
         #createPool : () -> CreatePoolArgs;
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();
+        #getInitArgs : () -> ();
         #getInvalidPools : () -> ();
         #getPool : () -> GetPoolArgs;
         #getPools : () -> ();
