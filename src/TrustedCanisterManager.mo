@@ -29,14 +29,16 @@ shared (initMsg) actor class TrustedCanisterManager(
 
     public shared (msg) func addCanister(canister : Principal) : async Bool {
         _checkPermission(msg.caller);
-        var canisterList : List.List<Principal> = List.fromArray(_canisters);
-        if (not CollectionUtils.listContains(canisterList, canister, Principal.equal)) {
-            canisterList := List.push(canister, canisterList);
-            _canisters := List.toArray(canisterList);
-            true;
-        } else {
-            false;
+        if (not CollectionUtils.arrayContains(_canisters, canister, Principal.equal)) {
+            var buffer: Buffer.Buffer<Principal> = Buffer.Buffer<Principal>(_canisters.size() + 1);
+            for (it: Principal in _canisters.vals()) {
+                buffer.add(it);
+            };
+            buffer.add(canister);
+            _canisters := Buffer.toArray<Principal>(buffer);
+            return true;
         };
+        return false;
     };
 
     public shared (msg) func deleteCanister(canister : Principal) : async Bool {

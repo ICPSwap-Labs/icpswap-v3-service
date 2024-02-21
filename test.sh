@@ -129,7 +129,7 @@ echo "=== token0: $token0"
 echo "=== token1: $token1"
 echo "======================================="
 
-subaccount=`dfx canister call Test getSubaccount |grep text__ |awk -F"text__" '{print substr($2,4,128)}'`
+# subaccount=`dfx canister call Test getSubaccount |grep text__ |awk -F"text__" '{print substr($2,4,128)}'`
 echo 
 
 function balanceOf()
@@ -396,18 +396,18 @@ function recordAfter()
 function withdraw_mistransfer() #sqrtPriceX96
 {
 
-    dfx canister call TrustedCanisterManager addCanisterId "(principal \"$(dfx canister id ICRC2)\")"
-    result=`dfx canister call TrustedCanisterManager getCanisterIds`
-    echo "getCanisterIds: $result"
+    dfx canister call TrustedCanisterManager addCanister "(principal \"$(dfx canister id ICRC2)\")"
+    result=`dfx canister call TrustedCanisterManager getCanisters`
+    echo "getCanisters: $result"
 
     dfx canister call ICRC2 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = 100000000:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"
 
     result=`dfx canister call $poolId withdrawMistransferBalance "(record {address = \"$(dfx canister id ICRC2)\"; standard = \"ICRC1\";})"`
     echo "withdrawMistransferBalance: $result"
 
-    dfx canister call TrustedCanisterManager deleteCanisterId "(principal \"$(dfx canister id ICRC2)\")"
-    result=`dfx canister call TrustedCanisterManager getCanisterIds`
-    echo "getCanisterIds: $result"
+    dfx canister call TrustedCanisterManager deleteCanister "(principal \"$(dfx canister id ICRC2)\")"
+    result=`dfx canister call TrustedCanisterManager getCanisters`
+    echo "getCanisters: $result"
 
     result=`dfx canister call SwapFactory getInitArgs`
     echo "SwapFactory getInitArgs: $result"
