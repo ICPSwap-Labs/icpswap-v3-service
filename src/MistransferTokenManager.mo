@@ -27,20 +27,22 @@ shared (initMsg) actor class MistransferTokenManager(
 
     private stable var _tokens : [Types.Token] = [];
 
-    public shared (msg) func addToken(token : Types.Token) : async Result.Result<Bool, Types.Error> {
+    public shared (msg) func addToken(token : Types.Token) : async Bool {
         _checkPermission(msg.caller);
         var tokenList : List.List<Types.Token> = List.fromArray(_tokens);
         if (not CollectionUtils.listContains(tokenList, token, Functions.tokenEqual)) {
             tokenList := List.push(token, tokenList);
             _tokens := List.toArray(tokenList);
+            true;
+        } else {
+            false;
         };
-        return #ok(true);
     };
 
-    public shared (msg) func deleteToken(token : Types.Token) : async Result.Result<Bool, Types.Error> {
+    public shared (msg) func deleteToken(token : Types.Token) : async Bool {
         _checkPermission(msg.caller);
         _tokens := CollectionUtils.arrayRemove(_tokens, token, Functions.tokenEqual);
-        return #ok(true);
+        true;
     };
 
     public query (msg) func checkToken(token : Types.Token) : async Bool {
@@ -51,8 +53,8 @@ shared (initMsg) actor class MistransferTokenManager(
         };
     };
 
-    public query (msg) func getTokens() : async Result.Result<[Types.Token], Types.Error> {
-        #ok(_tokens);
+    public query (msg) func getTokens() : async [Types.Token] {
+        _tokens;
     };
 
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
