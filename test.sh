@@ -408,6 +408,9 @@ function withdraw_mistransfer() #sqrtPriceX96
     dfx canister call MistransferTokenManager deleteToken "(record {address = \"$(dfx canister id ICRC2)\"; standard = \"ICRC1\";})"
     result=`dfx canister call MistransferTokenManager getTokens`
     echo "getTokens: $result"
+
+    result=`dfx canister call SwapFactory getInitArgs`
+    echo "SwapFactory getInitArgs: $result"
 }
 #----------------- test withdraw mistransfer balance ------------------------
 

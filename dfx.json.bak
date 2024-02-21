@@ -1,0 +1,28 @@
+{
+  "canisters": {
+    "SwapFeeReceiver": {
+      "main": "./src/SwapFeeReceiver.mo",
+      "type": "motoko"
+    },
+    "SwapFactory": {
+      "main": "./src/SwapFactory.mo",
+      "type": "motoko"
+    },
+    "PositionIndex": {
+      "main": "./src/PositionIndex.mo",
+      "type": "motoko",
+      "dependencies": ["SwapFactory"]
+    },
+    "PasscodeManager": {
+      "main": "./src/PasscodeManager.mo",
+      "type": "motoko"
+    },
+    "MistransferTokenManager": {
+      "main": "./src/MistransferTokenManager.mo",
+      "type": "motoko"
+    }
+  },
+  "defaults": { "build": { "packtool": "vessel sources" } },
+  "networks": { "local": { "bind": "127.0.0.1:8000", "type": "ephemeral" } },
+  "version": 1
+}

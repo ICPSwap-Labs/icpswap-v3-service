@@ -35,16 +35,16 @@ shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
     feeReceiverCid : Principal,
     passcodeManagerCid : Principal,
-    mistransferTokenManagerCid : Principal,
+    tokenWhitelist : Principal,
     governanceCid : ?Principal,
 ) = this {
     private type LockState = {
         locked : Bool;
         time : Time.Time;
     };
-    private stable var _infoCid : Principal = infoCid;
-    private stable var _feeReceiverCid : Principal = feeReceiverCid;
-    private stable var _mistransferTokenManagerCid : Principal = mistransferTokenManagerCid;
+    // private stable var _infoCid : Principal = infoCid;
+    // private stable var _feeReceiverCid : Principal = feeReceiverCid;
+    // private stable var _tokenWhitelist : Principal = tokenWhitelist;
     /// configuration items
     private stable var _initCycles : Nat = 1860000000000;
     private stable var _feeTickSpacingEntries : [(Nat, Int)] = [(500, 10), (3000, 60), (10000, 200)];
@@ -55,7 +55,7 @@ shared (initMsg) actor class SwapFactory(
 
     private var _feeTickSpacingMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(_feeTickSpacingEntries.vals(), 10, Nat.equal, Hash.hash);
     private var _poolDataService : PoolData.Service = PoolData.Service(_poolDataState);
-    private var _infoAct = actor (Principal.toText(_infoCid)) : Types.TxStorage;
+    private var _infoAct = actor (Principal.toText(infoCid)) : Types.TxStorage;
     private let IC0 = actor "aaaaa-aa" : actor {
         canister_status : { canister_id : Principal } -> async { settings : { controllers : [Principal] }; };
         update_settings : { canister_id : Principal; settings : { controllers : [Principal]; } } -> ();
@@ -94,7 +94,7 @@ shared (initMsg) actor class SwapFactory(
                         return #err(#InternalError("Passcode is not existed."));
                     };
                     Cycles.add(_initCycles);
-                    let pool = await SwapPool.SwapPool(token0, token1, _infoCid, _feeReceiverCid, mistransferTokenManagerCid);
+                    let pool = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, tokenWhitelist);
                     await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
                     await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), initMsg.caller);
                     await _infoAct.addClient(Principal.fromActor(pool));
@@ -241,6 +241,22 @@ shared (initMsg) actor class SwapFactory(
 
     public query func getGovernanceCid() : async Result.Result<?Principal, Types.Error> {
         return #ok(governanceCid);
+    };
+
+    public query func getInitArgs() : async Result.Result<{    
+        infoCid : Principal;
+        feeReceiverCid : Principal;
+        passcodeManagerCid : Principal;
+        tokenWhitelist : Principal;
+        governanceCid : ?Principal;
+    }, Types.Error> {
+        #ok({
+            infoCid = infoCid;
+            feeReceiverCid = feeReceiverCid;
+            passcodeManagerCid = passcodeManagerCid;
+            tokenWhitelist = tokenWhitelist;
+            governanceCid = governanceCid;  
+        });
     };
 
     public query func getPrincipalPasscodes(): async Result.Result<[(Principal, [Types.Passcode])], Types.Error> {
