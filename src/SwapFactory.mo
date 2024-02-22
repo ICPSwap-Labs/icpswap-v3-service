@@ -412,7 +412,12 @@ shared (initMsg) actor class SwapFactory(
         switch (_principalPasscodeMap.get(principal)) {
             case (?passcodes) {
                 if (CollectionUtils.arrayContains<Types.Passcode>(passcodes, passcode, _passcodeEqual)) {
-                    _principalPasscodeMap.put(principal, CollectionUtils.arrayRemove(passcodes, passcode, _passcodeEqual));
+                    var passcodesNew = CollectionUtils.arrayRemove(passcodes, passcode, _passcodeEqual);
+                    if (0 == passcodesNew.size()) {
+                        ignore _principalPasscodeMap.remove(principal);
+                    } else {
+                        _principalPasscodeMap.put(principal, passcodesNew);
+                    };
                     return true;
                 } else {
                     return false;

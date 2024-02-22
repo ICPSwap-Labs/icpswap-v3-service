@@ -393,7 +393,7 @@ function recordAfter()
 #----------------- test rollback ------------------------
 
 #----------------- test withdraw mistransfer balance ------------------------
-function withdraw_mistransfer() #sqrtPriceX96
+function withdraw_mistransfer()
 {
 
     dfx canister call TrustedCanisterManager addCanister "(principal \"$(dfx canister id ICRC2)\")"
@@ -414,6 +414,20 @@ function withdraw_mistransfer() #sqrtPriceX96
 }
 #----------------- test withdraw mistransfer balance ------------------------
 
+#----------------- test factory passcode crud ------------------------
+function test_factory_passcode()
+{
+    result=`dfx canister call SwapFactory addPasscode "(principal \"$(dfx identity get-principal)\", record { token0 = principal \"$token0\"; token1 = principal \"$token1\"; fee = 3000; })"`
+    echo "SwapFactory addPasscode: $result"
+
+    result=`dfx canister call SwapFactory getPrincipalPasscodes`
+    echo "SwapFactory getPrincipalPasscodes: $result"
+    
+    result=`dfx canister call SwapFactory deletePasscode "(principal \"$(dfx identity get-principal)\", record { token0 = principal \"$token0\"; token1 = principal \"$token1\"; fee = 3000; })"`
+    echo "SwapFactory deletePasscode: $result"
+}
+#----------------- test factory passcode crud ------------------------
+
 function testMintSwap()
 {   
     echo
@@ -423,6 +437,8 @@ function testMintSwap()
     create_pool 274450166607934908532224538203
 
     # withdraw_mistransfer
+
+    # test_factory_passcode
 
     echo
     echo "==> step 1 mint"

@@ -226,10 +226,10 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
             fee = fee;
         })) {
             case(#ok()) {
+                _walletDeposit(caller, passcodePrice);
                 return #ok("ok");
             };
             case(#err(msg)) {
-                _walletDeposit(caller, passcodePrice);
                 return #err(#InternalError(debug_show (msg)));
             };
         };
