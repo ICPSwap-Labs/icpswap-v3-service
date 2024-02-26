@@ -367,10 +367,10 @@ module {
         #batchRemovePoolControllers : () -> ([Principal], [Principal]);
     };
     public type SwapFeeReceiverMsg = {
-        #claim : () -> (Principal, Principal, Nat, Nat);
+        #claim : () -> (Principal, Token, Nat);
         #getCycleInfo : () -> ();
         #getVersion : () -> ();
-        #transfer : () -> (Principal, Text, Principal, Nat);
+        #transfer : () -> (Token, Principal, Nat);
     };
     public type SwapPoolActor = actor {
         initUserPositionIdMap : shared (userPositionIds : [(Text, [Nat])]) -> async ();
