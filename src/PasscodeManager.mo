@@ -206,7 +206,7 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
                 token1 = token1;
                 fee = fee;
             })) {
-                case(#ok) {
+                case(#ok()) {
                     return #ok("ok");
                 };
                 case(#err(msg)) {
@@ -225,15 +225,16 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
             token1 = token1;
             fee = fee;
         })) {
-            case(#ok) {
+            case(#ok()) {
+                _walletDeposit(caller, passcodePrice);
                 return #ok("ok");
             };
             case(#err(msg)) {
-                _walletDeposit(caller, passcodePrice);
                 return #err(#InternalError(debug_show (msg)));
             };
         };
     };
+
     public query func getTokenCid(): async Principal {
         return tokenCid;
     };

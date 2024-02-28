@@ -39,19 +39,21 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
         return true;
     };
 
-    public shared ({ caller }) func claim(pool : Principal, token : Principal, fee : Nat, amount : Nat) : async Result.Result<Nat, Types.Error> {
+    public shared ({ caller }) func claim(pool : Principal, token : Types.Token, amount : Nat) : async Result.Result<Nat, Types.Error> {
         _checkPermission(caller);
+        var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
         var poolAct = actor (Principal.toText(pool)) : Types.SwapPoolActor;
-        switch (await poolAct.withdraw({token = Principal.toText(token); fee = fee; amount = amount;})) {
+        var fee : Nat = await tokenAct.fee();
+        switch (await poolAct.withdraw({token = token.address; fee = fee; amount = amount;})) {
             case (#ok(amount)) { return #ok(amount) };
             case (#err(msg)) { return #err(#InternalError(debug_show (msg))); };
         };
     };
 
-    public shared ({ caller }) func transfer(token : Principal, standard : Text, recipient : Principal, value : Nat) : async Result.Result<Nat, Types.Error> {
+    public shared ({ caller }) func transfer(token : Types.Token, recipient : Principal, value : Nat) : async Result.Result<Nat, Types.Error> {
         _checkPermission(caller);
-        if (not _checkStandard(standard)) { return #err(#UnsupportedToken("Wrong token standard.")); };
-        var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(Principal.toText(token), standard);
+        if (not _checkStandard(token.standard)) { return #err(#UnsupportedToken("Wrong token standard.")); };
+        var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
         var fee : Nat = await tokenAct.fee();
         if (value > fee) {
             var amount : Nat = Nat.sub(value, fee);
@@ -77,7 +79,7 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.3.0";
+    private var _version : Text = "3.3.1";
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {};
@@ -91,6 +93,7 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
     }) : Bool {
         return switch (msg) {
             // Controller
+            case (#claim args) { Prim.isController(caller) };
             case (#transfer args) { Prim.isController(caller) };
             // Anyone
             case (_) { true };

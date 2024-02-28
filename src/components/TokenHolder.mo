@@ -4,7 +4,7 @@ import HashMap "mo:base/HashMap";
 import Iter "mo:base/Iter";
 import Array "mo:base/Array";
 import Types "../Types";
-import Func "../Functions";
+import Func "../utils/Functions";
 
 module TokenHolder {
     type TokenBalance = Types.TokenBalance;

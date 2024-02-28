@@ -274,7 +274,11 @@ module {
         offset : Nat;
         limit : Nat;
     };
-
+    public type Passcode = {
+        token0: Principal;
+        token1: Principal;
+        fee: Nat;
+    };
     public type SwapPoolMsg = {
         #allTokenBalance : () -> (Nat, Nat);
         #approvePosition : () -> (Principal, Nat);
@@ -339,40 +343,34 @@ module {
         #createPool : () -> CreatePoolArgs;
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();
+        #getInitArgs : () -> ();
         #getInvalidPools : () -> ();
         #getPool : () -> GetPoolArgs;
         #getPools : () -> ();
+        #getPrincipalPasscodes : () -> ();
+        #getPasscodesByPrincipal : () -> Principal;
         #getPagedPools : () -> (Nat, Nat);
         #getRemovedPools : () -> ();
         #getVersion : () -> ();
+        #addPasscode : () -> (Principal, Passcode);
+        #deletePasscode : () -> (Principal, Passcode);
         #removePool : () -> GetPoolArgs;
-        #validateRemovePool : () -> GetPoolArgs;
         #restorePool : () -> Principal;
-        #validateRestorePool : () -> Principal;
         #removePoolWithdrawErrorLog : () -> (Principal, Nat, Bool);
-        #validateRemovePoolWithdrawErrorLog : () -> (Principal, Nat, Bool);
         #clearRemovedPool : () -> Principal;
-        #validateClearRemovedPool : () -> Principal;
         #setPoolAdmins : () -> (Principal, [Principal]);
-        #validateSetPoolAdmins : () -> (Principal, [Principal]);
         #addPoolControllers : () -> (Principal, [Principal]);
-        #validateAddPoolControllers : () -> (Principal, [Principal]);
         #upgradePoolTokenStandard : () -> (Principal, Principal);
-        #validateUpgradePoolTokenStandard : () -> (Principal, Principal);
         #removePoolControllers : () -> (Principal, [Principal]);
-        #validateRemovePoolControllers : () -> (Principal, [Principal]);
         #batchSetPoolAdmins : () -> ([Principal], [Principal]);
-        #validateBatchSetPoolAdmins : () -> ([Principal], [Principal]);
         #batchAddPoolControllers : () -> ([Principal], [Principal]);
-        #validateBatchAddPoolControllers : () -> ([Principal], [Principal]);
         #batchRemovePoolControllers : () -> ([Principal], [Principal]);
-        #validateBatchRemovePoolControllers : () -> ([Principal], [Principal]);
     };
     public type SwapFeeReceiverMsg = {
-        #claim : () -> (Principal, Principal, Nat, Nat);
+        #claim : () -> (Principal, Token, Nat);
         #getCycleInfo : () -> ();
         #getVersion : () -> ();
-        #transfer : () -> (Principal, Text, Principal, Nat);
+        #transfer : () -> (Token, Principal, Nat);
     };
     public type SwapPoolActor = actor {
         initUserPositionIdMap : shared (userPositionIds : [(Text, [Nat])]) -> async ();
@@ -387,5 +385,7 @@ module {
     };
     public type SwapFactoryActor = actor {
         getPools : query () -> async Result.Result<[PoolData], Error>;
+        addPasscode: (Principal, Passcode) -> async Result.Result<(), Error>;
+        deletePasscode: (Principal, Passcode) -> async Result.Result<(), Error>;
     };
 };
