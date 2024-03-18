@@ -10,8 +10,7 @@
     },
     "PositionIndex": {
       "main": "./src/PositionIndex.mo",
-      "type": "motoko",
-      "dependencies": ["SwapFactory"]
+      "type": "motoko"
     },
     "PasscodeManager": {
       "main": "./src/PasscodeManager.mo",
@@ -19,6 +18,10 @@
     },
     "TrustedCanisterManager": {
       "main": "./src/TrustedCanisterManager.mo",
+      "type": "motoko"
+    },
+    "SwapAgentManager": {
+      "main": "./src/SwapAgentManager.mo",
       "type": "motoko"
     }
   },
