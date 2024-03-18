@@ -244,6 +244,9 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
     public func balanceOf(principal: Principal): async Nat {
         return _walletBalanceOf(principal);
     };
+    public func balances(): async [(Principal, Nat)] {
+        return Iter.toArray(_wallet.entries())
+    };
     public func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat;} {
         return {
             tokenCid = tokenCid;
