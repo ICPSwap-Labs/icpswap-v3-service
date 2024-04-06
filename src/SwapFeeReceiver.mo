@@ -67,6 +67,24 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
         };
     };
 
+    public shared ({ caller }) func transferAll(token : Types.Token, recipient : Principal) : async Result.Result<Nat, Types.Error> {
+        _checkPermission(caller);
+        if (not _checkStandard(token.standard)) { return #err(#UnsupportedToken("Wrong token standard.")); };
+        var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
+        var value : Nat = await tokenAct.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
+        var fee : Nat = await tokenAct.fee();
+        if (value > fee) {
+            var amount : Nat = Nat.sub(value, fee);
+            switch (await tokenAct.transfer({ from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; to = { owner = recipient; subaccount = null }; amount = amount; fee = ?fee; memo = null; created_at_time = null })) {
+                case (#Ok(index)) { return #ok(amount) };
+                case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
+            };
+            return #ok(amount);
+        } else {
+            return #ok(0);
+        };
+    };
+
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
