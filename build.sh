@@ -21,6 +21,14 @@ cat <<< $(jq '.canisters={
     "main": "./src/SwapFactory.mo",
     "type": "motoko"
   },
+  TrustedCanisterManager: {
+    "main": "./src/TrustedCanisterManager.mo",
+    "type": "motoko"
+  },
+  PasscodeManager: {
+    "main": "./src/TrustedCanisterManager.mo",
+    "type": "motoko"
+  },
   "PositionIndex": {
     "main": "./src/PositionIndex.mo",
     "type": "motoko",

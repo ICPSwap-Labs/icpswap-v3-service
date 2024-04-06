@@ -371,6 +371,7 @@ module {
         #getCycleInfo : () -> ();
         #getVersion : () -> ();
         #transfer : () -> (Token, Principal, Nat);
+        #transferAll : () -> (Token, Principal);
     };
     public type SwapPoolActor = actor {
         initUserPositionIdMap : shared (userPositionIds : [(Text, [Nat])]) -> async ();
