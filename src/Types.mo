@@ -356,7 +356,7 @@ module {
         #deletePasscode : () -> (Principal, Passcode);
         #removePool : () -> GetPoolArgs;
         #restorePool : () -> Principal;
-        #removePoolWithdrawErrorLog : () -> (Principal, Nat, Bool);
+        #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
         #clearRemovedPool : () -> Principal;
         #setPoolAdmins : () -> (Principal, [Principal]);
         #addPoolControllers : () -> (Principal, [Principal]);
@@ -380,7 +380,7 @@ module {
         setAdmins : shared ([Principal]) -> async ();
         metadata : query () -> async Result.Result<PoolMetadata, Error>;
         upgradeTokenStandard : shared (Principal) -> async ();
-        removeWithdrawErrorLog : shared (Nat, Bool) -> async ();
+        removeErrorTransferLog : shared (Nat, Bool) -> async ();
         getUserUnusedBalance : shared (Principal) -> async Result.Result<{ balance0 : Nat; balance1 : Nat }, Error>;
         withdraw : shared (WithdrawArgs) -> async Result.Result<Nat, Error>;
     };
