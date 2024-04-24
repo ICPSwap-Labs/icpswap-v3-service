@@ -279,6 +279,21 @@ module {
         token1: Principal;
         fee: Nat;
     };
+    public type TransferLog = {
+        index: Nat;
+        owner: Principal;
+        from: Principal;
+        fromSubaccount: ?Blob;
+        to: Principal;
+        action: Text;  // deposit, withdraw
+        amount: Nat;
+        fee: Nat;
+        token: Token;
+        result: Text;  // processing, success, error
+        errorMsg: Text;
+        daysFrom19700101: Nat;
+        timestamp: Nat;
+    };
     public type SwapPoolMsg = {
         #allTokenBalance : () -> (Nat, Nat);
         #approvePosition : () -> (Principal, Nat);
@@ -383,10 +398,13 @@ module {
         removeErrorTransferLog : shared (Nat, Bool) -> async ();
         getUserUnusedBalance : shared (Principal) -> async Result.Result<{ balance0 : Nat; balance1 : Nat }, Error>;
         withdraw : shared (WithdrawArgs) -> async Result.Result<Nat, Error>;
-    };
+        getTransferLogs : query () -> async Result.Result<[TransferLog], Error>;
+   };
     public type SwapFactoryActor = actor {
+        getPool : query (GetPoolArgs) -> async Result.Result<PoolData, Error>;
         getPools : query () -> async Result.Result<[PoolData], Error>;
-        addPasscode: (Principal, Passcode) -> async Result.Result<(), Error>;
-        deletePasscode: (Principal, Passcode) -> async Result.Result<(), Error>;
+        addPasscode : (Principal, Passcode) -> async Result.Result<(), Error>;
+        deletePasscode : (Principal, Passcode) -> async Result.Result<(), Error>;
+        getRemovedPools : query () -> async Result.Result<[PoolData], Error>;
     };
 };
