@@ -50,7 +50,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
             case (#ok(logs)) {
                 for (it in logs.vals()) {
                     if (Nat.equal(id, it.index)) {
-                        return #ok("poolCid: " # Principal.toText(poolCid) # ", id: " # Nat.toText(id) # ", rollback: " # Bool.toText(rollback));
+                        return #ok(debug_show(poolCid) # ", " # debug_show(id) # ", " # debug_show(rollback));
                     };
                 };
                 return #err(Nat.toText(id) # " not exist.");
@@ -108,7 +108,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
                         };
                     };
                     if (isSupportedICRC2) {
-                        return #ok("poolCid: " # Principal.toText(poolCid) # ", tokenCid: " # Principal.toText(tokenCid));
+                        return #ok(debug_show(poolCid) # ", " # debug_show(tokenCid));
                     } else {
                         return #err("Check icrc1_supported_standards failed");
                     };
@@ -127,7 +127,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         if (not (await _checkPool(poolCid))) {
             return #err(Principal.toText(poolCid) # " not exist.");
         };
-        return #ok("poolCid: " # Principal.toText(poolCid) # ", controllers: " # debug_show (controllers));
+        return #ok(debug_show(poolCid) # ", " # debug_show (controllers));
     };
 
     public shared ({ caller }) func removePoolControllersValidate(poolCid : Principal, controllers : [Principal]) : async Result.Result<Text, Text> {
@@ -140,7 +140,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
                 return #err("SwapFactory must be the controller of SwapPool");
             };
         };
-        return #ok("poolCid: " # Principal.toText(poolCid) # ", controllers: " # debug_show (controllers));
+        return #ok(debug_show(poolCid) # ", " # debug_show (controllers));
     };
 
     public shared ({ caller }) func setPoolAdminsValidate(poolCid : Principal, admins : [Principal]) : async Result.Result<Text, Text> {
@@ -148,14 +148,14 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         if (not (await _checkPool(poolCid))) {
             return #err(Principal.toText(poolCid) # " not exist.");
         };
-        return #ok("poolCid: " # Principal.toText(poolCid) # ", admins: " # debug_show (admins));
+        return #ok(debug_show(poolCid) # ", " # debug_show (admins));
     };
 
     public shared ({ caller }) func batchAddPoolControllersValidate(poolCids : [Principal], controllers : [Principal]) : async Result.Result<Text, Text> {
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {
             case (#ok(r)) {
-                return #ok("poolCids: " # debug_show (poolCids) # ", controllers: " # debug_show (controllers));
+                return #ok(debug_show (poolCids) # ", " # debug_show (controllers));
             };
             case (#err(msg)) {
                 return #err(debug_show (msg));
@@ -172,7 +172,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
                         return #err("SwapFactory must be the controller of SwapPool");
                     };
                 };
-                return #ok("poolCids: " # debug_show (poolCids) # ", controllers: " # debug_show (controllers));
+                return #ok(debug_show (poolCids) # ", " # debug_show (controllers));
             };
             case (#err(msg)) {
                 return #err(debug_show (msg));
@@ -184,7 +184,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {
             case (#ok(r)) {
-                return #ok("poolCids: " # debug_show (poolCids) # ", admins: " # debug_show (admins));
+                return #ok(debug_show (poolCids) # ", " # debug_show (admins));
             };
             case (#err(msg)) {
                 return #err(debug_show (msg));
