@@ -299,11 +299,11 @@ shared (initMsg) actor class SwapFactory(
     };
 
     // ---------------        Pools Governance Functions        ----------------------
-    public shared (msg) func removePoolWithdrawErrorLog(poolCid : Principal, id : Nat, rollback : Bool) : async Result.Result<(), Types.Error> {
+    public shared (msg) func removePoolErrorTransferLog(poolCid : Principal, id : Nat, rollback : Bool) : async Result.Result<(), Types.Error> {
         _checkPermission(msg.caller);
         var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
         try {
-            await poolAct.removeWithdrawErrorLog(id, rollback);
+            await poolAct.removeErrorTransferLog(id, rollback);
             return #ok(());
         } catch (e) {
             return #err(#InternalError("Remove withdraw error log failed: " # Error.message(e)));
@@ -313,6 +313,12 @@ shared (initMsg) actor class SwapFactory(
     public shared (msg) func setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
         _checkPermission(msg.caller);
         await _setPoolAdmins(poolCid, admins);
+    };
+
+    public shared (msg) func setPoolAvailable(poolCid : Principal, available : Bool) : async () {
+        _checkPermission(msg.caller);
+        var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
+        await poolAct.setAvailable(available);
     };
 
     public shared (msg) func clearRemovedPool(canisterId : Principal) : async Text {
@@ -455,12 +461,13 @@ shared (initMsg) actor class SwapFactory(
             // Controller
             case (#clearRemovedPool args)                   { _hasPermission(caller) };
             case (#removePool args)                         { _hasPermission(caller) };
-            case (#removePoolWithdrawErrorLog args)         { _hasPermission(caller) };
+            case (#removePoolErrorTransferLog args)         { _hasPermission(caller) };
             case (#restorePool args)                        { _hasPermission(caller) };
             case (#upgradePoolTokenStandard args)           { _hasPermission(caller) };
             case (#addPoolControllers args)                 { _hasPermission(caller) };
             case (#removePoolControllers args)              { _hasPermission(caller) };
             case (#setPoolAdmins args)                      { _hasPermission(caller) };
+            case (#setPoolAvailable args)                   { _hasPermission(caller) };
             case (#batchAddPoolControllers args)            { _hasPermission(caller) };
             case (#batchRemovePoolControllers args)         { _hasPermission(caller) };
             case (#batchSetPoolAdmins args)                 { _hasPermission(caller) };
