@@ -315,6 +315,12 @@ shared (initMsg) actor class SwapFactory(
         await _setPoolAdmins(poolCid, admins);
     };
 
+    public shared (msg) func setPoolAvailable(poolCid : Principal, available : Bool) : async () {
+        _checkPermission(msg.caller);
+        var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
+        await poolAct.setAvailable(available);
+    };
+
     public shared (msg) func clearRemovedPool(canisterId : Principal) : async Text {
         _checkPermission(msg.caller);
         let poolCid = _poolDataService.deletePool(Principal.toText(canisterId));
@@ -461,6 +467,7 @@ shared (initMsg) actor class SwapFactory(
             case (#addPoolControllers args)                 { _hasPermission(caller) };
             case (#removePoolControllers args)              { _hasPermission(caller) };
             case (#setPoolAdmins args)                      { _hasPermission(caller) };
+            case (#setPoolAvailable args)                   { _hasPermission(caller) };
             case (#batchAddPoolControllers args)            { _hasPermission(caller) };
             case (#batchRemovePoolControllers args)         { _hasPermission(caller) };
             case (#batchSetPoolAdmins args)                 { _hasPermission(caller) };
