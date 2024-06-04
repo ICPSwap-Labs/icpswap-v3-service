@@ -113,6 +113,7 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
             // Controller
             case (#claim args) { Prim.isController(caller) };
             case (#transfer args) { Prim.isController(caller) };
+            case (#transferAll args) { Prim.isController(caller) };
             // Anyone
             case (_) { true };
         };
