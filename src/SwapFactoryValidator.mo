@@ -164,6 +164,14 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         return #Ok(debug_show (poolCid) # ", " # debug_show (controllers));
     };
 
+    // public shared ({ caller }) func setPoolAvailableValidate(poolCid : Principal, available : Bool) : async Result {
+    //     assert (Principal.equal(caller, governanceCid));
+    //     if (not (await _checkPool(poolCid))) {
+    //         return #Err(Principal.toText(poolCid) # " doesn't exist.");
+    //     };
+    //     return #Ok(debug_show (poolCid) # ", " # debug_show (available));
+    // };
+
     public shared ({ caller }) func setPoolAdminsValidate(poolCid : Principal, admins : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
         if (not (await _checkPool(poolCid))) {
