@@ -8,6 +8,7 @@ import Int "mo:base/Int";
 import Time "mo:base/Time";
 import Error "mo:base/Error";
 import Hash "mo:base/Hash";
+import Cycles "mo:base/ExperimentalCycles";
 import Iter "mo:base/Iter";
 import TokenAdapterTypes "mo:token-adapter/Types";
 import TokenFactory "mo:token-adapter/TokenFactory";
@@ -233,6 +234,12 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
                 return #err(#InternalError(debug_show (msg)));
             };
         };
+    };
+    public shared (msg) func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
+        return #ok({
+            balance = Cycles.balance();
+            available = Cycles.available();
+        });
     };
 
     public query func getTokenCid(): async Principal {
