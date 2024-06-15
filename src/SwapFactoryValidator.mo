@@ -209,17 +209,17 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         };
     };
 
-    // public shared ({ caller }) func batchSetPoolAdminsValidate(poolCids : [Principal], admins : [Principal]) : async Result {
-    //     assert (Principal.equal(caller, governanceCid));
-    //     switch (await _checkPools(poolCids)) {
-    //         case (#ok(r)) {
-    //             return #Ok(debug_show (poolCids) # ", " # debug_show (admins));
-    //         };
-    //         case (#err(msg)) {
-    //             return #Err(debug_show (msg));
-    //         };
-    //     };
-    // };
+    public shared ({ caller }) func batchSetPoolAdminsValidate(poolCids : [Principal], admins : [Principal]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        switch (await _checkPools(poolCids)) {
+            case (#ok(r)) {
+                return #Ok(debug_show (poolCids) # ", " # debug_show (admins));
+            };
+            case (#err(msg)) {
+                return #Err(debug_show (msg));
+            };
+        };
+    };
 
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
