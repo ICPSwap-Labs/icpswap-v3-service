@@ -8,7 +8,7 @@ let
     [
       { name = "base"
       , repo = "https://github.com/dfinity/motoko-base"
-      , version = "moc-0.9.7"
+      , version = "moc-0.11.1"
       , dependencies = [] : List Text
       }
       ,{ name = "cap"
