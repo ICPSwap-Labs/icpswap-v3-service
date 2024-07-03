@@ -2,8 +2,6 @@
 
 rm -rf .dfx
 
-dfx identity use icpswap-v2
-
 cp -R ./dfx.json ./dfx_temp.json
 
 echo "==> build SwapPool..."
