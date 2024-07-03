@@ -1,13 +1,10 @@
 import Principal "mo:base/Principal";
 import Nat "mo:base/Nat";
 import HashMap "mo:base/HashMap";
-import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Option "mo:base/Option";
-import Int "mo:base/Int";
 import Time "mo:base/Time";
 import Error "mo:base/Error";
-import Hash "mo:base/Hash";
 import Cycles "mo:base/ExperimentalCycles";
 import Iter "mo:base/Iter";
 import TokenAdapterTypes "mo:token-adapter/Types";
@@ -15,7 +12,6 @@ import TokenFactory "mo:token-adapter/TokenFactory";
 import AccountUtils "./utils/AccountUtils";
 import PoolUtils "./utils/PoolUtils";
 import Types "./Types";
-import Prim "mo:⛔";
 
 actor class PasscodeManager(
     tokenCid: Principal, 
@@ -281,7 +277,7 @@ actor class PasscodeManager(
             subaccount = null;
         });
         if (Principal.equal(recipient, Principal.fromActor(this))) {
-            return #err(#InternalError("Cannot transfer to the current canister."));
+            return #err(#InternalError("Can not transfer to the current canister."));
         };
         if (value <= fee) {
             return #err(#InternalError("The transfer amount needs to be greater than fee."));
@@ -341,6 +337,10 @@ actor class PasscodeManager(
             governanceCid = governanceCid;
         };
     };
+
+    // --------------------------- Version Control ------------------------------------
+    private var _version : Text = "3.4.0";
+    public query (msg) func getVersion() : async Text { _version };
 
     system func preupgrade() {
         _walletArray := Iter.toArray(_wallet.entries());
