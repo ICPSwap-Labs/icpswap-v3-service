@@ -101,7 +101,7 @@ echo "==> install SwapFactory"
 dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", null)"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
-dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\")"
+dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
 
 dipAId=`dfx canister id DIP20A`
 dipBId=`dfx canister id DIP20B`
@@ -160,6 +160,16 @@ function create_pool() #sqrtPriceX96
     dfx canister call $dipBId approve "(principal \"$poolId\", $TOTAL_SUPPLY)"
     # dfx canister call $poolId getConfigCids
     dfx canister call PositionIndex updatePoolIds 
+    
+    balance=`dfx canister call Test testTokenAdapterBalanceOf "(\"$(dfx canister id ICRC2)\", \"ICRC2\", principal \"$poolId\", null)"`
+    echo $balance
+    balance=`dfx canister call Test testTokenAdapterBalanceOf "(\"$(dfx canister id ICRC2)\", \"ICRC2\", principal \"$(dfx canister id PasscodeManager)\", null)"`
+    echo $balance
+    dfx canister call PasscodeManager transferValidate "(principal \"$poolId\", $TOTAL_SUPPLY)"
+    dfx canister call PasscodeManager transferValidate "(principal \"$poolId\", 100000000)"
+    dfx canister call PasscodeManager transfer "(principal \"$poolId\", 100000000)"
+    balance=`dfx canister call Test testTokenAdapterBalanceOf "(\"$(dfx canister id ICRC2)\", \"ICRC2\", principal \"$poolId\", null)"`
+    echo $balance
 }
 
 function depost() # token tokenAmount

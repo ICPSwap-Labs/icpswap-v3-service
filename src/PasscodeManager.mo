@@ -1,13 +1,10 @@
 import Principal "mo:base/Principal";
 import Nat "mo:base/Nat";
 import HashMap "mo:base/HashMap";
-import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Option "mo:base/Option";
-import Int "mo:base/Int";
 import Time "mo:base/Time";
 import Error "mo:base/Error";
-import Hash "mo:base/Hash";
 import Cycles "mo:base/ExperimentalCycles";
 import Iter "mo:base/Iter";
 import TokenAdapterTypes "mo:token-adapter/Types";
@@ -15,10 +12,18 @@ import TokenFactory "mo:token-adapter/TokenFactory";
 import AccountUtils "./utils/AccountUtils";
 import PoolUtils "./utils/PoolUtils";
 import Types "./Types";
-import Prim "mo:⛔";
 
-actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid: Principal) = this {
+actor class PasscodeManager(
+    tokenCid: Principal, 
+    passcodePrice: Nat, 
+    factoryCid: Principal,
+    governanceCid : Principal,
+) = this {
 
+    public type Result = {
+        #Ok : Text;
+        #Err : Text;
+    };
     public type DepositArgs = {
         amount: Nat;
         fee: Nat;
@@ -87,6 +92,7 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
             };
         };
     };
+
     private func _walletBalanceOf(principal: Principal): Nat {
         switch(_wallet.get(principal)) {
             case (?bal) {
@@ -95,6 +101,7 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
             case (_) { return 0; };
         };
     };
+
     public shared ({ caller }) func deposit(args : DepositArgs) : async Result.Result<Nat, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         var canisterId = Principal.fromActor(this);
@@ -199,12 +206,18 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
             return #err(#InsufficientFunds);
         };
     };
+
     public shared({caller}) func requestPasscode(token0: Principal, token1: Principal, fee: Nat) : async Result.Result<Text, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (_walletWithdraw(caller, passcodePrice)) {
+            let (sortedToken0, sortedToken1) = if (Principal.toText(token0) > Principal.toText(token1)) {
+                (token1, token0)
+            } else {
+                (token0, token1)
+            };
             switch(await FACTORY.addPasscode(caller, {
-                token0 = token0;
-                token1 = token1;
+                token0 = sortedToken0;
+                token1 = sortedToken1;
                 fee = fee;
             })) {
                 case(#ok()) {
@@ -219,6 +232,7 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
             return #err(#InsufficientFunds);
         };
     };
+
     public shared({caller}) func destoryPasscode(token0: Principal, token1: Principal, fee: Nat) : async Result.Result<Text, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         switch(await FACTORY.deletePasscode(caller, {
@@ -235,6 +249,63 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
             };
         };
     };
+
+    public shared ({ caller }) func transferValidate(recipient : Principal, value : Nat) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        var fee : Nat = await TOKEN.fee();
+        var balance : Nat = await TOKEN.balanceOf({
+            owner = Principal.fromActor(this);
+            subaccount = null;
+        });
+        if (Principal.equal(recipient, Principal.fromActor(this))) {
+            return #Err("Cannot transfer to the current canister.");
+        };
+        if (value <= fee) {
+            return #Err("The transfer amount needs to be greater than fee.");
+        };
+        if (balance < value) {
+            return #Err("The transfer amount needs to be less than balance.");
+        };
+        return #Ok(debug_show (recipient) # ", " # debug_show (value));
+    };
+
+    public shared ({ caller }) func transfer(recipient : Principal, value : Nat) : async Result.Result<Nat, Types.Error> {
+        assert (Principal.equal(caller, governanceCid));
+        var fee : Nat = await TOKEN.fee();
+        var balance : Nat = await TOKEN.balanceOf({
+            owner = Principal.fromActor(this);
+            subaccount = null;
+        });
+        if (Principal.equal(recipient, Principal.fromActor(this))) {
+            return #err(#InternalError("Can not transfer to the current canister."));
+        };
+        if (value <= fee) {
+            return #err(#InternalError("The transfer amount needs to be greater than fee."));
+        };
+        if (balance < value) {
+            return #err(#InternalError("The transfer amount needs to be less than balance."));
+        };
+        var amount : Nat = Nat.sub(value, fee);
+        try{
+            switch (await TOKEN.transfer({ 
+                from = { owner = Principal.fromActor(this); subaccount = null }; 
+                from_subaccount = null; 
+                to = { owner = recipient; subaccount = null }; 
+                amount = amount; 
+                fee = ?fee; 
+                memo = null; 
+                created_at_time = null 
+            })) {
+                case (#Ok(index)) { return #ok(amount) };
+                case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
+            };
+            return #ok(amount);
+        } catch (e) {   
+            let msg: Text = debug_show (Error.message(e));
+            return #err(#InternalError(msg));
+        };
+    };
+
     public shared (msg) func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
@@ -245,22 +316,31 @@ actor class PasscodeManager(tokenCid: Principal, passcodePrice: Nat, factoryCid:
     public query func getTokenCid(): async Principal {
         return tokenCid;
     };
+
     public query func getFactoryCid(): async Principal {
         return factoryCid;
     };
+
     public func balanceOf(principal: Principal): async Nat {
         return _walletBalanceOf(principal);
     };
+
     public func balances(): async [(Principal, Nat)] {
         return Iter.toArray(_wallet.entries())
     };
-    public func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat;} {
+
+    public func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat; governanceCid: Principal;} {
         return {
             tokenCid = tokenCid;
             factoryCid = factoryCid;
             passcodePrice = passcodePrice;
+            governanceCid = governanceCid;
         };
     };
+
+    // --------------------------- Version Control ------------------------------------
+    private var _version : Text = "3.4.0";
+    public query (msg) func getVersion() : async Text { _version };
 
     system func preupgrade() {
         _walletArray := Iter.toArray(_wallet.entries());
