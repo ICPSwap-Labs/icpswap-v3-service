@@ -214,9 +214,14 @@ actor class PasscodeManager(
     public shared({caller}) func requestPasscode(token0: Principal, token1: Principal, fee: Nat) : async Result.Result<Text, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (_walletWithdraw(caller, passcodePrice)) {
+            let (sortedToken0, sortedToken1) = if (Principal.toText(token0) > Principal.toText(token1)) {
+                (token1, token0)
+            } else {
+                (token0, token1)
+            };
             switch(await FACTORY.addPasscode(caller, {
-                token0 = token0;
-                token1 = token1;
+                token0 = sortedToken0;
+                token1 = sortedToken1;
                 fee = fee;
             })) {
                 case(#ok()) {
@@ -328,11 +333,12 @@ actor class PasscodeManager(
         return Iter.toArray(_wallet.entries())
     };
 
-    public func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat;} {
+    public func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat; governanceCid: Principal;} {
         return {
             tokenCid = tokenCid;
             factoryCid = factoryCid;
             passcodePrice = passcodePrice;
+            governanceCid = governanceCid;
         };
     };
 
