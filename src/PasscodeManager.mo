@@ -1,13 +1,10 @@
 import Principal "mo:base/Principal";
 import Nat "mo:base/Nat";
 import HashMap "mo:base/HashMap";
-import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Option "mo:base/Option";
-import Int "mo:base/Int";
 import Time "mo:base/Time";
 import Error "mo:base/Error";
-import Hash "mo:base/Hash";
 import Cycles "mo:base/ExperimentalCycles";
 import Iter "mo:base/Iter";
 import TokenAdapterTypes "mo:token-adapter/Types";
@@ -15,7 +12,6 @@ import TokenFactory "mo:token-adapter/TokenFactory";
 import AccountUtils "./utils/AccountUtils";
 import PoolUtils "./utils/PoolUtils";
 import Types "./Types";
-import Prim "mo:⛔";
 
 actor class PasscodeManager(
     tokenCid: Principal, 
@@ -214,9 +210,14 @@ actor class PasscodeManager(
     public shared({caller}) func requestPasscode(token0: Principal, token1: Principal, fee: Nat) : async Result.Result<Text, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (_walletWithdraw(caller, passcodePrice)) {
+            let (sortedToken0, sortedToken1) = if (Principal.toText(token0) > Principal.toText(token1)) {
+                (token1, token0)
+            } else {
+                (token0, token1)
+            };
             switch(await FACTORY.addPasscode(caller, {
-                token0 = token0;
-                token1 = token1;
+                token0 = sortedToken0;
+                token1 = sortedToken1;
                 fee = fee;
             })) {
                 case(#ok()) {
@@ -276,7 +277,7 @@ actor class PasscodeManager(
             subaccount = null;
         });
         if (Principal.equal(recipient, Principal.fromActor(this))) {
-            return #err(#InternalError("Cannot transfer to the current canister."));
+            return #err(#InternalError("Can not transfer to the current canister."));
         };
         if (value <= fee) {
             return #err(#InternalError("The transfer amount needs to be greater than fee."));
@@ -328,13 +329,18 @@ actor class PasscodeManager(
         return Iter.toArray(_wallet.entries())
     };
 
-    public func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat;} {
+    public func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat; governanceCid: Principal;} {
         return {
             tokenCid = tokenCid;
             factoryCid = factoryCid;
             passcodePrice = passcodePrice;
+            governanceCid = governanceCid;
         };
     };
+
+    // --------------------------- Version Control ------------------------------------
+    private var _version : Text = "3.4.0";
+    public query (msg) func getVersion() : async Text { _version };
 
     system func preupgrade() {
         _walletArray := Iter.toArray(_wallet.entries());
