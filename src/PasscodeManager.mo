@@ -313,14 +313,6 @@ actor class PasscodeManager(
         });
     };
 
-    public query func getTokenCid(): async Principal {
-        return tokenCid;
-    };
-
-    public query func getFactoryCid(): async Principal {
-        return factoryCid;
-    };
-
     public func balanceOf(principal: Principal): async Nat {
         return _walletBalanceOf(principal);
     };
