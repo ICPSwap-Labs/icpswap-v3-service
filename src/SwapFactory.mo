@@ -1,8 +1,6 @@
-import Array "mo:base/Array";
 import Blob "mo:base/Blob";
 import Bool "mo:base/Bool";
 import Buffer "mo:base/Buffer";
-import Char "mo:base/Char";
 import Cycles "mo:base/ExperimentalCycles";
 import Debug "mo:base/Debug";
 import Error "mo:base/Error";
@@ -12,14 +10,11 @@ import Int "mo:base/Int";
 import Iter "mo:base/Iter";
 import List "mo:base/List";
 import Nat "mo:base/Nat";
-import Nat32 "mo:base/Nat32";
-import Option "mo:base/Option";
 import Prim "mo:⛔";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
-import SHA256 "mo:sha256/SHA256";
 import SafeUint "mo:commons/math/SafeUint";
 import TextUtils "mo:commons/utils/TextUtils";
 import IC0Utils "mo:commons/utils/IC0Utils";
@@ -28,8 +23,6 @@ import PoolUtils "./utils/PoolUtils";
 import PoolData "./components/PoolData";
 import SwapPool "./SwapPool";
 import Types "./Types";
-import TokenAdapterTypes "mo:token-adapter/Types";
-import TokenFactory "mo:token-adapter/TokenFactory";
 
 shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
@@ -77,6 +70,8 @@ shared (initMsg) actor class SwapFactory(
     public shared (msg) func createPool(args : Types.CreatePoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
         if (not _validatePasscode(msg.caller, args)) { return #err(#InternalError("Please pay the fee for creating SwapPool.")); };
         if (Text.equal(args.token0.address, args.token1.address)) { return #err(#InternalError("Can not use the same token")); };
+        if (not _checkStandard(args.token0.standard)) { return #err(#UnsupportedToken("Wrong token0 standard.")); };
+        if (not _checkStandard(args.token1.standard)) { return #err(#UnsupportedToken("Wrong token1 standard.")); };
         var tickSpacing = switch (_feeTickSpacingMap.get(args.fee)) {
             case (?feeAmountTickSpacingFee) { feeAmountTickSpacingFee };
             case (_) { return #err(#InternalError("TickSpacing cannot be 0")); };
@@ -93,7 +88,7 @@ shared (initMsg) actor class SwapFactory(
                     if(not _deletePasscode(msg.caller, { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; })) {
                         return #err(#InternalError("Passcode is not existed."));
                     };
-                    Cycles.add(_initCycles);
+                    Cycles.add<system>(_initCycles);
                     let pool = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
                     await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
                     await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), initMsg.caller);
@@ -108,8 +103,8 @@ shared (initMsg) actor class SwapFactory(
                     } : Types.PoolData;
                     _poolDataService.putPool(poolKey, poolData);
                     poolData;
-                } catch (e) {
-                    throw Error.reject("create pool failed: " # Error.message(e));
+                } catch (_e) {
+                    throw Error.reject("create pool failed: " # Error.message(_e));
                 };
             };
         };
@@ -172,7 +167,7 @@ shared (initMsg) actor class SwapFactory(
                     };
                     let poolKey : Text = PoolUtils.getPoolKey(metadata.token0, metadata.token1, metadata.fee);
                     if (isSupportedICRC2) {
-                        let result = await poolAct.upgradeTokenStandard(tokenCid);
+                        await poolAct.upgradeTokenStandard(tokenCid);
                         switch (await poolAct.metadata()) {
                             case (#ok(verifiedMetadata)) {
                                 let verifiedToken = if (Text.equal(Principal.toText(tokenCid), verifiedMetadata.token0.address)) { 
@@ -295,7 +290,7 @@ shared (initMsg) actor class SwapFactory(
     public shared (msg) func removePool(args : Types.GetPoolArgs) : async Text {
         _checkPermission(msg.caller);
         let poolKey : Text = PoolUtils.getPoolKey(args.token0, args.token1, args.fee);
-        let poolCid = _poolDataService.removePool(poolKey);
+        _poolDataService.removePool(poolKey);
     };
 
     // ---------------        Pools Governance Functions        ----------------------
@@ -323,7 +318,7 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func clearRemovedPool(canisterId : Principal) : async Text {
         _checkPermission(msg.caller);
-        let poolCid = _poolDataService.deletePool(Principal.toText(canisterId));
+        _poolDataService.deletePool(Principal.toText(canisterId));
     };
 
     public shared (msg) func addPoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
@@ -436,9 +431,25 @@ shared (initMsg) actor class SwapFactory(
     private func _passcodeEqual(p1 : Types.Passcode, p2 : Types.Passcode) : Bool { 
         Principal.equal(p1.token0, p2.token0) and  Principal.equal(p1.token1, p2.token1) and Nat.equal(p1.fee, p2.fee)
     };
+    
+    private func _checkStandard(standard : Text) : Bool {
+        if (
+            Text.notEqual(standard, "DIP20") 
+            and Text.notEqual(standard, "DIP20-WICP") 
+            and Text.notEqual(standard, "DIP20-XTC") 
+            and Text.notEqual(standard, "EXT") 
+            and Text.notEqual(standard, "ICRC1") 
+            and Text.notEqual(standard, "ICRC2") 
+            and Text.notEqual(standard, "ICRC3") 
+            and Text.notEqual(standard, "ICP")
+        ) {
+            return false;
+        };
+        return true;
+    };
 
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.4.0";
+    private var _version : Text = "3.5.0";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {
@@ -459,18 +470,18 @@ shared (initMsg) actor class SwapFactory(
     }) : Bool {
         return switch (msg) {
             // Controller
-            case (#clearRemovedPool args)                   { _hasPermission(caller) };
-            case (#removePool args)                         { _hasPermission(caller) };
-            case (#removePoolErrorTransferLog args)         { _hasPermission(caller) };
-            case (#restorePool args)                        { _hasPermission(caller) };
-            case (#upgradePoolTokenStandard args)           { _hasPermission(caller) };
-            case (#addPoolControllers args)                 { _hasPermission(caller) };
-            case (#removePoolControllers args)              { _hasPermission(caller) };
-            case (#setPoolAdmins args)                      { _hasPermission(caller) };
-            case (#setPoolAvailable args)                   { _hasPermission(caller) };
-            case (#batchAddPoolControllers args)            { _hasPermission(caller) };
-            case (#batchRemovePoolControllers args)         { _hasPermission(caller) };
-            case (#batchSetPoolAdmins args)                 { _hasPermission(caller) };
+            case (#clearRemovedPool _)                   { _hasPermission(caller) };
+            case (#removePool _)                         { _hasPermission(caller) };
+            case (#removePoolErrorTransferLog _)         { _hasPermission(caller) };
+            case (#restorePool _)                        { _hasPermission(caller) };
+            case (#upgradePoolTokenStandard _)           { _hasPermission(caller) };
+            case (#addPoolControllers _)                 { _hasPermission(caller) };
+            case (#removePoolControllers _)              { _hasPermission(caller) };
+            case (#setPoolAdmins _)                      { _hasPermission(caller) };
+            case (#setPoolAvailable _)                   { _hasPermission(caller) };
+            case (#batchAddPoolControllers _)            { _hasPermission(caller) };
+            case (#batchRemovePoolControllers _)         { _hasPermission(caller) };
+            case (#batchSetPoolAdmins _)                 { _hasPermission(caller) };
             // Anyone
             case (_)                                   { true };
         };

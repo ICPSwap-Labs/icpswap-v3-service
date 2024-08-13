@@ -1,6 +1,4 @@
 import Text "mo:base/Text";
-import Time "mo:base/Time";
-import Debug "mo:base/Debug";
 import Nat "mo:base/Nat";
 import Int "mo:base/Int";
 import Nat8 "mo:base/Nat8";
@@ -8,15 +6,12 @@ import Blob "mo:base/Blob";
 import Principal "mo:base/Principal";
 import Array "mo:base/Array";
 import Option "mo:base/Option";
-import Result "mo:base/Result";
 import HashMap "mo:base/HashMap";
 import Hash "mo:base/Hash";
 import TokenTypes "mo:token-adapter/Types";
 import TokenFactory "mo:token-adapter/TokenFactory";
-import Types "../src/Types";
 import TickMath "../src/libraries/TickMath";
 import IntUtils "mo:commons/math/SafeInt/IntUtils";
-import UintUtils "mo:commons/math/SafeUint/UintUtils";
 import SafeInt "mo:commons/math/SafeInt";
 import SafeUint "mo:commons/math/SafeUint";
 import Float "mo:base/Float";
@@ -43,7 +38,7 @@ actor {
         return "text__" # text # "__";
     };
 
-    public shared (msg) func testTokenAdapterBalanceOf(addr : Text, std : Text, account : Principal, subaccount : ?Principal) : async Nat {
+    public shared func testTokenAdapterBalanceOf(addr : Text, std : Text, account : Principal, subaccount : ?Principal) : async Nat {
         return await TokenFactory.getAdapter(addr, std).balanceOf(
             {
                 owner = account;
@@ -80,7 +75,7 @@ actor {
         });
     };
 
-    public shared (msg) func testTokenAdapterTransferFrom(addr : Text, std : Text, from : Principal, to : Principal, amount : TokenTypes.Amount) : async TokenTypes.TransferFromResult {
+    public shared (msg) func testTokenAdapterTransferFrom(addr : Text, std : Text, _from : Principal, to : Principal, amount : TokenTypes.Amount) : async TokenTypes.TransferFromResult {
         return await TokenFactory.getAdapter(addr, std).transferFrom({
             from = {
                 owner = msg.caller;
@@ -97,7 +92,7 @@ actor {
     private stable var _feeTickSpacingEntries : [(Nat, [Int])] = [(500, [-887270, 887270]), (3000, [-887220, 887220]), (10000, [-887200, 887200])];
     private var _feeTickSpacingMap : HashMap.HashMap<Nat, [Int]> = HashMap.fromIter<Nat, [Int]>(_feeTickSpacingEntries.vals(), 10, Nat.equal, Hash.hash);
 
-    public shared (msg) func priceToTick(price : Float, fee : Nat) : async Int {
+    public shared func priceToTick(price : Float, _fee : Nat) : async Int {
         var sqrtPriceX96 = IntUtils.toNat(Float.toInt(Float.sqrt(price) * Q96), 256);
         switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) {
             case (#ok(r)) {
@@ -111,14 +106,14 @@ actor {
                     };
                 } else { tick };
             };
-            case (#err(code)) { 0 };
+            case (#err(_)) { 0 };
         };
     };
 
     private stable var FeeTickSpacing : [(Nat, Int)] = [(500, 10), (3000, 60), (10000, 200)];
     private stable var MaxTick : [(Nat, Int)] = [(500, 887270), (3000, 887220), (10000, 887200)];
-    private stable var MinTick : [(Nat, Int)] = [(500, -887270), (3000, -887220), (10000, -887200)];
-    public shared (msg) func priceToTick2(price : Float, fee : Nat) : async Int {
+    // private stable var MinTick : [(Nat, Int)] = [(500, -887270), (3000, -887220), (10000, -887200)];
+    public shared func priceToTick2(price : Float, fee : Nat) : async Int {
         var feeTickSpacingMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(FeeTickSpacing.vals(), 3, Nat.equal, Hash.hash);
         var maxTickMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(MaxTick.vals(), 3, Nat.equal, Hash.hash);
         var minTickMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(MaxTick.vals(), 3, Nat.equal, Hash.hash);
@@ -159,23 +154,19 @@ actor {
                     };
                 } else { tick };
             };
-            case (#err(code)) { 0 };
+            case (#err(_)) { 0 };
         };
     };
 
-    public shared (msg) func tickToPrice(tick : Int) : async Float {
+    public shared func tickToPrice(tick : Int) : async Float {
         switch (TickMath.getSqrtRatioAtTick(SafeInt.Int24(tick))) {
             case (#ok(sqrtPriceX96)) {
                 _computeToICPPrice(sqrtPriceX96);
             };
-            case (#err(code)) {
+            case (#err(_)) {
                 return 0;
             };
         };
-    };
-
-    public shared (msg) func computePrice(sqrtPriceX96 : Nat) : async Nat {
-        sqrtPriceX96 ** 2 / 2 ** 192;
     };
 
     private func _computeToICPPrice(sqrtPriceX96 : Nat) : Float {

@@ -122,7 +122,7 @@ actor class PasscodeManager(
                 memo = Option.make(PoolUtils.natToBlob(_transferIndex)); 
                 created_at_time = null 
             })) {
-                case (#Ok(index)) {
+                case (#Ok(_)) {
                     _walletDeposit(caller, amount);
                     return #ok(amount);
                 };
@@ -152,7 +152,7 @@ actor class PasscodeManager(
                 memo = Option.make(PoolUtils.natToBlob(_transferIndex)); 
                 created_at_time = null 
             })) {
-                case (#Ok(index)) {
+                case (#Ok(_)) {
                     _walletDeposit(caller, args.amount);
                     return #ok(args.amount);
                 };
@@ -191,7 +191,7 @@ actor class PasscodeManager(
                     memo = Option.make(PoolUtils.natToBlob(_transferIndex));  
                     created_at_time = null 
                 })) {
-                    case (#Ok(index)) {
+                    case (#Ok(_)) {
                         return #ok(amount);
                     };
                     case (#Err(msg)) {
@@ -296,7 +296,7 @@ actor class PasscodeManager(
                 memo = null; 
                 created_at_time = null 
             })) {
-                case (#Ok(index)) { return #ok(amount) };
+                case (#Ok(_)) { return #ok(amount) };
                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
             };
             return #ok(amount);
@@ -306,22 +306,22 @@ actor class PasscodeManager(
         };
     };
 
-    public shared (msg) func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
+    public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
             available = Cycles.available();
         });
     };
 
-    public func balanceOf(principal: Principal): async Nat {
+    public query func balanceOf(principal: Principal): async Nat {
         return _walletBalanceOf(principal);
     };
 
-    public func balances(): async [(Principal, Nat)] {
+    public query func balances(): async [(Principal, Nat)] {
         return Iter.toArray(_wallet.entries())
     };
 
-    public func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat; governanceCid: Principal;} {
+    public query func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat; governanceCid: Principal;} {
         return {
             tokenCid = tokenCid;
             factoryCid = factoryCid;
@@ -331,8 +331,8 @@ actor class PasscodeManager(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.4.0";
-    public query (msg) func getVersion() : async Text { _version };
+    private var _version : Text = "3.5.0";
+    public query func getVersion() : async Text { _version };
 
     system func preupgrade() {
         _walletArray := Iter.toArray(_wallet.entries());

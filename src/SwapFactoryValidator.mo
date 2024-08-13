@@ -1,11 +1,9 @@
 import Text "mo:base/Text";
-import Nat "mo:base/Nat";
 import Error "mo:base/Error";
 import Bool "mo:base/Bool";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
 import Result "mo:base/Result";
-import PoolUtils "./utils/PoolUtils";
 import Types "./Types";
 
 shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, governanceCid : Principal) = this {
@@ -183,7 +181,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     public shared ({ caller }) func batchAddPoolControllersValidate(poolCids : [Principal], controllers : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {
-            case (#ok(r)) {
+            case (#ok(_)) {
                 return #Ok(debug_show (poolCids) # ", " # debug_show (controllers));
             };
             case (#err(msg)) {
@@ -195,7 +193,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     public shared ({ caller }) func batchRemovePoolControllersValidate(poolCids : [Principal], controllers : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {
-            case (#ok(r)) {
+            case (#ok(_)) {
                 for (it in controllers.vals()) {
                     if (Principal.equal(it, factoryCid)) {
                         return #Err("SwapFactory must be the controller of SwapPool");
@@ -212,7 +210,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     public shared ({ caller }) func batchSetPoolAdminsValidate(poolCids : [Principal], admins : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {
-            case (#ok(r)) {
+            case (#ok(_)) {
                 return #Ok(debug_show (poolCids) # ", " # debug_show (admins));
             };
             case (#err(msg)) {
@@ -238,7 +236,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
                 };
                 return false;
             };
-            case (#err(msg)) {
+            case (#err(_)) {
                 return false;
             };
         };

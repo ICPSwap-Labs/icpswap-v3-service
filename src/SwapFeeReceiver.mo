@@ -1,19 +1,8 @@
 import Text "mo:base/Text";
-import Array "mo:base/Array";
 import Nat "mo:base/Nat";
-import List "mo:base/List";
-import Int "mo:base/Int";
-import Hash "mo:base/Hash";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
-import Time "mo:base/Time";
-import Timer "mo:base/Timer";
-import Debug "mo:base/Debug";
 import Blob "mo:base/Blob";
-import Buffer "mo:base/Buffer";
-import HashMap "mo:base/HashMap";
-import Iter "mo:base/Iter";
-import Option "mo:base/Option";
 import Result "mo:base/Result";
 import Types "./Types";
 import Bool "mo:base/Bool";
@@ -58,7 +47,7 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
         if (value > fee) {
             var amount : Nat = Nat.sub(value, fee);
             switch (await tokenAct.transfer({ from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; to = { owner = recipient; subaccount = null }; amount = amount; fee = ?fee; memo = null; created_at_time = null })) {
-                case (#Ok(index)) { return #ok(amount) };
+                case (#Ok(_)) { return #ok(amount) };
                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
             };
             return #ok(amount);
@@ -76,7 +65,7 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
         if (value > fee) {
             var amount : Nat = Nat.sub(value, fee);
             switch (await tokenAct.transfer({ from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; to = { owner = recipient; subaccount = null }; amount = amount; fee = ?fee; memo = null; created_at_time = null })) {
-                case (#Ok(index)) { return #ok(amount) };
+                case (#Ok(_)) { return #ok(amount) };
                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
             };
             return #ok(amount);
@@ -97,7 +86,7 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.3.1";
+    private var _version : Text = "3.5.0";
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {};
@@ -111,9 +100,9 @@ shared (initMsg) actor class SwapFeeReceiver() = this {
     }) : Bool {
         return switch (msg) {
             // Controller
-            case (#claim args) { Prim.isController(caller) };
-            case (#transfer args) { Prim.isController(caller) };
-            case (#transferAll args) { Prim.isController(caller) };
+            case (#claim _) { Prim.isController(caller) };
+            case (#transfer _) { Prim.isController(caller) };
+            case (#transferAll _) { Prim.isController(caller) };
             // Anyone
             case (_) { true };
         };

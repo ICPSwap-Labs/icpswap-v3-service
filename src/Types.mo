@@ -1,15 +1,10 @@
 import Blob "mo:base/Blob";
 import Bool "mo:base/Bool";
-import Time "mo:base/Time";
-import Hash "mo:base/Hash";
 import Int "mo:base/Int";
 import Nat "mo:base/Nat";
-import Nat32 "mo:base/Nat32";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
-import ExtCore "mo:token-adapter/standard/EXT/ext/Core";
-import IcsNonFungible "mo:token-adapter/standard/EXT/ext/IcsNonFungible";
 
 module {
 
@@ -292,6 +287,10 @@ module {
         result : Text; // processing, success, error
         errorMsg : Text;
         daysFrom19700101 : Nat;
+        timestamp : Nat;
+    };
+    public type LimitOrder = {
+        zeroForOne : Bool;
         timestamp : Nat;
     };
     public type SwapPoolMsg = {
