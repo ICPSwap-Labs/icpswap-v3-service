@@ -34,17 +34,17 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     //     };
     // };
 
-    // public shared ({ caller }) func removePoolValidate(args : Types.GetPoolArgs) : async Result {
-    //     assert (Principal.equal(caller, governanceCid));
-    //     switch (await _factoryAct.getPool(args)) {
-    //         case (#ok(pool)) {
-    //             return #Ok(debug_show (args));
-    //         };
-    //         case (#err(msg)) {
-    //             return #Err(debug_show (msg));
-    //         };
-    //     };
-    // };
+    public shared ({ caller }) func removePoolValidate(args : Types.GetPoolArgs) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        switch (await _factoryAct.getPool(args)) {
+            case (#ok(pool)) {
+                return #Ok(debug_show (args));
+            };
+            case (#err(msg)) {
+                return #Err(debug_show (msg));
+            };
+        };
+    };
 
     // public shared ({ caller }) func removePoolWithdrawErrorLogValidate(poolCid : Principal, id : Nat, rollback : Bool) : async Result {
     //     assert (Principal.equal(caller, governanceCid));
@@ -219,6 +219,16 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
                 return #Err(debug_show (msg));
             };
         };
+    };
+
+    public query func getInitArgs() : async Result.Result<{    
+        factoryCid : Principal;
+        governanceCid : Principal;
+    }, Types.Error> {
+        #ok({
+            factoryCid = factoryCid;
+            governanceCid = governanceCid;
+        });
     };
 
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
