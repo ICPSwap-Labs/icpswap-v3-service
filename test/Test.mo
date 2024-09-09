@@ -6,19 +6,13 @@ import Blob "mo:base/Blob";
 import Principal "mo:base/Principal";
 import Array "mo:base/Array";
 import Option "mo:base/Option";
-import HashMap "mo:base/HashMap";
-import Hash "mo:base/Hash";
 import TokenTypes "mo:token-adapter/Types";
 import TokenFactory "mo:token-adapter/TokenFactory";
 import TickMath "../src/libraries/TickMath";
-import IntUtils "mo:commons/math/SafeInt/IntUtils";
 import SafeInt "mo:commons/math/SafeInt";
-import SafeUint "mo:commons/math/SafeUint";
 import Float "mo:base/Float";
 
 actor {
-
-    private stable var Q96 : Float = 0x1000000000000000000000000;
 
     func _principalToBlob(p : Principal) : Blob {
         var arr : [Nat8] = Blob.toArray(Principal.toBlob(p));
@@ -87,75 +81,6 @@ actor {
             memo = null;
             created_at_time = null;
         });
-    };
-
-    private stable var _feeTickSpacingEntries : [(Nat, [Int])] = [(500, [-887270, 887270]), (3000, [-887220, 887220]), (10000, [-887200, 887200])];
-    private var _feeTickSpacingMap : HashMap.HashMap<Nat, [Int]> = HashMap.fromIter<Nat, [Int]>(_feeTickSpacingEntries.vals(), 10, Nat.equal, Hash.hash);
-
-    public shared func priceToTick(price : Float, _fee : Nat) : async Int {
-        var sqrtPriceX96 = IntUtils.toNat(Float.toInt(Float.sqrt(price) * Q96), 256);
-        switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) {
-            case (#ok(r)) {
-                var addFlag = if (Int.rem(r, 60) >= 30) { true } else { false };
-                var tick = r / 60 * 60;
-                if (addFlag) {
-                    if (tick >= 0) {
-                        tick + 60;
-                    } else {
-                        tick - 60;
-                    };
-                } else { tick };
-            };
-            case (#err(_)) { 0 };
-        };
-    };
-
-    private stable var FeeTickSpacing : [(Nat, Int)] = [(500, 10), (3000, 60), (10000, 200)];
-    private stable var MaxTick : [(Nat, Int)] = [(500, 887270), (3000, 887220), (10000, 887200)];
-    // private stable var MinTick : [(Nat, Int)] = [(500, -887270), (3000, -887220), (10000, -887200)];
-    public shared func priceToTick2(price : Float, fee : Nat) : async Int {
-        var feeTickSpacingMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(FeeTickSpacing.vals(), 3, Nat.equal, Hash.hash);
-        var maxTickMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(MaxTick.vals(), 3, Nat.equal, Hash.hash);
-        var minTickMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(MaxTick.vals(), 3, Nat.equal, Hash.hash);
-
-        var tickSpacing = switch (feeTickSpacingMap.get(fee)) {
-            case (?r) { r };
-            case (_) { 0 };
-        };
-        var maxTick = switch (maxTickMap.get(fee)) {
-            case (?r) { r };
-            case (_) { 0 };
-        };
-        var minTick = switch (minTickMap.get(fee)) {
-            case (?r) { r };
-            case (_) { 0 };
-        };
-
-        var sqrtPriceX96 = IntUtils.toNat(Float.toInt(Float.sqrt(price) * Q96), 256);
-        switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) {
-            case (#ok(r)) {
-                var addFlag = if (Int.rem(r, tickSpacing) >= (tickSpacing / 2)) {
-                    true;
-                } else { false };
-                var tick = r / tickSpacing * tickSpacing;
-                if (addFlag) {
-                    if (tick >= 0) {
-                        if (tick + tickSpacing > maxTick) {
-                            maxTick;
-                        } else {
-                            tick + tickSpacing;
-                        };
-                    } else {
-                        if (tick - tickSpacing < minTick) {
-                            minTick;
-                        } else {
-                            tick - tickSpacing;
-                        };
-                    };
-                } else { tick };
-            };
-            case (#err(_)) { 0 };
-        };
     };
 
     public shared func tickToPrice(tick : Int) : async Float {

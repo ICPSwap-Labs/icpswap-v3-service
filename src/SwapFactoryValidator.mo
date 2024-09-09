@@ -35,7 +35,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     public shared ({ caller }) func removePoolValidate(args : Types.GetPoolArgs) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _factoryAct.getPool(args)) {
-            case (#ok(pool)) {
+            case (#ok(_)) {
                 return #Ok(debug_show (args));
             };
             case (#err(msg)) {

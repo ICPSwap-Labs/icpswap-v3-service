@@ -1,18 +1,11 @@
-import Bool "mo:base/Bool";
-import Debug "mo:base/Debug";
-import Float "mo:base/Float";
 import Int "mo:base/Int";
 import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 import Result "mo:base/Result";
-
 import LogicUtils "mo:commons/utils/LogicUtils";
 import IntUtils "mo:commons/math/SafeInt/IntUtils";
-import UintUtils "mo:commons/math/SafeUint/UintUtils";
 import SafeInt "mo:commons/math/SafeInt";
 import SafeUint "mo:commons/math/SafeUint";
-import BitwiseInt "mo:commons/math/BitwiseInt";
-import BitwiseNat "mo:commons/math/BitwiseNat";
 
 import Tick "./Tick";
 import SqrtPriceMath "./SqrtPriceMath";

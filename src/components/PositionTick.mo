@@ -1,15 +1,12 @@
 import Nat "mo:base/Nat";
-import Debug "mo:base/Debug";
 import Int "mo:base/Int";
 import Text "mo:base/Text";
 import Hash "mo:base/Hash";
 import List "mo:base/List";
-import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import HashMap "mo:base/HashMap";
 import SafeUint "mo:commons/math/SafeUint";
 import SafeInt "mo:commons/math/SafeInt";
-import IntUtils "mo:commons/math/SafeInt/IntUtils";
 import ListUtils "mo:commons/utils/ListUtils";
 import Types "../Types";
 import Tick "../libraries/Tick";
