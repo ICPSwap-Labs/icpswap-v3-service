@@ -187,6 +187,14 @@ module {
         amount0Desired : Text;
         amount1Desired : Text;
     };
+    public type LimitOrderArgs = {
+        positionId : Nat;
+        tickLimit : Int;
+    };
+    public type LockUserPositionArgs = {
+        positionId : Nat;
+        expirationTime : Nat;
+    };
     public type IncreaseLiquidityArgs = {
         positionId : Nat;
         amount0Desired : Text;
@@ -215,6 +223,7 @@ module {
         #decreaseLiquidity;
         #claim;
         #swap;
+        #transferPosition : Nat;
     };
     public type TxStorage = actor {
         push : (SwapRecordInfo) -> async ();
@@ -289,45 +298,52 @@ module {
         daysFrom19700101 : Nat;
         timestamp : Nat;
     };
-    public type LimitOrder = {
-        zeroForOne : Bool;
+    public type LimitOrderKey = {
         timestamp : Nat;
+        tickLimit : Int;
+    };
+    public type LimitOrderValue = {
+        userPositionId : Nat;
+        owner : Principal;
     };
     public type SwapPoolMsg = {
+        #addLimitOrder : () -> LimitOrderArgs;
         #allTokenBalance : () -> (Nat, Nat);
         #approvePosition : () -> (Principal, Nat);
-        #batchRefreshIncome : () -> ([Nat]);
+        #batchRefreshIncome : () -> [Nat];
         #checkOwnerOfUserPosition : () -> (Principal, Nat);
         #claim : () -> ClaimArgs;
         #decreaseLiquidity : () -> DecreaseLiquidityArgs;
         #deposit : () -> DepositArgs;
         #depositFrom : () -> DepositArgs;
-        #getAddressPrincipals : () -> ();
         #getAvailabilityState : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
+        #getLimitOrders : () -> ();
+        #getLockedUserPositions : () -> ();
         #getPosition : () -> GetPositionArgs;
         #getPositions : () -> (Nat, Nat);
-        #getPrincipal : () -> Text;
         #getSwapRecordState : () -> ();
-        #getTheoreticalAmount : () -> ();
         #getTickInfos : () -> (Nat, Nat);
         #getTicks : () -> (Nat, Nat);
         #getTokenAmountState : () -> ();
         #getTokenBalance : () -> ();
         #getTokenMeta : () -> ();
+        #getTransferLogs : () -> ();
         #getUserByPositionId : () -> Nat;
+        #getUserLimitOrders : () -> Principal;
+        #getUserLockedPositions : () -> Principal;
         #getUserPosition : () -> Nat;
+        #getUserPositionIds : () -> ();
+        #getUserPositionIdsByPrincipal : () -> Principal;
         #getUserPositionWithTokenAmount : () -> (Nat, Nat);
         #getUserPositions : () -> (Nat, Nat);
-        #getUserPositionIds : () -> ();
-        #getUserUnusedBalance : () -> Principal;
         #getUserPositionsByPrincipal : () -> Principal;
-        #getUserPositionIdsByPrincipal : () -> Principal;
+        #getUserUnusedBalance : () -> Principal;
         #getVersion : () -> ();
-        #getTransferLogs : () -> ();
         #getWithdrawErrorLog : () -> ();
         #increaseLiquidity : () -> IncreaseLiquidityArgs;
+        #lockUserPosition : () -> LockUserPositionArgs;
         #metadata : () -> ();
         #mint : () -> MintArgs;
         #quote : () -> SwapArgs;
@@ -336,7 +352,6 @@ module {
         #sumTick : () -> ();
         #swap : () -> SwapArgs;
         #transferPosition : () -> (Principal, Principal, Nat);
-        // #transferToken : () -> (Nat, Principal, Nat);
         #withdraw : () -> WithdrawArgs;
         #getAdmins : () -> ();
         #getMistransferBalance : () -> Token;
