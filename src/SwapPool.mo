@@ -226,6 +226,7 @@ shared (initMsg) actor class SwapPool(
     };
     
     // --------------------------- locked user position ------------------------------------
+    private stable var THIRTY_DAYS : Nat = 2592000000000000;
     private stable var _lockedUserPositionEntries : [(Nat, Nat)] = [];
     private var _lockedUserPositions: HashMap.HashMap<Nat, Nat> = HashMap.fromIter(_lockedUserPositionEntries.vals(), 10, Nat.equal, Hash.hash);
     private func _isUserPositionLocked(positionId : Nat) : Bool {
@@ -1305,16 +1306,17 @@ shared (initMsg) actor class SwapPool(
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
-        if (Int.abs(Time.now()) >= args.expirationTime) {
-            return #err(#InternalError("The expiration time needs to be greater than the current time"));
+        if (args.expirationTime < Int.abs(Time.now()) + THIRTY_DAYS) {
+            return #err(#InternalError("Minimum lockout length is 30 days"));
         };
+        
         switch (_lockedUserPositions.get(args.positionId)) {
             case(null) { _lockedUserPositions.put(args.positionId, args.expirationTime); };
             case(?expirationTime){
                 if (args.expirationTime > expirationTime) {
                     _lockedUserPositions.put(args.positionId, args.expirationTime);
                 } else {
-                    return #err(#InternalError("Can only extend the expiration time")); 
+                    return #err(#InternalError("Can only extend the lockout time")); 
                 };
             };
         };
@@ -1566,7 +1568,7 @@ shared (initMsg) actor class SwapPool(
         assert(_isAvailable(msg.caller));
         _checkControllerPermission(msg.caller);
         let address = Principal.toText(tokenCid);
-        Debug.print("==>upgradeTokenStandard" # address);
+        // Debug.print("==>upgradeTokenStandard" # address);
         if ((not Text.equal(address, _token0.address)) and (not Text.equal(address, _token1.address))) {
             return #err(#InternalError("Wrong address"));
         };
@@ -1577,9 +1579,9 @@ shared (initMsg) actor class SwapPool(
         let act = actor(address) : actor {
             icrc1_supported_standards : shared query () -> async [{ url : Text; name : Text }];
         };
-        Debug.print("==>upgradeTokenStandard - 1");
+        // Debug.print("==>upgradeTokenStandard - 1");
         let suppportedStandards: [{ url : Text; name : Text }] = await act.icrc1_supported_standards();
-        Debug.print("==>upgradeTokenStandard - 2");
+        // Debug.print("==>upgradeTokenStandard - 2");
         var supported: Bool = false;
         label l for ( it in  suppportedStandards.vals() ) {
             if (Text.equal(it.name, "ICRC-2")) {

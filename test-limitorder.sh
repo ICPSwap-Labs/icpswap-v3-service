@@ -291,14 +291,14 @@ function income() #positionId tickLower tickUpper
     result=`dfx canister call $poolId getPosition "(record {tickLower = $2: int; tickUpper = $3: int})"`
 }
 
-function lockUserPositionForOneMinute() #positionId
+function lockUserPositionFor31Days() #positionId
 {
     echo "=== lock user position... ==="
     current_timestamp=$(date +%s)
-    one_minutes_seconds=$((60 * 1))
-    one_minutes_later_nanoseconds_timestamp=$(((current_timestamp + one_minutes_seconds) * 1000000000))
+    thirtyone_days_seconds=$((31 * 24 * 60 * 60))
+    thirtyone_days_later_nanoseconds_timestamp=$(((current_timestamp + thirtyone_days_seconds) * 1000000000))
 
-    result=`dfx canister call $poolId lockUserPosition "(record {positionId = $1: nat; expirationTime = $one_minutes_later_nanoseconds_timestamp: nat})"`
+    result=`dfx canister call $poolId lockUserPosition "(record {positionId = $1: nat; expirationTime = $thirtyone_days_later_nanoseconds_timestamp: nat})"`
     echo "lockUserPosition result: $result"
 }
 
@@ -322,7 +322,7 @@ function test_limit_order()
     echo "==> add invalid limit order 1"
     dfx canister call $poolId addLimitOrder "(record { positionId = 1 :nat; tickLimit = 36080 :int; })"
 
-    lockUserPositionForOneMinute 1
+    lockUserPositionFor31Days 1
     decrease 1 529634421680 292494852582912 329709405464581002 5935257942037 72181 2925487520681317622364346051650
 
     echo
