@@ -247,23 +247,20 @@ function withdrawAll()
     result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
     echo "user unused balance result: $result"
 
-    withdrawAmount0=${result#*=}
-    withdrawAmount0=${withdrawAmount0#*=}
-    withdrawAmount0=${withdrawAmount0%:*}
-    withdrawAmount0=${withdrawAmount0//" "/""}
-    # echo "withdraw amount0: $withdrawAmount0"
+    withdrawAmount0=$(echo "$result" | sed -n 's/.*balance0 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
+    withdrawAmount1=$(echo "$result" | sed -n 's/.*balance1 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
+    echo "withdraw amount0: $withdrawAmount0"
+    echo "withdraw amount1: $withdrawAmount1"
 
-    withdrawAmount1=${result##*=}
-    withdrawAmount1=${withdrawAmount1%:*}
-    withdrawAmount1=${withdrawAmount1//" "/""}
-    # echo "withdraw amount1: $withdrawAmount1"
-
-
+    if [ "$withdrawAmount0" -ne 0 ]; then
       result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
       echo "token0 withdraw result: $result"
+    fi
 
+    if [ "$withdrawAmount1" -ne 0 ]; then
       result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
       echo "token1 withdraw result: $result"
+    fi
 
     echo "\033[32m withdraw success. \033[0m"
 }
