@@ -179,7 +179,7 @@ module {
 
         var sqrtRatioAtTick = switch (getSqrtRatioAtTick(tickHigh)) {
             case (#ok(result)) { result; };
-            case (#err(code)) { return #err("TickMath getSqrtRatioAtTick failed: " # debug_show(code)); };
+            case (#err(_code)) { return #err("TickMath getSqrtRatioAtTick failed: " # debug_show(_code)); };
         };
         var tick: SafeInt.Int24 = if (tickLow.val() == tickHigh.val()) {
             tickLow;

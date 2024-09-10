@@ -254,7 +254,8 @@ module PositionTick {
             if (not _checkTicks(tickLower, tickUpper)) {
                 return #err("illegal ticks");
             };
-            var position = switch (_updatePosition(
+            // var position = 
+            switch (_updatePosition(
                 SafeInt.Int24(tickLower),
                 SafeInt.Int24(tickUpper),
                 SafeInt.Int128(liquidityDelta),
@@ -264,14 +265,14 @@ module PositionTick {
                 SafeUint.Uint128(maxLiquidityPerTick),
                 SafeInt.Int24(tickSpacing),
             )) {
-                case (#ok(result)) { result; };
+                case (#ok(_)) {  };
                 case (#err(code)) { return #err(code); };
             };
             var sqrtRatioAtTickLower = switch (TickMath.getSqrtRatioAtTick(SafeInt.Int24(tickLower))) {
-                case (#ok(r)) { r; }; case (#err(code)) { return #err("modify TickMath.getSqrtRatioAtTick Lower failed: " # debug_show(code)); };
+                case (#ok(r)) { r; }; case (#err(_code)) { return #err("modify TickMath.getSqrtRatioAtTick Lower failed: " # debug_show(_code)); };
             };
             var sqrtRatioAtTickUpper = switch (TickMath.getSqrtRatioAtTick(SafeInt.Int24(tickUpper))) {
-                 case (#ok(r)) { r; }; case (#err(code)) { return #err("modify TickMath.getSqrtRatioAtTick Upper failed: " # debug_show(code)); };
+                 case (#ok(r)) { r; }; case (#err(_code)) { return #err("modify TickMath.getSqrtRatioAtTick Upper failed: " # debug_show(_code)); };
             };
             var amount0:Int = 0;
             var amount1:Int = 0;
