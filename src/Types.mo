@@ -191,10 +191,6 @@ module {
         positionId : Nat;
         tickLimit : Int;
     };
-    public type LockUserPositionArgs = {
-        positionId : Nat;
-        expirationTime : Nat;
-    };
     public type IncreaseLiquidityArgs = {
         positionId : Nat;
         amount0Desired : Text;
@@ -320,7 +316,7 @@ module {
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
         #getLimitOrders : () -> ();
-        #getLockedUserPositions : () -> ();
+        #getLimitOrderStack : () -> ();
         #getPosition : () -> GetPositionArgs;
         #getPositions : () -> (Nat, Nat);
         #getSwapRecordState : () -> ();
@@ -332,7 +328,6 @@ module {
         #getTransferLogs : () -> ();
         #getUserByPositionId : () -> Nat;
         #getUserLimitOrders : () -> Principal;
-        #getUserLockedPositions : () -> Principal;
         #getUserPosition : () -> Nat;
         #getUserPositionIds : () -> ();
         #getUserPositionIdsByPrincipal : () -> Principal;
@@ -343,7 +338,6 @@ module {
         #getVersion : () -> ();
         #getWithdrawErrorLog : () -> ();
         #increaseLiquidity : () -> IncreaseLiquidityArgs;
-        #lockUserPosition : () -> LockUserPositionArgs;
         #metadata : () -> ();
         #mint : () -> MintArgs;
         #quote : () -> SwapArgs;

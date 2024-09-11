@@ -35,9 +35,7 @@ shared (initMsg) actor class SwapFactory(
         locked : Bool;
         time : Time.Time;
     };
-    // private stable var _infoCid : Principal = infoCid;
-    // private stable var _feeReceiverCid : Principal = feeReceiverCid;
-    // private stable var _tokenWhitelist : Principal = tokenWhitelist;
+
     /// configuration items
     private stable var _initCycles : Nat = 1860000000000;
     private stable var _feeTickSpacingEntries : [(Nat, Int)] = [(500, 10), (3000, 60), (10000, 200)];

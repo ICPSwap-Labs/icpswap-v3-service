@@ -7,7 +7,7 @@ import Cycles "mo:base/ExperimentalCycles";
 import Text "mo:base/Text";
 import Result "mo:base/Result";
 import Principal "mo:base/Principal";
-import Debug "mo:base/Debug";
+// import Debug "mo:base/Debug";
 import Option "mo:base/Option";
 import Error "mo:base/Error";
 import Time "mo:base/Time";
@@ -140,6 +140,11 @@ shared (initMsg) actor class SwapPool(
     let _syncTokenFeePerHour = Timer.recurringTimer<system>(#seconds(3600), _syncTokenFee);
 
     // --------------------------- limit order ------------------------------------
+    private stable var _limitOrderStack : List.List<(Types.LimitOrderKey, Types.LimitOrderValue)> = List.nil<(Types.LimitOrderKey, Types.LimitOrderValue)>();
+    private func _pushLimitOrderStack(limitOrder : (Types.LimitOrderKey, Types.LimitOrderValue)) : () { _limitOrderStack := ?(limitOrder, _limitOrderStack); };
+    private func _popLimitOrderStack() : ?(Types.LimitOrderKey, Types.LimitOrderValue) { switch _limitOrderStack { case null { null }; case (?(h, t)) { _limitOrderStack := t; ?h }; }; };
+    public query func getLimitOrderStack() : async Result.Result<[(Types.LimitOrderKey, Types.LimitOrderValue)], Types.Error> { return #ok(List.toArray(_limitOrderStack)); };
+
     private func _limitOrderKeyCompare(x : Types.LimitOrderKey, y : Types.LimitOrderKey) : { #less; #equal; #greater } {
         if (x.tickLimit < y.tickLimit) { #less } 
         else if (x.tickLimit == y.tickLimit) {
@@ -151,45 +156,39 @@ shared (initMsg) actor class SwapPool(
     private stable var _upperLimitOrderEntries : [(Types.LimitOrderKey, Types.LimitOrderValue)] = [];
     private var _lowerLimitOrders = RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
     private var _upperLimitOrders = RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
-    private stable var _userPositionTickLimitEntries : [(Nat, Types.LimitOrderKey)] = [];
-    private var _userPositionTickLimits: HashMap.HashMap<Nat, Types.LimitOrderKey> = HashMap.fromIter(_userPositionTickLimitEntries.vals(), 10, Nat.equal, Hash.hash);
-
     private func _checkLimitOrder() : async () {
         // backward iteration
         label lt {
             for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
                 if (_tick <= key.tickLimit) {
-                    var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
-                    ignore _decreaseLiquidity(value.owner, { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
-                    ignore Timer.setTimer<system>(#nanoseconds (1), _checkLimitOrder);
+                    _lowerLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
+                    _pushLimitOrderStack((key, value));
+                    ignore Timer.setTimer<system>(#nanoseconds (0), _autoDecrease);
+                    ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
                     return;
-                } else {
-                    break lt;
-                };
+                } else { break lt; };
             };
         };
         // forward iteration
         label ut {
             for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
                 if (_tick >= key.tickLimit) {
-                    var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
-                    ignore _decreaseLiquidity(value.owner, { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
-                    ignore Timer.setTimer<system>(#nanoseconds (1), _checkLimitOrder);
+                    _upperLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
+                    _pushLimitOrderStack((key, value));
+                    ignore Timer.setTimer<system>(#nanoseconds (0), _autoDecrease);
+                    ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
                     return;
-                } else {
-                    break ut;
-                };
+                } else { break ut; };
             };
         };
     };
-    private func _deleteLimitOrderIfExists(userPositionId : Nat) : () {
-        switch (_userPositionTickLimits.get(userPositionId)) {
-            case (?key) {
-                _lowerLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
-                _upperLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
-                _userPositionTickLimits.delete(userPositionId);
+    private func _autoDecrease() : async () {
+        switch (_popLimitOrderStack()) {
+            case (?(key, value)) {
+                var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
+                ignore _decreaseLiquidity(value.owner, { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
             };
-            case (_) { return; };
+            case (_) {};
         };
     };
     public query func getLimitOrders() : async Result.Result<{
@@ -223,43 +222,6 @@ shared (initMsg) actor class SwapPool(
             lowerLimitOrderIds = Buffer.toArray(lowerLimitOrderIds);
             upperLimitOrdersIds = Buffer.toArray(upperLimitOrderIds);
         });
-    };
-    
-    // --------------------------- locked user position ------------------------------------
-    private stable var THIRTY_DAYS : Nat = 2592000000000000;
-    private stable var _lockedUserPositionEntries : [(Nat, Nat)] = [];
-    private var _lockedUserPositions: HashMap.HashMap<Nat, Nat> = HashMap.fromIter(_lockedUserPositionEntries.vals(), 10, Nat.equal, Hash.hash);
-    private func _isUserPositionLocked(positionId : Nat) : Bool {
-        switch (_lockedUserPositions.get(positionId)) {
-            case (?expirationTime) {
-                if (Int.abs(Time.now()) >= expirationTime) {
-                    _lockedUserPositions.delete(positionId);
-                    return false;
-                } else {
-                    return true;
-                };};
-            case (_) { false; };
-        };
-    };
-    private func _deleteLockedIfExists(userPositionId : Nat) : () {
-        _lockedUserPositions.delete(userPositionId);
-    };
-    public query func getLockedUserPositions() : async Result.Result<[(Nat, Nat)], Types.Error> {
-        return #ok(Iter.toArray(_lockedUserPositions.entries()));
-    };
-    public query func getUserLockedPositions(user : Principal) : async Result.Result<[Nat], Types.Error> {
-        let userPositionIds = _positionTickService.getUserPositionIdsByOwner(PrincipalUtils.toAddress(user));
-        let lockedUserPositions = Iter.toArray(_lockedUserPositions.entries());
-        var intersection : Buffer.Buffer<Nat> = Buffer.Buffer<Nat>(0);
-        for (f1 in userPositionIds.vals()) {
-            label l for ((pid, time) in lockedUserPositions.vals()) {
-                if (Nat.equal(f1, pid)) {
-                    intersection.add(f1);
-                    break l;
-                };
-            };
-        };
-        return #ok(Buffer.toArray(intersection));
     };
 
     private stable var _transferLogArray : [(Nat, Types.TransferLog)] = [];
@@ -411,10 +373,6 @@ shared (initMsg) actor class SwapPool(
         };
         if (liquidityDelta == userPositionInfo.liquidity) {
             _positionTickService.deletePositionForUser(PrincipalUtils.toAddress(owner), args.positionId);
-            // remove from lock list if locked before
-            _deleteLockedIfExists(args.positionId);
-            // remove from limit order tree if exists
-            _deleteLimitOrderIfExists(args.positionId);
         };
         _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
         _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
@@ -1279,7 +1237,6 @@ shared (initMsg) actor class SwapPool(
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
-        if (_isUserPositionLocked(args.positionId)) { return #err(#InternalError("Position is locked")); };
 
         var tickCurrent = _tick;
         var tickLimit = args.tickLimit;
@@ -1290,35 +1247,10 @@ shared (initMsg) actor class SwapPool(
         var timestamp = Int.abs(Time.now());
         if (tickCurrent < tickLower and tickLimit > tickLower) {
             _upperLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; });
-            _userPositionTickLimits.put(args.positionId, { timestamp = timestamp; tickLimit = tickLimit; });
         } else if (tickCurrent > tickUpper and tickLimit < tickUpper) {
             _lowerLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; });
-            _userPositionTickLimits.put(args.positionId, { timestamp = timestamp; tickLimit = tickLimit; });
         } else {
             return #err(#InternalError("Invalid price range."));
-        };
-        return #ok(true);
-    };
-
-    public shared (msg) func lockUserPosition(args : Types.LockUserPositionArgs) : async Result.Result<Bool, Types.Error> {
-        assert(_isAvailable(msg.caller));
-        if (Principal.isAnonymous(msg.caller)) return #err(#InternalError("Illegal anonymous call"));
-        if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
-            return #err(#InternalError("Check operator failed"));
-        };
-        if (args.expirationTime < Int.abs(Time.now()) + THIRTY_DAYS) {
-            return #err(#InternalError("Minimum lockout length is 30 days"));
-        };
-        
-        switch (_lockedUserPositions.get(args.positionId)) {
-            case(null) { _lockedUserPositions.put(args.positionId, args.expirationTime); };
-            case(?expirationTime){
-                if (args.expirationTime > expirationTime) {
-                    _lockedUserPositions.put(args.positionId, args.expirationTime);
-                } else {
-                    return #err(#InternalError("Can only extend the lockout time")); 
-                };
-            };
         };
         return #ok(true);
     };
@@ -1393,7 +1325,6 @@ shared (initMsg) actor class SwapPool(
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
-        if (_isUserPositionLocked(args.positionId)) { return #err(#InternalError("Position is locked")); };
 
         return _decreaseLiquidity(msg.caller, args);
     };
@@ -1483,7 +1414,7 @@ shared (initMsg) actor class SwapPool(
         };
 
         // set a one-time timer to remove limit order automatically
-        ignore Timer.setTimer<system>(#nanoseconds (1), _checkLimitOrder);
+        ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
         
         return #ok(swapAmount);
     };
@@ -2184,8 +2115,6 @@ shared (initMsg) actor class SwapPool(
         _transferLogArray := Iter.toArray(_transferLog.entries());
         _lowerLimitOrderEntries := Iter.toArray(_lowerLimitOrders.entries());
         _upperLimitOrderEntries := Iter.toArray(_upperLimitOrders.entries());
-        _lockedUserPositionEntries := Iter.toArray(_lockedUserPositions.entries());
-        _userPositionTickLimitEntries := Iter.toArray(_userPositionTickLimits.entries());
     };
 
     system func postupgrade() {
@@ -2202,8 +2131,6 @@ shared (initMsg) actor class SwapPool(
         _transferLogArray := [];
         _lowerLimitOrderEntries := [];
         _upperLimitOrderEntries := [];
-        _lockedUserPositionEntries := [];
-        _userPositionTickLimitEntries := [];
     };
     
     system func inspect({

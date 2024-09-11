@@ -288,17 +288,6 @@ function income() #positionId tickLower tickUpper
     result=`dfx canister call $poolId getPosition "(record {tickLower = $2: int; tickUpper = $3: int})"`
 }
 
-function lockUserPositionFor31Days() #positionId
-{
-    echo "=== lock user position... ==="
-    current_timestamp=$(date +%s)
-    thirtyone_days_seconds=$((31 * 24 * 60 * 60))
-    thirtyone_days_later_nanoseconds_timestamp=$(((current_timestamp + thirtyone_days_seconds) * 1000000000))
-
-    result=`dfx canister call $poolId lockUserPosition "(record {positionId = $1: nat; expirationTime = $thirtyone_days_later_nanoseconds_timestamp: nat})"`
-    echo "lockUserPosition result: $result"
-}
-
 function test_limit_order()
 {   
     echo
@@ -318,9 +307,6 @@ function test_limit_order()
 
     echo "==> add invalid limit order 1"
     dfx canister call $poolId addLimitOrder "(record { positionId = 1 :nat; tickLimit = 36080 :int; })"
-
-    lockUserPositionFor31Days 1
-    decrease 1 529634421680 292494852582912 329709405464581002 5935257942037 72181 2925487520681317622364346051650
 
     echo
     echo "==> step 2 mint"
@@ -344,7 +330,7 @@ function test_limit_order()
 
     withdrawAll
 
-    # sleep 20
+    sleep 60
 
     echo "==> step 4 swap"
     #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
@@ -354,7 +340,7 @@ function test_limit_order()
 
     withdrawToken1 1422005536592
 
-    # sleep 20
+    sleep 60
 
     withdrawAll
 
@@ -366,7 +352,7 @@ function test_limit_order()
     
     withdrawToken0 666150050320
 
-    # sleep 20
+    sleep 60
 
     withdrawAll
     
@@ -374,6 +360,7 @@ function test_limit_order()
     #positionId liquidity amount0Min amount1Min ###  liquidity tickCurrent sqrtRatioX96
     decrease 1 529634421680 292494852582912 329709405464581002 5935257942037 72181 2925487520681317622364346051650
 
+    sleep 60
 };
 
 test_limit_order
