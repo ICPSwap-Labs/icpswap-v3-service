@@ -315,6 +315,7 @@ module {
         #getAvailabilityState : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
+        #getLimitOrderAvailabilityState : () -> ();
         #getLimitOrders : () -> ();
         #getLimitOrderStack : () -> ();
         #getPosition : () -> GetPositionArgs;
@@ -353,6 +354,7 @@ module {
         // --------  Admin permission required.  ---------
         #depositAllAndMint : () -> DepositAndMintArgs;
         #setAvailable : () -> Bool;
+        #setLimitOrderAvailable : () -> Bool;
         #setWhiteList : () -> [Principal];
         #removeErrorTransferLog : () -> (Nat, Bool);
         #removeWithdrawErrorLog : () -> (Nat, Bool);

@@ -7,7 +7,7 @@ import Cycles "mo:base/ExperimentalCycles";
 import Text "mo:base/Text";
 import Result "mo:base/Result";
 import Principal "mo:base/Principal";
-// import Debug "mo:base/Debug";
+import Debug "mo:base/Debug";
 import Option "mo:base/Option";
 import Error "mo:base/Error";
 import Time "mo:base/Time";
@@ -140,6 +140,14 @@ shared (initMsg) actor class SwapPool(
     let _syncTokenFeePerHour = Timer.recurringTimer<system>(#seconds(3600), _syncTokenFee);
 
     // --------------------------- limit order ------------------------------------
+    private stable var _isLimitOrderAvailable = true;
+    public shared (msg) func setLimitOrderAvailable(available : Bool) : async () {
+        assert(_isAvailable(msg.caller));
+        _checkAdminPermission(msg.caller);
+        _isLimitOrderAvailable := available;
+    };
+    public query func getLimitOrderAvailabilityState() : async Bool { _isLimitOrderAvailable; };
+
     private stable var _limitOrderStack : List.List<(Types.LimitOrderKey, Types.LimitOrderValue)> = List.nil<(Types.LimitOrderKey, Types.LimitOrderValue)>();
     private func _pushLimitOrderStack(limitOrder : (Types.LimitOrderKey, Types.LimitOrderValue)) : () { _limitOrderStack := ?(limitOrder, _limitOrderStack); };
     private func _popLimitOrderStack() : ?(Types.LimitOrderKey, Types.LimitOrderValue) { switch _limitOrderStack { case null { null }; case (?(h, t)) { _limitOrderStack := t; ?h }; }; };
@@ -157,6 +165,7 @@ shared (initMsg) actor class SwapPool(
     private var _lowerLimitOrders = RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
     private var _upperLimitOrders = RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
     private func _checkLimitOrder() : async () {
+        if (not _isLimitOrderAvailable) { return; };
         // backward iteration
         label lt {
             for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
@@ -1232,7 +1241,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public shared (msg) func addLimitOrder(args : Types.LimitOrderArgs) : async Result.Result<Bool, Types.Error> {
-        assert(_isAvailable(msg.caller));
+        assert(_isAvailable(msg.caller) and _isLimitOrderAvailable);
         if (Principal.isAnonymous(msg.caller)) return #err(#InternalError("Illegal anonymous call"));
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
