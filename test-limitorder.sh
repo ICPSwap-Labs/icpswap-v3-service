@@ -307,6 +307,8 @@ function test_limit_order()
     #sqrtPriceX96
     create_pool 274450166607934908532224538203
 
+    dfx canister call $poolId setLimitOrderAvailable "(true)"
+
     dfx canister call PositionIndex addPoolId "(\"$poolId\")"
 
     echo "current tick is: 24850"
