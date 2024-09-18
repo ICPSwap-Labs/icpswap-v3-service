@@ -140,7 +140,7 @@ shared (initMsg) actor class SwapPool(
     let _syncTokenFeePerHour = Timer.recurringTimer<system>(#seconds(3600), _syncTokenFee);
 
     // --------------------------- limit order ------------------------------------
-    private stable var _isLimitOrderAvailable = true;
+    private stable var _isLimitOrderAvailable = false;
     public shared (msg) func setLimitOrderAvailable(available : Bool) : async () {
         assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
@@ -931,8 +931,8 @@ shared (initMsg) actor class SwapPool(
         };
         var canisterId = Principal.fromActor(this);
         if (Principal.equal(caller, canisterId)) {
-                return #err(#InternalError("Caller and canister id can't be the same"));
-            };
+            return #err(#InternalError("Caller and canister id can't be the same"));
+        };
         let preTransIndex: Nat = _preTransfer(caller, caller, null, canisterId, "deposit", token, args.amount, args.fee);
         try {
             switch (await tokenAct.transferFrom({ 
@@ -1213,6 +1213,8 @@ shared (initMsg) actor class SwapPool(
                 # "amount0Desired=" # debug_show (amount0Desired.val()) # ", amount1Desired=" # debug_show (amount1Desired.val())
                 # ". actualAmount0=" # debug_show (addResult.amount0) # ", actualAmount1=" # debug_show (addResult.amount1));
             };
+            // check liquidity
+            if (addResult.liquidityDelta == 0) { throw Error.reject("Liquidity amount can not be 0."); };
 
             var positionInfo = _positionTickService.getPosition("" # Int.toText(args.tickLower) # "_" # Int.toText(args.tickUpper) # "");
             _positionTickService.addPositionForUser(
