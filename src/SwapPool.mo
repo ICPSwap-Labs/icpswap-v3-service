@@ -140,7 +140,7 @@ shared (initMsg) actor class SwapPool(
     let _syncTokenFeePerHour = Timer.recurringTimer<system>(#seconds(3600), _syncTokenFee);
 
     // --------------------------- limit order ------------------------------------
-    private stable var _isLimitOrderAvailable = false;
+    private stable var _isLimitOrderAvailable = true;
     public shared (msg) func setLimitOrderAvailable(available : Bool) : async () {
         assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
