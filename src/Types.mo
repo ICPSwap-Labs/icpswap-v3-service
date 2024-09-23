@@ -302,6 +302,12 @@ module {
         userPositionId : Nat;
         owner : Principal;
     };
+    public type ClaimedPoolData = {
+        token0 : Token;
+        token1 : Token;
+        fee : Nat;
+        claimed : Bool;
+    };
     public type SwapPoolMsg = {
         #addLimitOrder : () -> LimitOrderArgs;
         #allTokenBalance : () -> (Nat, Nat);
@@ -394,7 +400,10 @@ module {
     };
     public type SwapFeeReceiverMsg = {
         #claim : () -> (Principal, Token, Nat);
+        #getCanisterId : () -> ();
         #getCycleInfo : () -> ();
+        #getPools : () -> ();
+        #getTokens : () -> ();
         #getVersion : () -> ();
         #transfer : () -> (Token, Principal, Nat);
         #transferAll : () -> (Token, Principal);
