@@ -5,3 +5,9 @@ dfx deploy --network=ic --wallet=$(dfx identity --network=ic get-wallet) SwapPoo
         principal \"jjdg3-6qaaa-aaaah-adsoq-cai\")"
 
 dfx canister --network=ic --wallet=$(dfx identity --network=ic get-wallet) update-settings --add-controller ry2wr-pqaaa-aaaah-adxla-cai aq22q-5aaaa-aaaah-adyna-cai
+
+dfx deploy --network ic --wallet=$(dfx identity --network=ic get-wallet) SwapFactoryTest
+
+gzip SwapPoolTest.wasm
+
+cp SwapPoolTest.wasm.gz swap_pool.wasm.gz
