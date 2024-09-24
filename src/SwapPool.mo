@@ -236,7 +236,7 @@ shared (initMsg) actor class SwapPool(
     private stable var _transferLogArray : [(Nat, Types.TransferLog)] = [];
     private stable var _transferIndex: Nat = 0;
     private var _transferLog: HashMap.HashMap<Nat, Types.TransferLog> = HashMap.fromIter<Nat, Types.TransferLog>(_transferLogArray.vals(), 0, Nat.equal, Hash.hash);
-    private func _preTransfer(owner: Principal, from: Principal, fromSubaccount: ?Blob, to: Principal, action: Text, token: Types.Token, amount: Nat, fee: Nat): Nat {
+    private func _preTransfer(owner: Principal, from: Principal, fromSubaccount: ?Blob, to: Principal, toSubaccount: ?Blob, action: Text, token: Types.Token, amount: Nat, fee: Nat): Nat {
         let time: Nat = Int.abs(Time.now());
         let ind: Nat = _transferIndex;
         let transferLog: Types.TransferLog = {
@@ -245,6 +245,7 @@ shared (initMsg) actor class SwapPool(
             from = from;
             fromSubaccount = fromSubaccount;
             to = to;
+            toSubaccount = toSubaccount;
             action = action;
             amount = amount;
             fee = fee;
@@ -874,7 +875,7 @@ shared (initMsg) actor class SwapPool(
         if (not (args.amount > 0)) { return #err(#InternalError("Input amount should be greater than 0")) };
         if (not (args.amount > args.fee)) { return #err(#InternalError("Input amount should be greater than fee")) };
         var amount : Nat = Nat.sub(args.amount, args.fee);
-        let preTransIndex: Nat = _preTransfer(caller, canisterId, subaccount, canisterId, "deposit", token, amount, args.fee);
+        let preTransIndex: Nat = _preTransfer(caller, canisterId, subaccount, canisterId, null, "deposit", token, amount, args.fee);
         try {
             switch (await tokenAct.transfer({ 
                 from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; 
@@ -933,7 +934,7 @@ shared (initMsg) actor class SwapPool(
         if (Principal.equal(caller, canisterId)) {
             return #err(#InternalError("Caller and canister id can't be the same"));
         };
-        let preTransIndex: Nat = _preTransfer(caller, caller, null, canisterId, "deposit", token, args.amount, args.fee);
+        let preTransIndex: Nat = _preTransfer(caller, caller, null, canisterId, null, "deposit", token, args.amount, args.fee);
         try {
             switch (await tokenAct.transferFrom({ 
                 from = { owner = caller; subaccount = null }; 
@@ -963,42 +964,22 @@ shared (initMsg) actor class SwapPool(
     public shared ({ caller }) func withdraw(args : Types.WithdrawArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(caller));
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
-        if (args.token != _token0.address and args.token != _token1.address) {
-            return #err(#UnsupportedToken(args.token));
-        };
+        if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
         let (token, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
-            (_token0, _token0Act, switch _token0Fee { 
-                case (?f) { f }; 
-                case (null) {
-                    var f = await _token0Act.fee();
-                    _token0Fee := ?(f);
-                    f;
-                };
-            });
+            (_token0, _token0Act, switch _token0Fee { case (?f) { f }; case (null) { var f = await _token0Act.fee(); _token0Fee := ?(f); f; }; });
         } else {
-            (_token1, _token1Act, switch _token1Fee { 
-                case (?f) { f }; 
-                case (null) {
-                    var f = await _token1Act.fee();
-                    _token1Fee := ?(f);
-                    f;
-                };
-            });
+            (_token1, _token1Act, switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; }; });
         };
-        if (not Nat.equal(fee, args.fee)) {
-            return #err(#InternalError("Wrong fee cache, please try later"));
-        };
+        if (not Nat.equal(fee, args.fee)) { return #err(#InternalError("Wrong fee cache, please try later")); };
         var canisterId = Principal.fromActor(this);
         var balance : Nat = _tokenHolderService.getBalance(caller, token);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };
-        if (not (args.amount > 0)) {
-            return #err(#InternalError("Amount can not be 0"));
-        };
+        if (not (args.amount > 0)) { return #err(#InternalError("Amount can not be 0")); };
         if (args.amount > balance) { return #err(#InsufficientFunds) };
         if (not (args.amount > fee)) { return #err(#InsufficientFunds) };
         var amount : Nat = Nat.sub(args.amount, fee);
         if (_tokenHolderService.withdraw(caller, token, args.amount)) {
-            var preTransIndex = _preTransfer(caller, canisterId, null, caller, "withdraw", token, amount, args.fee);
+            var preTransIndex = _preTransfer(caller, canisterId, null, caller, null, "withdraw", token, amount, args.fee);
             try{
                 switch (await tokenAct.transfer({ 
                     from = { owner = canisterId; subaccount = null }; from_subaccount = null; 
@@ -1008,14 +989,49 @@ shared (initMsg) actor class SwapPool(
                     memo = Option.make(PoolUtils.natToBlob(preTransIndex));  
                     created_at_time = null 
                 })) {
-                    case (#Ok(_)) {
-                        _postTransferComplete(preTransIndex);
-                        return #ok(amount);
-                    };
-                    case (#Err(msg)) {
-                        _postTransferError(preTransIndex, debug_show(msg));
-                        return #err(#InternalError(debug_show (msg)));
-                    };
+                    case (#Ok(_)) { _postTransferComplete(preTransIndex); return #ok(amount); };
+                    case (#Err(msg)) { _postTransferError(preTransIndex, debug_show(msg)); return #err(#InternalError(debug_show (msg))); };
+                };
+            } catch (e) {        
+                let msg: Text = debug_show (Error.message(e));
+                _postTransferError(preTransIndex, msg);   
+                return #err(#InternalError(msg));
+            };
+        } else {
+            return #err(#InsufficientFunds);
+        };
+    };
+
+    public shared ({ caller }) func withdrawToSubaccount(args : Types.WithdrawToSubaccountArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(caller));
+        if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
+        if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
+        let (token, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
+            (_token0, _token0Act, switch _token0Fee { case (?f) { f }; case (null) { var f = await _token0Act.fee(); _token0Fee := ?(f); f; }; });
+        } else {
+            (_token1, _token1Act, switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; }; });
+        };
+        if (not Nat.equal(fee, args.fee)) { return #err(#InternalError("Wrong fee cache, please try later")); };
+        var canisterId = Principal.fromActor(this);
+        var balance : Nat = _tokenHolderService.getBalance(caller, token);
+        if (not (balance > 0)) { return #err(#InsufficientFunds) };
+        if (not (args.amount > 0)) { return #err(#InternalError("Amount can not be 0")); };
+        if (args.amount > balance) { return #err(#InsufficientFunds) };
+        if (not (args.amount > fee)) { return #err(#InsufficientFunds) };
+        var amount : Nat = Nat.sub(args.amount, fee);
+        if (_tokenHolderService.withdraw(caller, token, args.amount)) {
+            var preTransIndex = _preTransfer(caller, canisterId, null, caller, ?args.subaccount, "withdraw", token, amount, args.fee);
+            try{
+                switch (await tokenAct.transfer({ 
+                    from = { owner = canisterId; subaccount = null }; from_subaccount = null; 
+                    to = { owner = caller; subaccount = ?args.subaccount }; 
+                    amount = amount; 
+                    fee = ?args.fee; 
+                    memo = Option.make(PoolUtils.natToBlob(preTransIndex));  
+                    created_at_time = null 
+                })) {
+                    case (#Ok(_)) { _postTransferComplete(preTransIndex); return #ok(amount); };
+                    case (#Err(msg)) { _postTransferError(preTransIndex, debug_show(msg)); return #err(#InternalError(debug_show (msg))); };
                 };
             } catch (e) {        
                 let msg: Text = debug_show (Error.message(e));
@@ -1069,7 +1085,7 @@ shared (initMsg) actor class SwapPool(
         if (args.amount0 > 0) {
             if (args.amount0 > args.fee0) {
                 var amount0 : Nat = Nat.sub(args.amount0, args.fee0);
-                let preTransIndex = _preTransfer(args.positionOwner, canisterId, subaccount, canisterId, "deposit", token0, amount0, args.fee0);
+                let preTransIndex = _preTransfer(args.positionOwner, canisterId, subaccount, canisterId, null, "deposit", token0, amount0, args.fee0);
                 switch (await _token0Act.transfer({ 
                     from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; 
                     to = { owner = canisterId; subaccount = null }; 
@@ -1093,7 +1109,7 @@ shared (initMsg) actor class SwapPool(
         if (args.amount1 > 0) {
             if (args.amount1 > args.fee1) {
                 var amount1 : Nat = Nat.sub(args.amount1, args.fee1);
-                let preTransIndex = _preTransfer(args.positionOwner, canisterId, subaccount, canisterId, "deposit", token1, amount1, args.fee1);
+                let preTransIndex = _preTransfer(args.positionOwner, canisterId, subaccount, canisterId, null, "deposit", token1, amount1, args.fee1);
                 switch (await _token1Act.transfer({ 
                     from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; 
                     to = { owner = canisterId; subaccount = null }; 
@@ -1492,7 +1508,7 @@ shared (initMsg) actor class SwapPool(
         switch (_transferLog.get(index)) {
             case (?log) {
                 _postTransferComplete(index);
-                if (rollback ) { 
+                if (rollback) { 
                     // The log with error status can be removed immediately.
                     // The log with processing status can be cleaned up after 24 hours
                     if (Text.equal("error", log.result) or (Text.equal(log.result, "processing") and ((Nat.sub(Int.abs(Time.now()), log.timestamp) / NANOSECONDS_PER_SECOND) > SECOND_PER_DAY))) {

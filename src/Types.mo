@@ -213,6 +213,12 @@ module {
         fee : Nat;
         amount : Nat;
     };
+    public type WithdrawToSubaccountArgs = {
+        token : Text;
+        fee : Nat;
+        amount : Nat;
+        subaccount : Blob;
+    };
     public type TransactionType = {
         #addLiquidity;
         #increaseLiquidity;
@@ -308,6 +314,20 @@ module {
         fee : Nat;
         claimed : Bool;
     };
+    public type UploadSwapPoolWasmArgs = {
+        wasm : Blob;
+        version : Text;
+    };
+    public type SwapPoolWasmData = {
+        wasm : Blob;
+        version : Text;
+    };
+    public type SwapPoolUpgradeLog = {
+        canister : Principal;
+        timestamp : Nat;
+        wasmHash : Nat32;
+        version : Text;
+    };
     public type SwapPoolMsg = {
         #addLimitOrder : () -> LimitOrderArgs;
         #allTokenBalance : () -> (Nat, Nat);
@@ -354,6 +374,7 @@ module {
         #swap : () -> SwapArgs;
         #transferPosition : () -> (Principal, Principal, Nat);
         #withdraw : () -> WithdrawArgs;
+        #withdrawToSubaccount : () -> WithdrawToSubaccountArgs;
         #getAdmins : () -> ();
         #getMistransferBalance : () -> Token;
         #withdrawMistransferBalance : () -> Token;
