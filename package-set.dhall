@@ -26,6 +26,16 @@ let
       , repo = "git@github.com:ICPSwap-Labs/icpswap-token-adapter.git"
       , version = "v1.0.9"
       }
+      ,{ dependencies = [ "base" ]
+      , name = "xtended-numbers"
+      , repo = "https://github.com/edjCase/motoko_numbers"
+      , version = "v1.1.0"
+      }
+      ,{ dependencies = [ "base", "xtended-numbers" ]
+      , name = "candid"
+      , repo = "https://github.com/edjCase/motoko_candid"
+      , version = "v1.0.2"
+      }
     ]
 let
   {- This is where you can override existing packages in the package-set
