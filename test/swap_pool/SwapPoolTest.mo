@@ -14,23 +14,23 @@ import Time "mo:base/Time";
 import Timer "mo:base/Timer";
 import HashMap "mo:base/HashMap";
 import RBTree "mo:base/RBTree";
-import PoolUtils "./utils/PoolUtils";
-import AccountUtils "./utils/AccountUtils";
-import PositionTick "./components/PositionTick";
-import TokenHolder "./components/TokenHolder";
-import TokenAmount "./components/TokenAmount";
-import SwapRecord "./components/SwapRecord";
-import Types "./Types";
-import LiquidityMath "./libraries/LiquidityMath";
-import LiquidityAmounts "./libraries/LiquidityAmounts";
-import TickMath "./libraries/TickMath";
-import SqrtPriceMath "./libraries/SqrtPriceMath";
-import Tick "./libraries/Tick";
-import BlockTimestamp "./libraries/BlockTimestamp";
-import TickBitmap "./libraries/TickBitmap";
-import FullMath "./libraries/FullMath";
-import SwapMath "./libraries/SwapMath";
-import FixedPoint128 "./libraries/FixedPoint128";
+import PoolUtils "../../src/utils/PoolUtils";
+import AccountUtils "../../src/utils/AccountUtils";
+import PositionTick "../../src/components/PositionTick";
+import TokenHolder "../../src/components/TokenHolder";
+import TokenAmount "../../src/components/TokenAmount";
+import SwapRecord "../../src/components/SwapRecord";
+import Types "../../src/Types";
+import LiquidityMath "../../src/libraries/LiquidityMath";
+import LiquidityAmounts "../../src/libraries/LiquidityAmounts";
+import TickMath "../../src/libraries/TickMath";
+import SqrtPriceMath "../../src/libraries/SqrtPriceMath";
+import Tick "../../src/libraries/Tick";
+import BlockTimestamp "../../src/libraries/BlockTimestamp";
+import TickBitmap "../../src/libraries/TickBitmap";
+import FullMath "../../src/libraries/FullMath";
+import SwapMath "../../src/libraries/SwapMath";
+import FixedPoint128 "../../src/libraries/FixedPoint128";
 import SafeUint "mo:commons/math/SafeUint";
 import SafeInt "mo:commons/math/SafeInt";
 import IntUtils "mo:commons/math/SafeInt/IntUtils";
@@ -44,7 +44,7 @@ import Bool "mo:base/Bool";
 import Prim "mo:⛔";
 import Hash "mo:base/Hash";
 
-shared (initMsg) actor class SwapPool(
+shared (initMsg) actor class SwapPoolTest(
     token0 : Types.Token,
     token1 : Types.Token,
     infoCid : Principal,
@@ -772,8 +772,8 @@ shared (initMsg) actor class SwapPool(
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
         ).val();
-        // var swapFee0Repurchase = 0;
-        var swapFee0Repurchase = SafeUint.Uint128(swapFee0Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
+        var swapFee0Repurchase = 0;
+        // var swapFee0Repurchase = SafeUint.Uint128(swapFee0Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
         var swapFee0Lp = if (swapFee0Total > swapFee0Repurchase) {
             SafeUint.Uint128(swapFee0Total).sub(SafeUint.Uint128(swapFee0Repurchase)).val();
         } else { swapFee0Repurchase := 0; swapFee0Total };
@@ -784,8 +784,8 @@ shared (initMsg) actor class SwapPool(
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
         ).val();
-        // var swapFee1Repurchase = 0;
-        var swapFee1Repurchase = SafeUint.Uint128(swapFee1Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
+        var swapFee1Repurchase = 0;
+        // var swapFee1Repurchase = SafeUint.Uint128(swapFee1Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
         var swapFee1Lp = if (swapFee1Total > swapFee1Repurchase) {
             SafeUint.Uint128(swapFee1Total).sub(SafeUint.Uint128(swapFee1Repurchase)).val();
         } else { swapFee1Repurchase := 0; swapFee1Total };
@@ -2086,7 +2086,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.5.0";
+    private var _version : Text = "3.5.1";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {

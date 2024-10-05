@@ -291,6 +291,7 @@ module {
         from : Principal;
         fromSubaccount : ?Blob;
         to : Principal;
+        toSubaccount : ?Blob;
         action : Text; // deposit, withdraw
         amount : Nat;
         fee : Nat;
@@ -314,19 +315,22 @@ module {
         fee : Nat;
         claimed : Bool;
     };
-    public type UploadSwapPoolWasmArgs = {
-        wasm : Blob;
-        version : Text;
+    public type UpgradePoolArgs = {
+        poolIds : [Principal];
     };
-    public type SwapPoolWasmData = {
-        wasm : Blob;
-        version : Text;
-    };
-    public type SwapPoolUpgradeLog = {
-        canister : Principal;
+    public type PoolUpgradeTaskStep = {
         timestamp : Nat;
-        wasmHash : Nat32;
-        version : Text;
+        isDone : Bool;
+    };
+    public type PoolUpgradeTask = {
+        poolData : PoolData;
+        moduleHashBefore : ?Blob;
+        moduleHashAfter : ?Blob;
+        turnOffAvailable : PoolUpgradeTaskStep;
+        stop : PoolUpgradeTaskStep;
+        upgrade : PoolUpgradeTaskStep;
+        start : PoolUpgradeTaskStep;
+        turnOnAvailable : PoolUpgradeTaskStep;
     };
     public type SwapPoolMsg = {
         #addLimitOrder : () -> LimitOrderArgs;
@@ -341,6 +345,7 @@ module {
         #getAvailabilityState : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
+        #getInitArgs : () -> ();
         #getLimitOrderAvailabilityState : () -> ();
         #getLimitOrders : () -> ();
         #getLimitOrderStack : () -> ();
@@ -392,32 +397,37 @@ module {
         #resetTokenAmountState : () -> (Nat, Nat, Nat, Nat);
     };
     public type SwapFactoryMsg = {
+        #addPasscode : () -> (Principal, Passcode);
+        #addPoolControllers : () -> (Principal, [Principal]);
+        #batchAddPoolControllers : () -> ([Principal], [Principal]);
+        #batchRemovePoolControllers : () -> ([Principal], [Principal]);
+        #batchSetPoolAdmins : () -> ([Principal], [Principal]);
+        #batchSetPoolAvailable : () -> ([Principal], Bool);
+        #batchSetPoolLimitOrderAvailable : () -> ([Principal], Bool);
+        #clearRemovedPool : () -> Principal;
         #createPool : () -> CreatePoolArgs;
+        #deletePasscode : () -> (Principal, Passcode);
+        #getAllPoolUpgradeTaskHis : () -> ();
+        #getCurrentUpgradeTask : () -> ();
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();
         #getInitArgs : () -> ();
-        #getInvalidPools : () -> ();
+        #getPasscodesByPrincipal : () -> Principal;
+        #getPendingUpgradePoolList : () -> ();
         #getPool : () -> GetPoolArgs;
+        #getPoolUpgradeTaskHis : () -> Principal;
         #getPools : () -> ();
         #getPrincipalPasscodes : () -> ();
-        #getPasscodesByPrincipal : () -> Principal;
-        #getPagedPools : () -> (Nat, Nat);
         #getRemovedPools : () -> ();
         #getVersion : () -> ();
-        #addPasscode : () -> (Principal, Passcode);
-        #deletePasscode : () -> (Principal, Passcode);
         #removePool : () -> GetPoolArgs;
-        #restorePool : () -> Principal;
+        #removePoolControllers : () -> (Principal, [Principal]);
         #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
-        #clearRemovedPool : () -> Principal;
+        #restorePool : () -> Principal;
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
-        #addPoolControllers : () -> (Principal, [Principal]);
+        #setUpgradePoolList : () -> UpgradePoolArgs;
         #upgradePoolTokenStandard : () -> (Principal, Principal);
-        #removePoolControllers : () -> (Principal, [Principal]);
-        #batchSetPoolAdmins : () -> ([Principal], [Principal]);
-        #batchAddPoolControllers : () -> ([Principal], [Principal]);
-        #batchRemovePoolControllers : () -> ([Principal], [Principal]);
     };
     public type SwapFeeReceiverMsg = {
         #claim : () -> (Principal, Token, Nat);
@@ -435,12 +445,14 @@ module {
         getUserPositionIdsByPrincipal : query (owner : Principal) -> async Result.Result<[Nat], Error>;
         setAdmins : shared ([Principal]) -> async ();
         setAvailable : shared (Bool) -> async ();
+        setLimitOrderAvailable : shared (Bool) -> async ();
         metadata : query () -> async Result.Result<PoolMetadata, Error>;
         upgradeTokenStandard : shared (Principal) -> async ();
         removeErrorTransferLog : shared (Nat, Bool) -> async ();
         getUserUnusedBalance : shared (Principal) -> async Result.Result<{ balance0 : Nat; balance1 : Nat }, Error>;
         withdraw : shared (WithdrawArgs) -> async Result.Result<Nat, Error>;
         getTransferLogs : query () -> async Result.Result<[TransferLog], Error>;
+        getAvailabilityState : () -> async { available : Bool; whiteList : [Principal]; };
     };
     public type SwapFactoryActor = actor {
         getPool : query (GetPoolArgs) -> async Result.Result<PoolData, Error>;
