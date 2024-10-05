@@ -400,11 +400,14 @@ module {
         #addPasscode : () -> (Principal, Passcode);
         #addPoolControllers : () -> (Principal, [Principal]);
         #batchAddPoolControllers : () -> ([Principal], [Principal]);
+        #batchClearRemovedPool : () -> [Principal];
         #batchRemovePoolControllers : () -> ([Principal], [Principal]);
         #batchSetPoolAdmins : () -> ([Principal], [Principal]);
         #batchSetPoolAvailable : () -> ([Principal], Bool);
         #batchSetPoolLimitOrderAvailable : () -> ([Principal], Bool);
+        #clearPoolUpgradeTaskHis : () -> ();
         #clearRemovedPool : () -> Principal;
+        #clearUpgradeFailedPoolList : () -> ();
         #createPool : () -> CreatePoolArgs;
         #deletePasscode : () -> (Principal, Passcode);
         #getAllPoolUpgradeTaskHis : () -> ();
@@ -419,6 +422,7 @@ module {
         #getPools : () -> ();
         #getPrincipalPasscodes : () -> ();
         #getRemovedPools : () -> ();
+        #getUpgradeFailedPoolList : () -> ();
         #getVersion : () -> ();
         #removePool : () -> GetPoolArgs;
         #removePoolControllers : () -> (Principal, [Principal]);

@@ -103,8 +103,11 @@ echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
 
+dfx canister deposit-cycles 50698725619460 SwapFactory
+
 dipAId=`dfx canister id DIP20A`
 dipBId=`dfx canister id DIP20B`
+ICRC2Id=`dfx canister id ICRC2`
 testId=`dfx canister id Test`
 infoId=`dfx canister id base_index`
 swapFactoryId=`dfx canister id SwapFactory`
@@ -170,6 +173,21 @@ function create_pool() #sqrtPriceX96
     dfx canister call PasscodeManager transfer "(principal \"$poolId\", 100000000)"
     balance=`dfx canister call Test testTokenAdapterBalanceOf "(\"$(dfx canister id ICRC2)\", \"ICRC2\", principal \"$poolId\", null)"`
     echo $balance
+}
+
+# create pool
+function create_pool_2() #sqrtPriceX96
+{
+    dfx canister call ICRC2 icrc2_approve "(record{amount=1000000000000;created_at_time=null;expected_allowance=null;expires_at=null;fee=null;from_subaccount=null;memo=null;spender=record {owner= principal \"$(dfx canister id PasscodeManager)\";subaccount=null;}})"
+    dfx canister call PasscodeManager depositFrom "(record {amount=100000000;fee=0;})"
+    dfx canister call PasscodeManager requestPasscode "(principal \"$dipBId\", principal \"$ICRC2Id\", 3000)"
+    
+    result=`dfx canister call SwapFactory createPool "(record {token0 = record {address = \"$dipBId\"; standard = \"DIP20\";}; token1 = record {address = \"$ICRC2Id\"; standard = \"ICRC2\";}; fee = 3000; sqrtPriceX96 = \"$1\"})"`
+    if [[ ! "$result" =~ " ok = record " ]]; then
+        echo "\033[31mcreate pool fail. $result - \033[0m"
+    fi
+    echo "create_pool_2 result: $result"
+    poolId2=`echo $result | awk -F"canisterId = principal \"" '{print $2}' | awk -F"\";" '{print $1}'`
 }
 
 function depost() # token tokenAmount
@@ -307,13 +325,6 @@ function checkBalance(){
     fi
 }
 
-function upgradePool(){
-    dfx canister call $poolId getVersion
-    dfx canister call SwapFactory setUpgradePoolList "(record { poolIds=vec{principal \"$poolId\"} })"
-    sleep 80
-    dfx canister call $poolId getVersion
-}
-
 function income() #positionId tickLower tickUpper
 {
     echo "=== refreshIncome... ==="
@@ -323,14 +334,8 @@ function income() #positionId tickLower tickUpper
     result=`dfx canister call $poolId getPosition "(record {tickLower = $2: int; tickUpper = $3: int})"`
 }
 
-function testUpgrade()
-{   
-    echo
-    echo test upgrade process
-    echo
-    #sqrtPriceX96
-    create_pool 274450166607934908532224538203
-
+function stepsBeforeUpgrade() 
+{
     echo
     echo "==> step 1 mint"
     depost $token0 100000000000
@@ -379,10 +384,10 @@ function testUpgrade()
     echo "==> step 9 swap"
     #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
     swap $token0 200203100000000 200203100000000 576342038450924726 12913790762040195 72181 2925487520681317622364346051650 999690534299999993 645608597573140321
+}
 
-    echo "==> step upgrade"
-    upgradePool
-
+function stepsAfterUpgrade() 
+{
     echo "==> step 10 decrease"
     #positionId liquidity amount0Min amount1Min ###  liquidity tickCurrent sqrtRatioX96
     decrease 3 12907855504098158 292494852582912 329709405464581002 5935257942037 72181 2925487520681317622364346051650
@@ -462,7 +467,28 @@ function testUpgrade()
     echo "==> step 25 swap"
     #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
     swap $token1 3435320000 3435320000 91635 1250435266521266 104339 14604295697617397560526319750504 999999996889295605 944931843856954887
+}
 
+function testUpgrade()
+{   
+    echo
+    echo test upgrade process
+    echo
+    #sqrtPriceX96
+    create_pool 274450166607934908532224538203
+    create_pool_2 274450166607934908532224538203
+
+    # stepsBeforeUpgrade
+    
+    echo "==> step upgrade"
+    dfx canister call $poolId getVersion
+    # test getUpgradeFailedPoolList
+    # dfx canister stop $poolId2
+    dfx canister call SwapFactory setUpgradePoolList "(record { poolIds=vec{principal \"$poolId\"; principal \"$poolId2\"} })"
+    sleep 80
+    dfx canister call $poolId getVersion
+
+    # stepsAfterUpgrade
 };
 
 testUpgrade
