@@ -322,6 +322,18 @@ module {
         timestamp : Nat;
         isDone : Bool;
     };
+    public type ReceiverClaimLog = {
+        timestamp : Nat;
+        amount : Nat;
+        poolId : Principal;
+        token : Token;
+        errMsg : ?Error;
+    };
+    public type ReceiverSwapLog = {
+        timestamp : Nat;
+        tokenIn : Token;
+        tokenOut : Token;
+    };
     public type PoolUpgradeTask = {
         poolData : PoolData;
         moduleHashBefore : ?Blob;
@@ -437,6 +449,7 @@ module {
         #claim : () -> (Principal, Token, Nat);
         #getCanisterId : () -> ();
         #getCycleInfo : () -> ();
+        #getInitArgs : () -> ();
         #getPools : () -> ();
         #getTokens : () -> ();
         #getVersion : () -> ();
@@ -456,7 +469,10 @@ module {
         getUserUnusedBalance : shared (Principal) -> async Result.Result<{ balance0 : Nat; balance1 : Nat }, Error>;
         withdraw : shared (WithdrawArgs) -> async Result.Result<Nat, Error>;
         getTransferLogs : query () -> async Result.Result<[TransferLog], Error>;
-        getAvailabilityState : () -> async { available : Bool; whiteList : [Principal]; };
+        getAvailabilityState : query () -> async { available : Bool; whiteList : [Principal]; };
+        deposit : shared (DepositArgs) -> async Result.Result<Nat, Error>;
+        depositFrom : shared (DepositArgs) -> async Result.Result<Nat, Error>;
+        swap : shared (SwapArgs) -> async Result.Result<Nat, Error>;
     };
     public type SwapFactoryActor = actor {
         getPool : query (GetPoolArgs) -> async Result.Result<PoolData, Error>;
