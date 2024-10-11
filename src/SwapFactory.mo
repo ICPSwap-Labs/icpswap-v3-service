@@ -26,7 +26,6 @@ import PoolData "./components/PoolData";
 import UpgradeTask "./components/UpgradeTask";
 import SwapPool "./SwapPool";
 import Types "./Types";
-import BlockTimestamp "./libraries/BlockTimestamp";
 
 shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
