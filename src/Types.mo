@@ -327,12 +327,19 @@ module {
         amount : Nat;
         poolId : Principal;
         token : Token;
-        errMsg : ?Error;
+        errMsg : Text;
     };
     public type ReceiverSwapLog = {
         timestamp : Nat;
         tokenIn : Token;
-        tokenOut : Token;
+        amountIn : Nat;
+        amountOut : Nat;
+        errMsg : Text;
+    };
+    public type ReceiverBurnLog = {
+        timestamp : Nat;
+        amount : Nat;
+        errMsg : Text;
     };
     public type PoolUpgradeTask = {
         poolData : PoolData;
@@ -447,12 +454,16 @@ module {
     };
     public type SwapFeeReceiverMsg = {
         #claim : () -> (Principal, Token, Nat);
+        #claimPool : () -> (Principal, Principal);
         #getCanisterId : () -> ();
         #getCycleInfo : () -> ();
+        #getFees : () -> ();
         #getInitArgs : () -> ();
         #getPools : () -> ();
         #getTokens : () -> ();
         #getVersion : () -> ();
+        #setFees : () -> ();
+        #syncPools : () -> ();
         #transfer : () -> (Token, Principal, Nat);
         #transferAll : () -> (Token, Principal);
     };

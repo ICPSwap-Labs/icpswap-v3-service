@@ -86,7 +86,7 @@ dfx canister install DIP20A --argument="(\"DIPA Logo\", \"DIPA\", \"DIPA\", 8, $
 dfx canister install DIP20B --argument="(\"DIPB Logo\", \"DIPB\", \"DIPB\", 8, $TOTAL_SUPPLY, principal \"$MINTER_PRINCIPAL\", $TRANS_FEE)"
 
 echo "==> install SwapFeeReceiver"
-dfx canister install SwapFeeReceiver --argument="(principal \"$(dfx canister id SwapFactory)\")"
+dfx canister install SwapFeeReceiver --argument="(principal \"$(dfx canister id SwapFactory)\", record {address=\"$(dfx canister id ICRC2)\"; standard=\"ICRC2\"}, record {address=\"$(dfx canister id ICRC2)\"; standard=\"ICRC2\"}, principal \"$MINTER_PRINCIPAL\")"
 echo "==> install TrustedCanisterManager"
 dfx canister install TrustedCanisterManager --argument="(null)"
 echo "==> install Test"
