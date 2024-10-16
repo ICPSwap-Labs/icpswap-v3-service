@@ -331,10 +331,12 @@ module {
     };
     public type ReceiverSwapLog = {
         timestamp : Nat;
-        tokenIn : Token;
+        token : Token;
         amountIn : Nat;
         amountOut : Nat;
         errMsg : Text;
+        step : Text;
+        poolId : ?Principal;
     };
     public type ReceiverBurnLog = {
         timestamp : Nat;
@@ -453,6 +455,7 @@ module {
         #upgradePoolTokenStandard : () -> (Principal, Principal);
     };
     public type SwapFeeReceiverMsg = {
+        #burnICS : () -> ();
         #claim : () -> (Principal, Token, Nat);
         #claimPool : () -> (Principal, Principal);
         #getCanisterId : () -> ();
@@ -460,9 +463,15 @@ module {
         #getFees : () -> ();
         #getInitArgs : () -> ();
         #getPools : () -> ();
+        #getTokenBalance : () -> Token;
+        #getTokenBurnLog : () -> ();
+        #getTokenClaimLog : () -> ();
+        #getTokenSwapLog : () -> ();
         #getTokens : () -> ();
         #getVersion : () -> ();
         #setFees : () -> ();
+        #swapICPToICS : () -> ();
+        #swapToICP : () -> Token;
         #syncPools : () -> ();
         #transfer : () -> (Token, Principal, Nat);
         #transferAll : () -> (Token, Principal);
@@ -477,7 +486,7 @@ module {
         metadata : query () -> async Result.Result<PoolMetadata, Error>;
         upgradeTokenStandard : shared (Principal) -> async ();
         removeErrorTransferLog : shared (Nat, Bool) -> async ();
-        getUserUnusedBalance : shared (Principal) -> async Result.Result<{ balance0 : Nat; balance1 : Nat }, Error>;
+        getUserUnusedBalance : query (Principal) -> async Result.Result<{ balance0 : Nat; balance1 : Nat }, Error>;
         withdraw : shared (WithdrawArgs) -> async Result.Result<Nat, Error>;
         getTransferLogs : query () -> async Result.Result<[TransferLog], Error>;
         getAvailabilityState : query () -> async { available : Bool; whiteList : [Principal]; };
