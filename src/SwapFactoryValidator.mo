@@ -70,30 +70,6 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     //     };
     // };
 
-    // public shared ({ caller }) func restorePoolValidate(poolId : Principal) : async Result {
-    //     assert (Principal.equal(caller, governanceCid));
-
-    //     // check if particular pair exists
-
-    //     // check if the version is too old
-
-    //     // check token's canister id and standard
-
-    //     switch (await _factoryAct.getRemovedPools()) {
-    //         case (#ok(pools)) {
-    //             for (it in pools.vals()) {
-    //                 if (Principal.equal(poolId, it.canisterId)) {
-    //                     return #Ok(debug_show (poolId));
-    //                 };
-    //             };
-    //             return #Err(Principal.toText(poolId) # " doesn't exist.");
-    //         };
-    //         case (#err(msg)) {
-    //             return #Err(debug_show (msg));
-    //         };
-    //     };
-    // };
-
     public shared ({ caller }) func upgradePoolTokenStandardValidate(poolCid : Principal, tokenCid : Principal) : async Result {
         assert (Principal.equal(caller, governanceCid));
         if (not (await _checkPool(poolCid))) {

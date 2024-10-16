@@ -286,19 +286,6 @@ shared (initMsg) actor class SwapFactory(
     };
 
     // ---------------        Governance Functions              ----------------------
-    public shared (msg) func restorePool(poolId : Principal) : async Text {
-        _checkPermission(msg.caller);
-        switch (_poolDataService.getRemovedPools().get(Principal.toText(poolId))) {
-            case (?poolData) {
-                // check if the pool is existed
-                switch (_poolDataService.getPools().get(poolData.key)) {
-                    case (?poolData) { return "Failed: A new SwapPool of identical pairs has been created."; };
-                    case (_) { return _poolDataService.restorePool(Principal.toText(poolId)); };
-                };
-            };
-            case (_) { return "Failed: No such SwapPool."; };
-        };
-    };
 
     public shared (msg) func removePool(args : Types.GetPoolArgs) : async Text {
         _checkPermission(msg.caller);
@@ -620,7 +607,6 @@ shared (initMsg) actor class SwapFactory(
             case (#clearRemovedPool _)                   { _hasPermission(caller) };
             case (#removePool _)                         { _hasPermission(caller) };
             case (#removePoolErrorTransferLog _)         { _hasPermission(caller) };
-            case (#restorePool _)                        { _hasPermission(caller) };
             case (#upgradePoolTokenStandard _)           { _hasPermission(caller) };
             case (#addPoolControllers _)                 { _hasPermission(caller) };
             case (#removePoolControllers _)              { _hasPermission(caller) };

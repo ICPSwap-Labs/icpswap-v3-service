@@ -37,16 +37,6 @@ module PoolData {
             };
         };
 
-        public func restorePool(poolId: Text) : Text {
-            switch(_removedPoolMap.remove(poolId)) {
-                case (?poolData) { 
-                    _poolMap.put(poolData.key, poolData);
-                    return Principal.toText(poolData.canisterId); 
-                };
-                case (null) { return "";};
-            };
-        };
-
         public func deletePool(canisterId: Text) : Text {
             switch(_removedPoolMap.remove(canisterId)) {
                 case (?_) { return canisterId; };

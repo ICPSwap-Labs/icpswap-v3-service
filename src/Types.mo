@@ -448,7 +448,6 @@ module {
         #removePool : () -> GetPoolArgs;
         #removePoolControllers : () -> (Principal, [Principal]);
         #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
-        #restorePool : () -> Principal;
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;
