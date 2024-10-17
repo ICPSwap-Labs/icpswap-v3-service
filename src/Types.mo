@@ -469,6 +469,7 @@ module {
         #getTokens : () -> ();
         #getVersion : () -> ();
         #setFees : () -> ();
+        #startAutoSyncPools : () -> ();
         #swapICPToICS : () -> ();
         #swapToICP : () -> Token;
         #syncPools : () -> ();

@@ -35,6 +35,8 @@ shared (initMsg) actor class SwapFeeReceiver(
     private stable var _factoryAct = actor (Principal.toText(factoryCid)) : Types.SwapFactoryActor;
     private stable var _tokenSet = TrieSet.empty<(Types.Token, Bool)>();
     private var _poolMap: HashMap.HashMap<Principal, Types.ClaimedPoolData> = HashMap.HashMap<Principal, Types.ClaimedPoolData>(100, Principal.equal, Principal.hash);
+    // sync flag
+    private stable var _isSyncing : Bool = false;
     // claim log
     private var _tokenClaimLog : Buffer.Buffer<Types.ReceiverClaimLog> = Buffer.Buffer<Types.ReceiverClaimLog>(0);
     private stable var _tokenClaimLogArray : [Types.ReceiverClaimLog] = [];
@@ -101,7 +103,12 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     public shared ({ caller }) func syncPools() : async () {
         _checkPermission(caller);
-        ignore await _syncPools();
+        ignore _syncPools();
+    };
+
+    public shared ({ caller }) func startAutoSyncPools() : async () {
+        _checkPermission(caller);
+        ignore _autoSyncPools();
     };
 
     public shared ({ caller }) func claimPool(poolId: Principal, canisterId: Principal) : async Result.Result<Bool, Types.Error> {
@@ -271,15 +278,6 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    private func _commonSwapToICP(
-        poolData : Types.PoolData,
-        token : Types.Token, 
-        balance : Nat,
-        fee : Nat
-    ) : async () {
-        await _commonSwap(poolData, token, balance, fee, ICP, _ICPFee);
-    };
-
     private func _commonSwap(
         poolData : Types.PoolData,
         tokenIn : Types.Token, 
@@ -327,13 +325,14 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    private func _swapICPToICS() : async () {
-        var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
+    private func _swapICPToICS() : async Bool {
+        var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return false; }; };
         var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
         var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
+        if (balance <= (_ICPFee * 10)) { return false; };
         switch (await _factoryAct.getPool({ token0 = ICP; token1 = ICS; fee = 3000; })) {
-            case (#ok(poolData)) { await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee);};
-            case (#err(msg)) { _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null); };
+            case (#ok(poolData)) { await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee); return true; };
+            case (#err(msg)) { _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null); return false; };
         };
     };
 
@@ -348,7 +347,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 if (Text.equal("ICRC1", tokenIn.standard)) {
                     await _ICRC1SwapToICP(canisterId, poolData, tokenIn, balance, fee);
                 } else {
-                    await _commonSwapToICP(poolData, tokenIn, balance, fee);
+                    await _commonSwap(poolData, tokenIn, balance, fee, ICP, _ICPFee);
                 };
                 true;
             };
@@ -443,14 +442,17 @@ shared (initMsg) actor class SwapFeeReceiver(
             for ((token, swapped) in TrieSet.toArray(_tokenSet).vals()) {
                 if((not swapped) and (not Text.equal(token.address, ICP.address)) and (not Text.equal(token.address, ICS.address))) {
                     _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (token, true), Functions.tokenHash(token), _tokenSetEqual);
-                    ignore await _swapToICP(token);
+                    try {
+                        ignore await _swapToICP(token);
+                    } catch (e) {
+                        _addTokenSwapLog(token, 0, 0, "Call _swapToICP failed: " # debug_show (Error.message(e)), "_swapToICP", null);
+                    };
                     ignore Timer.setTimer<system>(#nanoseconds (3), _autoSwap);
                     break l;
                 };
             };
-            // swap ICP to ICS
-            await _swapICPToICS();
-            // ignore Timer.setTimer<system>(#nanoseconds (3), _autoBurn);
+            // swapping all finished means synchronization ends
+            _isSyncing := false;
         };
     };
 
@@ -460,17 +462,33 @@ shared (initMsg) actor class SwapFeeReceiver(
             for ((cid, data) in _poolMap.entries()) {
                 if (not data.claimed) {
                     _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
-                    ignore await _claim(cid, canisterId, data);
+                    try {
+                        ignore await _claim(cid, canisterId, data);
+                    } catch (e) {
+                        _tokenClaimLog.add({
+                            timestamp = BlockTimestamp.blockTimestamp();
+                            amount = 0;
+                            poolId = cid;
+                            token = { address = ""; standard = ""; };
+                            errMsg = "Call _claim failed: " # debug_show (Error.message(e));
+                        });
+                    };
                     ignore Timer.setTimer<system>(#nanoseconds (3), _autoClaim);
                     break l;
                 };
             };
-            // ignore Timer.setTimer<system>(#nanoseconds (0), _autoSwap);
+            ignore Timer.setTimer<system>(#nanoseconds (3), _autoSwap);
         };
     };
 
     private func _autoSyncPools() : async () {
-        if (await _syncPools()) { ignore Timer.setTimer<system>(#nanoseconds (0), _autoClaim); };
+        if (_isSyncing) { return; };
+        if (await _syncPools()) {
+            // double check for releasing thread
+            if(_isSyncing) { return; };
+            _isSyncing := true;
+            ignore Timer.setTimer<system>(#nanoseconds (0), _autoClaim); 
+        };
     };
 
     // ignore Timer.recurringTimer<system>(#seconds(604800), _autoSyncPools);
@@ -480,19 +498,19 @@ shared (initMsg) actor class SwapFeeReceiver(
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {
-        // _tokenClaimLogArray := Buffer.toArray(_tokenClaimLog);
-        // _tokenSwapLogArray := Buffer.toArray(_tokenSwapLog);
-        // _tokenBurnLogArray := Buffer.toArray(_tokenBurnLog);
+        _tokenClaimLogArray := Buffer.toArray(_tokenClaimLog);
+        _tokenSwapLogArray := Buffer.toArray(_tokenSwapLog);
+        _tokenBurnLogArray := Buffer.toArray(_tokenBurnLog);
     };
 
     system func postupgrade() {
         _canisterId := ?Principal.fromActor(this);
-        // _tokenClaimLog := Buffer.fromArray(_tokenClaimLogArray);
-        // _tokenSwapLog := Buffer.fromArray(_tokenSwapLogArray);
-        // _tokenBurnLog := Buffer.fromArray(_tokenBurnLogArray);
-        // _tokenClaimLogArray := [];
-        // _tokenSwapLogArray := [];
-        // _tokenBurnLogArray := [];
+        _tokenClaimLog := Buffer.fromArray(_tokenClaimLogArray);
+        _tokenSwapLog := Buffer.fromArray(_tokenSwapLogArray);
+        _tokenBurnLog := Buffer.fromArray(_tokenBurnLogArray);
+        _tokenClaimLogArray := [];
+        _tokenSwapLogArray := [];
+        _tokenBurnLogArray := [];
     };
 
     system func inspect({
