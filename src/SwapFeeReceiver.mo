@@ -1,5 +1,6 @@
 import Text "mo:base/Text";
 import Nat "mo:base/Nat";
+import Nat64 "mo:base/Nat64";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
 import Blob "mo:base/Blob";
@@ -8,9 +9,11 @@ import Debug "mo:base/Debug";
 import Result "mo:base/Result";
 import HashMap "mo:base/HashMap";
 import TrieSet "mo:base/TrieSet";
+import Int "mo:base/Int";
 import Iter "mo:base/Iter";
 import Bool "mo:base/Bool";
 import Buffer "mo:base/Buffer";
+import Time "mo:base/Time";
 import Timer "mo:base/Timer";
 import Option "mo:base/Option";
 import Prim "mo:⛔";
@@ -65,7 +68,13 @@ shared (initMsg) actor class SwapFeeReceiver(
         var fee : Nat = await tokenAct.fee();
         if (value > fee) {
             var amount : Nat = Nat.sub(value, fee);
-            switch (await tokenAct.transfer({ from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; to = { owner = recipient; subaccount = null }; amount = amount; fee = ?fee; memo = null; created_at_time = null })) {
+            switch (await tokenAct.transfer({
+                from = { owner = Principal.fromActor(this); subaccount = null }; 
+                from_subaccount = null; to = { owner = recipient; subaccount = null }; 
+                amount = amount; fee = ?fee; 
+                memo = Option.make(Text.encodeUtf8("transfer")); 
+                created_at_time = ?Nat64.fromNat(Int.abs(Time.now())); 
+            })) {
                 case (#Ok(_)) { return #ok(amount) };
                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
             };
@@ -83,7 +92,13 @@ shared (initMsg) actor class SwapFeeReceiver(
         var fee : Nat = await tokenAct.fee();
         if (value > fee) {
             var amount : Nat = Nat.sub(value, fee);
-            switch (await tokenAct.transfer({ from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; to = { owner = recipient; subaccount = null }; amount = amount; fee = ?fee; memo = null; created_at_time = null })) {
+            switch (await tokenAct.transfer({
+                from = { owner = Principal.fromActor(this); subaccount = null };
+                from_subaccount = null; to = { owner = recipient; subaccount = null }; 
+                amount = amount; fee = ?fee; 
+                memo = Option.make(Text.encodeUtf8("transferAll")); 
+                created_at_time = ?Nat64.fromNat(Int.abs(Time.now())); 
+            })) {
                 case (#Ok(_)) { return #ok(amount) };
                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
             };
@@ -224,7 +239,9 @@ shared (initMsg) actor class SwapFeeReceiver(
         var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
         switch (await tokenAct.transfer({
             from = { owner = canisterId; subaccount = null }; from_subaccount = null; 
-            to = { owner = governanceCid; subaccount = null }; amount = balance; fee = null; memo = null; created_at_time = null;
+            to = { owner = governanceCid; subaccount = null }; amount = balance; fee = null; 
+            memo = Option.make(Text.encodeUtf8("_burnICS")); 
+            created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
         })) {
             case (#Ok(amount)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = amount; errMsg = ""; }); };
             case (#Err(msg)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = 0; errMsg = debug_show(msg); }); };
@@ -245,7 +262,9 @@ shared (initMsg) actor class SwapFeeReceiver(
         switch (await tokenAct.transfer({
             from = { owner = canisterId; subaccount = null }; from_subaccount = null; 
             to = { owner = poolData.canisterId; subaccount = Option.make(AccountUtils.principalToBlob(canisterId)) }; 
-            amount = transferedAmount; fee = ?fee; memo = null; created_at_time = null;
+            amount = transferedAmount; fee = ?fee; 
+            memo = Option.make(Text.encodeUtf8("_ICRC1SwapToICP")); 
+            created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
         })) {
             case (#Ok(_)) {
                 _addTokenSwapLog(token, transferedAmount, 0, "", "transfer", ?poolId);
