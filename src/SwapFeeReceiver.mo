@@ -116,10 +116,11 @@ shared (initMsg) actor class SwapFeeReceiver(
         _ICSFee := await ICSAct.fee();
     };
 
-    public shared ({ caller }) func syncPools() : async () {
-        _checkPermission(caller);
-        ignore _syncPools();
-    };
+    // public shared ({ caller }) func syncPools() : async () {
+    //     _checkPermission(caller);
+    //     if (_isSyncing) { return; };
+    //     ignore _syncPools();
+    // };
 
     public shared ({ caller }) func startAutoSyncPools() : async () {
         _checkPermission(caller);
@@ -462,7 +463,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 if((not swapped) and (not Text.equal(token.address, ICP.address)) and (not Text.equal(token.address, ICS.address))) {
                     _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (token, true), Functions.tokenHash(token), _tokenSetEqual);
                     try {
-                        ignore await _swapToICP(token);
+                        let _ = await _swapToICP(token);
                     } catch (e) {
                         _addTokenSwapLog(token, 0, 0, "Call _swapToICP failed: " # debug_show (Error.message(e)), "_swapToICP", null);
                     };
@@ -482,7 +483,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 if (not data.claimed) {
                     _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
                     try {
-                        ignore await _claim(cid, canisterId, data);
+                        let _ = await _claim(cid, canisterId, data);
                     } catch (e) {
                         _tokenClaimLog.add({
                             timestamp = BlockTimestamp.blockTimestamp();
@@ -496,7 +497,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                     break l;
                 };
             };
-            ignore Timer.setTimer<system>(#nanoseconds (3), _autoSwap);
+            // ignore Timer.setTimer<system>(#nanoseconds (3), _autoSwap);
         };
     };
 
