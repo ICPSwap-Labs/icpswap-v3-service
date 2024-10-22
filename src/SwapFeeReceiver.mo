@@ -450,6 +450,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                     _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (it.token0, false), Functions.tokenHash(it.token0), _tokenSetEqual);
                     _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (it.token1, false), Functions.tokenHash(it.token1), _tokenSetEqual);
                 };
+                // ? clear history
                 true;
             };
             case (#err(_)) { false; };
@@ -457,48 +458,45 @@ shared (initMsg) actor class SwapFeeReceiver(
     };
 
     private func _autoSwap() : async () {
-        label l {
-            // swap token to ICP
-            for ((token, swapped) in TrieSet.toArray(_tokenSet).vals()) {
-                if((not swapped) and (not Text.equal(token.address, ICP.address)) and (not Text.equal(token.address, ICS.address))) {
-                    _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (token, true), Functions.tokenHash(token), _tokenSetEqual);
-                    try {
-                        let _ = await _swapToICP(token);
-                    } catch (e) {
-                        _addTokenSwapLog(token, 0, 0, "Call _swapToICP failed: " # debug_show (Error.message(e)), "_swapToICP", null);
-                    };
-                    ignore Timer.setTimer<system>(#nanoseconds (3), _autoSwap);
-                    break l;
+        // swap token to ICP
+        for ((token, swapped) in TrieSet.toArray(_tokenSet).vals()) {
+            if((not swapped) and (not Text.equal(token.address, ICP.address)) and (not Text.equal(token.address, ICS.address))) {
+                _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (token, true), Functions.tokenHash(token), _tokenSetEqual);
+                try {
+                    let _ = await _swapToICP(token);
+                } catch (e) {
+                    _addTokenSwapLog(token, 0, 0, "Call _swapToICP failed: " # debug_show (Error.message(e)), "_swapToICP", null);
                 };
+                ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+                return;
             };
-            // swapping all finished means synchronization ends
-            _isSyncing := false;
         };
+        // swapping all finished means synchronization ends
+         _isSyncing := false;
     };
 
     private func _autoClaim() : async () {
         var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
-        label l {
-            for ((cid, data) in _poolMap.entries()) {
-                if (not data.claimed) {
-                    _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
-                    try {
-                        let _ = await _claim(cid, canisterId, data);
-                    } catch (e) {
-                        _tokenClaimLog.add({
-                            timestamp = BlockTimestamp.blockTimestamp();
-                            amount = 0;
-                            poolId = cid;
-                            token = { address = ""; standard = ""; };
-                            errMsg = "Call _claim failed: " # debug_show (Error.message(e));
-                        });
-                    };
-                    ignore Timer.setTimer<system>(#nanoseconds (3), _autoClaim);
-                    break l;
+        for ((cid, data) in _poolMap.entries()) {
+            if (not data.claimed) {
+                _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
+                try {
+                    let _ = await _claim(cid, canisterId, data);
+                } catch (e) {
+                    _tokenClaimLog.add({
+                        timestamp = BlockTimestamp.blockTimestamp();
+                        amount = 0;
+                        poolId = cid;
+                        token = { address = ""; standard = ""; };
+                        errMsg = "Call _claim failed: " # debug_show (Error.message(e));
+                    });
                 };
+                ignore Timer.setTimer<system>(#nanoseconds (2), _autoClaim);
+                return;
+                // break l;
             };
-            // ignore Timer.setTimer<system>(#nanoseconds (3), _autoSwap);
         };
+        ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
     };
 
     private func _autoSyncPools() : async () {

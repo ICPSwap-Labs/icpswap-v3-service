@@ -472,7 +472,6 @@ module {
         #startAutoSyncPools : () -> ();
         #swapICPToICS : () -> ();
         #swapToICP : () -> Token;
-        #syncPools : () -> ();
         #transfer : () -> (Token, Principal, Nat);
         #transferAll : () -> (Token, Principal);
     };
