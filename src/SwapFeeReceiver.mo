@@ -459,7 +459,9 @@ shared (initMsg) actor class SwapFeeReceiver(
                     _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (it.token0, false), Functions.tokenHash(it.token0), _tokenSetEqual);
                     _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (it.token1, false), Functions.tokenHash(it.token1), _tokenSetEqual);
                 };
-                // ? clear history
+                // clear history
+                _tokenClaimLog := Buffer.Buffer<Types.ReceiverClaimLog>(0);
+                _tokenSwapLog := Buffer.Buffer<Types.ReceiverSwapLog>(0);
                 true;
             };
             case (#err(_)) { false; };
