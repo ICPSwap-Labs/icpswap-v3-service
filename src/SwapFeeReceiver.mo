@@ -35,7 +35,6 @@ shared (initMsg) actor class SwapFeeReceiver(
     private stable var _canisterId : ?Principal = null;
     private stable var _ICPFee : Nat = 0;
     private stable var _ICSFee : Nat = 0;
-    private stable var _factoryAct = actor (Principal.toText(factoryCid)) : Types.SwapFactoryActor;
     private stable var _tokenSet = TrieSet.empty<(Types.Token, Bool)>();
     private var _poolMap: HashMap.HashMap<Principal, Types.ClaimedPoolData> = HashMap.HashMap<Principal, Types.ClaimedPoolData>(100, Principal.equal, Principal.hash);
     // sync flag
@@ -50,6 +49,8 @@ shared (initMsg) actor class SwapFeeReceiver(
     private var _tokenBurnLog : Buffer.Buffer<Types.ReceiverBurnLog> = Buffer.Buffer<Types.ReceiverBurnLog>(0);
     private stable var _tokenBurnLogArray : [Types.ReceiverBurnLog] = [];
 
+    private var _factoryAct = actor (Principal.toText(factoryCid)) : Types.SwapFactoryActor;
+    
     public shared ({ caller }) func claim(pool : Principal, token : Types.Token, amount : Nat) : async Result.Result<Nat, Types.Error> {
         _checkPermission(caller);
         var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
