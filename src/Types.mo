@@ -496,6 +496,7 @@ module {
         swap : shared (SwapArgs) -> async Result.Result<Nat, Error>;
     };
     public type SwapFactoryActor = actor {
+        getPendingUpgradePoolList : query () -> async Result.Result<[PoolData], Error>;
         getPool : query (GetPoolArgs) -> async Result.Result<PoolData, Error>;
         getPools : query () -> async Result.Result<[PoolData], Error>;
         addPasscode : (Principal, Passcode) -> async Result.Result<(), Error>;
