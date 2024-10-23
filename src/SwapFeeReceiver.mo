@@ -116,11 +116,10 @@ shared (initMsg) actor class SwapFeeReceiver(
         _ICSFee := await ICSAct.fee();
     };
 
-    // public shared ({ caller }) func syncPools() : async () {
-    //     _checkPermission(caller);
-    //     if (_isSyncing) { return; };
-    //     ignore _syncPools();
-    // };
+    public shared ({ caller }) func setCanisterId() : async () {
+        _checkPermission(caller);
+        _canisterId := ?Principal.fromActor(this);
+    };
 
     public shared ({ caller }) func startAutoSyncPools() : async () {
         _checkPermission(caller);
@@ -159,6 +158,10 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     public query func getCanisterId(): async Result.Result<?Principal, Types.Error> {
         return #ok(_canisterId);
+    };
+
+    public query func getSyncingStatus(): async Result.Result<Bool, Types.Error> {
+        return #ok(_isSyncing);
     };
 
     public query func getFees(): async Result.Result<{ICPFee:Nat;ICSFee:Nat;}, Types.Error> {
@@ -279,6 +282,9 @@ shared (initMsg) actor class SwapFeeReceiver(
                         })) {
                             case (#ok(swappedAmount)) {
                                 _addTokenSwapLog(token, depositedAmount, swappedAmount, "", "swap", ?poolId);
+                                if (swappedAmount <= _ICPFee) {
+                                    _addTokenSwapLog(ICP, 0, 0, "Skip: swappedAmount less than _ICPFee", "withdraw", ?poolId);
+                                };
                                 switch (await poolAct.withdraw({ token = ICP.address; fee = _ICPFee; amount = swappedAmount; })) {
                                     case (#ok(withdrawedAmount)) {
                                         _addTokenSwapLog(ICP, 0, withdrawedAmount, "", "withdraw", ?poolId);
@@ -330,6 +336,9 @@ shared (initMsg) actor class SwapFeeReceiver(
                         })) {
                             case (#ok(swappedAmount)) {
                                 _addTokenSwapLog(tokenIn, depositedAmount, swappedAmount, "", "swap", ?poolId);
+                                if (Functions.tokenEqual(tokenOut, ICP) and swappedAmount <= _ICPFee) {
+                                    _addTokenSwapLog(tokenOut, 0, 0, "Skip: swappedAmount less than _ICPFee", "withdraw", ?poolId);
+                                };
                                 switch (await poolAct.withdraw({ token = tokenOut.address; fee = tokenOutFee; amount = swappedAmount; })) {
                                     case (#ok(withdrawedAmount)) { _addTokenSwapLog(tokenOut, 0, withdrawedAmount, "", "withdraw", ?poolId); };
                                     case (#err(msg)) { _addTokenSwapLog(tokenOut, 0, 0, debug_show(msg), "withdraw", ?poolId); };
@@ -467,7 +476,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 } catch (e) {
                     _addTokenSwapLog(token, 0, 0, "Call _swapToICP failed: " # debug_show (Error.message(e)), "_swapToICP", null);
                 };
-                ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+                ignore Timer.setTimer<system>(#nanoseconds (1), _autoSwap);
                 return;
             };
         };
@@ -491,7 +500,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                         errMsg = "Call _claim failed: " # debug_show (Error.message(e));
                     });
                 };
-                ignore Timer.setTimer<system>(#nanoseconds (2), _autoClaim);
+                ignore Timer.setTimer<system>(#nanoseconds (1), _autoClaim);
                 return;
                 // break l;
             };
@@ -538,15 +547,16 @@ shared (initMsg) actor class SwapFeeReceiver(
     }) : Bool {
         return switch (msg) {
             // Controller
-            case (#burnICS _)       { Prim.isController(caller) };
-            case (#claim _)         { Prim.isController(caller) };
-            case (#claimPool _)     { Prim.isController(caller) };
-            case (#setFees _)       { Prim.isController(caller) };
-            case (#swapICPToICS _)  { Prim.isController(caller) };
-            case (#swapToICP _)     { Prim.isController(caller) };
-            case (#syncPools _)     { Prim.isController(caller) };
-            case (#transfer _)      { Prim.isController(caller) };
-            case (#transferAll _)   { Prim.isController(caller) };
+            case (#burnICS _)            { Prim.isController(caller) };
+            case (#claim _)              { Prim.isController(caller) };
+            case (#claimPool _)          { Prim.isController(caller) };
+            case (#setFees _)            { Prim.isController(caller) };
+            case (#setCanisterId _)      { Prim.isController(caller) };
+            case (#startAutoSyncPools _) { Prim.isController(caller) };
+            case (#swapICPToICS _)       { Prim.isController(caller) };
+            case (#swapToICP _)          { Prim.isController(caller) };
+            case (#transfer _)           { Prim.isController(caller) };
+            case (#transferAll _)        { Prim.isController(caller) };
             // Anyone
             case (_) { true };
         };

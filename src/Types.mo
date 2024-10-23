@@ -462,12 +462,14 @@ module {
         #getFees : () -> ();
         #getInitArgs : () -> ();
         #getPools : () -> ();
+        #getSyncingStatus : () -> ();
         #getTokenBalance : () -> Token;
         #getTokenBurnLog : () -> ();
         #getTokenClaimLog : () -> ();
         #getTokenSwapLog : () -> ();
         #getTokens : () -> ();
         #getVersion : () -> ();
+        #setCanisterId : () -> ();
         #setFees : () -> ();
         #startAutoSyncPools : () -> ();
         #swapICPToICS : () -> ();
