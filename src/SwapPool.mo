@@ -1495,17 +1495,17 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
-    public shared (msg) func removeWithdrawErrorLog(id : Nat, rollback : Bool) : async () {
-        assert(_isAvailable(msg.caller));
-        _checkAdminPermission(msg.caller);
-        switch (_tokenAmountService.getWithdrawErrorLog().get(id)) {
-            case (?log) {
-                if (rollback) { ignore _tokenHolderService.deposit(log.user, log.token, log.amount); };
-                _tokenAmountService.getWithdrawErrorLog().delete(id);
-            };
-            case (_) {};
-        };
-    };
+    // public shared (msg) func removeWithdrawErrorLog(id : Nat, rollback : Bool) : async () {
+    //     assert(_isAvailable(msg.caller));
+    //     _checkAdminPermission(msg.caller);
+    //     switch (_tokenAmountService.getWithdrawErrorLog().get(id)) {
+    //         case (?log) {
+    //             if (rollback) { ignore _tokenHolderService.deposit(log.user, log.token, log.amount); };
+    //             _tokenAmountService.getWithdrawErrorLog().delete(id);
+    //         };
+    //         case (_) {};
+    //     };
+    // };
     public shared(msg) func removeErrorTransferLog(index: Nat, rollback: Bool) : async () {
         assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
@@ -1969,9 +1969,9 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query func getWithdrawErrorLog() : async Result.Result<[(Nat, Types.WithdrawErrorLog)], Types.Error> {
-        return #ok(Iter.toArray(_tokenAmountService.getWithdrawErrorLog().entries()));
-    };
+    // public query func getWithdrawErrorLog() : async Result.Result<[(Nat, Types.WithdrawErrorLog)], Types.Error> {
+    //     return #ok(Iter.toArray(_tokenAmountService.getWithdrawErrorLog().entries()));
+    // };
     public query func getTransferLogs() : async Result.Result<[Types.TransferLog], Types.Error> {
         return #ok(Iter.toArray(_transferLog.vals()));
     };

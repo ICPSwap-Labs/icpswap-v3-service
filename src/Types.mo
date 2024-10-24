@@ -389,7 +389,7 @@ module {
         #getUserPositionsByPrincipal : () -> Principal;
         #getUserUnusedBalance : () -> Principal;
         #getVersion : () -> ();
-        #getWithdrawErrorLog : () -> ();
+        // #getWithdrawErrorLog : () -> ();
         #increaseLiquidity : () -> IncreaseLiquidityArgs;
         #metadata : () -> ();
         #mint : () -> MintArgs;
@@ -410,7 +410,7 @@ module {
         #setLimitOrderAvailable : () -> Bool;
         #setWhiteList : () -> [Principal];
         #removeErrorTransferLog : () -> (Nat, Bool);
-        #removeWithdrawErrorLog : () -> (Nat, Bool);
+        // #removeWithdrawErrorLog : () -> (Nat, Bool);
         // --------  Controller permission required.  ---------
         #init : () -> (Nat, Int, Nat);
         #setAdmins : () -> [Principal];
