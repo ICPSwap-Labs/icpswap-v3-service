@@ -50,7 +50,7 @@ shared (initMsg) actor class SwapFeeReceiver(
     private stable var _tokenBurnLogArray : [Types.ReceiverBurnLog] = [];
 
     private var _factoryAct = actor (Principal.toText(factoryCid)) : Types.SwapFactoryActor;
-    
+
     public shared ({ caller }) func claim(pool : Principal, token : Types.Token, amount : Nat) : async Result.Result<Nat, Types.Error> {
         _checkPermission(caller);
         var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
@@ -157,12 +157,29 @@ shared (initMsg) actor class SwapFeeReceiver(
         return #ok(await tokenAct.balanceOf({ owner = canisterId; subaccount = null; }));
     };
 
+    public shared ({ caller }) func getBalances() : async Result.Result<{ ICP:Nat; ICS:Nat; }, Types.Error> {
+        _checkPermission(caller);
+        var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return #err(#InternalError("Uninitialized _canisterId.")); }; };
+        var ICPAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
+        var ICSAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICS.address, ICS.standard);
+        return #ok({
+            ICP = await ICPAct.balanceOf({ owner = canisterId; subaccount = null; });
+            ICS = await ICSAct.balanceOf({ owner = canisterId; subaccount = null; });
+        });
+    };
+
     public query func getCanisterId(): async Result.Result<?Principal, Types.Error> {
         return #ok(_canisterId);
     };
 
-    public query func getSyncingStatus(): async Result.Result<Bool, Types.Error> {
-        return #ok(_isSyncing);
+    public query func getSyncingStatus(): async Result.Result<{ isSyncing:Bool; progress:Text; }, Types.Error> {
+        var count = 0;
+        var total = 0;
+        for ((token, swapped) in TrieSet.toArray(_tokenSet).vals()) {
+            if (swapped) { count := count + 1; };
+            total := total + 1;
+        };
+        return #ok({ isSyncing = _isSyncing; progress = debug_show(count) # "/" # debug_show(total); });
     };
 
     public query func getFees(): async Result.Result<{ICPFee:Nat;ICSFee:Nat;}, Types.Error> {
@@ -521,7 +538,8 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    // ignore Timer.recurringTimer<system>(#seconds(604800), _autoSyncPools);
+    // auto claim every 10 days
+    ignore Timer.recurringTimer<system>(#seconds(864000), _autoSyncPools);
 
     // --------------------------- Version Control ------------------------------------
     private var _version : Text = "3.5.0";
