@@ -367,12 +367,14 @@ module {
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
         #getInitArgs : () -> ();
+        #getFeeGrowthGlobal : () -> ();
         #getLimitOrderAvailabilityState : () -> ();
         #getLimitOrders : () -> ();
         #getLimitOrderStack : () -> ();
         #getPosition : () -> GetPositionArgs;
         #getPositions : () -> (Nat, Nat);
         #getSwapRecordState : () -> ();
+        #getTickBitmaps : () -> ();
         #getTickInfos : () -> (Nat, Nat);
         #getTicks : () -> (Nat, Nat);
         #getTokenAmountState : () -> ();
@@ -414,6 +416,7 @@ module {
         // --------  Controller permission required.  ---------
         #init : () -> (Nat, Int, Nat);
         #setAdmins : () -> [Principal];
+        #transferAll : () -> (Principal);
         #upgradeTokenStandard : () -> Principal;
         #resetTokenAmountState : () -> (Nat, Nat, Nat, Nat);
     };
@@ -457,6 +460,7 @@ module {
         #burnICS : () -> ();
         #claim : () -> (Principal, Token, Nat);
         #claimPool : () -> (Principal, Principal);
+        #getBalances : () -> ();
         #getCanisterId : () -> ();
         #getCycleInfo : () -> ();
         #getFees : () -> ();
@@ -478,6 +482,7 @@ module {
         #transferAll : () -> (Token, Principal);
     };
     public type SwapPoolActor = actor {
+        allTokenBalance : query (Nat, Nat) -> async Result.Result<Page<(Principal, { balance0: Nat; balance1: Nat; })>, Error>;
         initUserPositionIdMap : shared (userPositionIds : [(Text, [Nat])]) -> async ();
         getUserPositionIds : query () -> async Result.Result<[(Text, [Nat])], Error>;
         getUserPositionIdsByPrincipal : query (owner : Principal) -> async Result.Result<[Nat], Error>;
@@ -494,6 +499,27 @@ module {
         deposit : shared (DepositArgs) -> async Result.Result<Nat, Error>;
         depositFrom : shared (DepositArgs) -> async Result.Result<Nat, Error>;
         swap : shared (SwapArgs) -> async Result.Result<Nat, Error>;
+        getLimitOrderAvailabilityState : query () -> async Result.Result<Bool, Error>;
+        getLimitOrderStack : query () -> async Result.Result<[(LimitOrderKey, LimitOrderValue)], Error>;
+        getLimitOrders : query () -> async Result.Result<{ lowerLimitOrders : [(LimitOrderKey, LimitOrderValue)]; upperLimitOrders : [(LimitOrderKey, LimitOrderValue)]; },Error>;
+        getPositions : query (Nat, Nat) -> async Result.Result<Page<PositionInfoWithId>, Error>;
+        getSwapRecordState : query () -> async Result.Result<{ infoCid : Text; records : [SwapRecordInfo]; retryCount : Nat; errors : [PushError]; }, Error>;
+        getTicks : query (Nat, Nat) -> async Result.Result<Page<TickInfoWithId>, Error>;
+        getTokenAmountState : query () -> async Result.Result<{ token0Amount : Nat; token1Amount : Nat; swapFee0Repurchase : Nat; swapFee1Repurchase : Nat; swapFeeReceiver : Text;}, Error>;
+        getUserPositions : query (Nat, Nat) -> async Result.Result<Page<UserPositionInfoWithId>, Error>;
+        getAdmins : query () -> async [Principal];
+        getVersion : query () -> async Text;
+        getTickBitmaps : query () -> async Result.Result<[(Int, Nat)], Error>;
+        getFeeGrowthGlobal : query () -> async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Error>;
+
+        // --- recover ---
+        recoverUserPositions : shared ([UserPositionInfoWithId]) -> async ();
+        recoverPositions : shared ([PositionInfoWithId]) -> async ();
+        recoverTickBitmaps : shared ([(Int, Nat)]) -> async ();
+        recoverTicks : shared ([TickInfoWithId]) -> async ();
+        recoverUserPositionIds : shared ([(Text, [Nat])]) -> async ();
+        resetPositionTickService : shared () -> async ();
+        recoverMetadata : shared (PoolMetadata, { feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }) -> async ();
     };
     public type SwapFactoryActor = actor {
         getPendingUpgradePoolList : query () -> async Result.Result<[PoolData], Error>;

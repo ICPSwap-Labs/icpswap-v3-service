@@ -14,23 +14,23 @@ import Time "mo:base/Time";
 import Timer "mo:base/Timer";
 import HashMap "mo:base/HashMap";
 import RBTree "mo:base/RBTree";
-import PoolUtils "./utils/PoolUtils";
-import AccountUtils "./utils/AccountUtils";
-import PositionTick "./components/PositionTick";
-import TokenHolder "./components/TokenHolder";
-import TokenAmount "./components/TokenAmount";
-import SwapRecord "./components/SwapRecord";
-import Types "./Types";
-import LiquidityMath "./libraries/LiquidityMath";
-import LiquidityAmounts "./libraries/LiquidityAmounts";
-import TickMath "./libraries/TickMath";
-import SqrtPriceMath "./libraries/SqrtPriceMath";
-import Tick "./libraries/Tick";
-import BlockTimestamp "./libraries/BlockTimestamp";
-import TickBitmap "./libraries/TickBitmap";
-import FullMath "./libraries/FullMath";
-import SwapMath "./libraries/SwapMath";
-import FixedPoint128 "./libraries/FixedPoint128";
+import PoolUtils "../utils/PoolUtils";
+import AccountUtils "../utils/AccountUtils";
+import PositionTick "../components/PositionTick";
+import TokenHolder "../components/TokenHolder";
+import TokenAmount "../components/TokenAmount";
+import SwapRecord "../components/SwapRecord";
+import Types "../Types";
+import LiquidityMath "../libraries/LiquidityMath";
+import LiquidityAmounts "../libraries/LiquidityAmounts";
+import TickMath "../libraries/TickMath";
+import SqrtPriceMath "../libraries/SqrtPriceMath";
+import Tick "../libraries/Tick";
+import BlockTimestamp "../libraries/BlockTimestamp";
+import TickBitmap "../libraries/TickBitmap";
+import FullMath "../libraries/FullMath";
+import SwapMath "../libraries/SwapMath";
+import FixedPoint128 "../libraries/FixedPoint128";
 import SafeUint "mo:commons/math/SafeUint";
 import SafeInt "mo:commons/math/SafeInt";
 import IntUtils "mo:commons/math/SafeInt/IntUtils";
@@ -44,7 +44,7 @@ import Bool "mo:base/Bool";
 import Prim "mo:⛔";
 import Hash "mo:base/Hash";
 
-shared (initMsg) actor class SwapPool(
+shared (initMsg) actor class SwapPoolRecover(
     token0 : Types.Token,
     token1 : Types.Token,
     infoCid : Principal,
@@ -146,7 +146,7 @@ shared (initMsg) actor class SwapPool(
         _checkAdminPermission(msg.caller);
         _isLimitOrderAvailable := available;
     };
-    public query func getLimitOrderAvailabilityState() : async Result.Result<Bool, Types.Error> { #ok(_isLimitOrderAvailable); };
+    public query func getLimitOrderAvailabilityState() : async Bool { _isLimitOrderAvailable; };
 
     private stable var _limitOrderStack : List.List<(Types.LimitOrderKey, Types.LimitOrderValue)> = List.nil<(Types.LimitOrderKey, Types.LimitOrderValue)>();
     private func _pushLimitOrderStack(limitOrder : (Types.LimitOrderKey, Types.LimitOrderValue)) : () { _limitOrderStack := ?(limitOrder, _limitOrderStack); };
@@ -1915,17 +1915,6 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query func getTickBitmaps() : async Result.Result<[(Int, Nat)], Types.Error> {
-        return #ok(Iter.toArray(_positionTickService.getTickBitmaps().entries()));
-    };
-
-    public query func getFeeGrowthGlobal() : async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Types.Error> {
-        return #ok({
-            feeGrowthGlobal0X128 = _feeGrowthGlobal0X128;
-            feeGrowthGlobal1X128 = _feeGrowthGlobal1X128;
-        });
-    };
-
     public query func getUserPositionIds() : async Result.Result<[(Text, [Nat])], Types.Error> {
         return #ok(Iter.toArray(_positionTickService.getUserPositionIds().entries()));
     };
@@ -2090,7 +2079,7 @@ shared (initMsg) actor class SwapPool(
             case (#removeErrorTransferLog _) { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setAvailable _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setWhiteList _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
-            // case (#removeWithdrawErrorLog _) { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
+            case (#removeWithdrawErrorLog _) { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             // Anyone
             case (_)                            { true };
         }
@@ -2158,47 +2147,100 @@ shared (initMsg) actor class SwapPool(
         };
     });
 
-    public shared ({ caller }) func transferAll(recipient : Principal) : async Result.Result<{
-        token0Result: Nat; token1Result: Nat;
-    }, Types.Error> {
-        _checkControllerPermission(caller);
-        // todo check if the recipient is the target canister
-        var value0 : Nat = await _token0Act.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
-        var value1 : Nat = await _token1Act.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
-        var fee0 : Nat = await _token0Act.fee();
-        var fee1 : Nat = await _token1Act.fee();
-        try {
-            var amount0 = 0;
-            var amount1 = 0;
-            if (value0 > fee0) {
-                amount0 := Nat.sub(value0, fee0);
-                switch (await _token0Act.transfer({
-                    from = { owner = Principal.fromActor(this); subaccount = null };
-                    from_subaccount = null; to = { owner = recipient; subaccount = null }; 
-                    amount = amount0; fee = ?fee0; 
-                    memo = null; created_at_time = null; 
-                })) {
-                    case (#Ok(_)) { };
-                    case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
-                };
-            };
-            if (value1 > fee1) {
-                amount1 := Nat.sub(value1, fee1);
-                switch (await _token1Act.transfer({
-                    from = { owner = Principal.fromActor(this); subaccount = null };
-                    from_subaccount = null; to = { owner = recipient; subaccount = null }; 
-                    amount = amount1; fee = ?fee1; 
-                    memo = null; created_at_time = null; 
-                })) {
-                    case (#Ok(_)) { };
-                    case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
-                };
-            };
-            return #ok({ token0Result = amount0; token1Result = amount1; });
-        } catch (e) {        
-            let msg: Text = debug_show (Error.message(e));
-            return #err(#InternalError(msg));
+    // ----- recover -----
+    private stable var _recoverUserPositionsEntries : [(Nat, Types.UserPositionInfo)] = [];
+    private stable var _recoverPositionsEntries : [(Text, Types.PositionInfo)] = [];
+    private stable var _recoverTickBitmapsEntries : [(Int, Nat)] = [];
+    private stable var _recoverTicksEntries : [(Text, Types.TickInfo)] = [];
+    private stable var _recoverUserPositionIdsEntries : [(Text, [Nat])] = [];
+
+    public shared (msg) func recoverUserPositions(userPositions : [Types.UserPositionInfoWithId]) : async () {
+        var userPositionBuffer : Buffer.Buffer<(Nat, Types.UserPositionInfo)> = Buffer.Buffer<(Nat, Types.UserPositionInfo)>(0);
+        for (userPositionWithId in userPositions.vals()) {
+            userPositionBuffer.add((userPositionWithId.id, {
+                tickLower = userPositionWithId.tickLower;
+                tickUpper = userPositionWithId.tickUpper;
+                liquidity = userPositionWithId.liquidity;
+                feeGrowthInside0LastX128 = userPositionWithId.feeGrowthInside0LastX128;
+                feeGrowthInside1LastX128 = userPositionWithId.feeGrowthInside1LastX128;
+                tokensOwed0 = userPositionWithId.tokensOwed0;
+                tokensOwed1 = userPositionWithId.tokensOwed1;
+            }));
         };
+        _recoverUserPositionsEntries := Buffer.toArray(userPositionBuffer);
+    };
+
+    public shared (msg) func recoverPositions(positions : [Types.PositionInfoWithId]) : async () {
+        var positionBuffer : Buffer.Buffer<(Text, Types.PositionInfo)> = Buffer.Buffer<(Text, Types.PositionInfo)>(0);
+        for (positionWithId in positions.vals()) {
+            positionBuffer.add((positionWithId.id, {
+                liquidity = positionWithId.liquidity;
+                feeGrowthInside0LastX128 = positionWithId.feeGrowthInside0LastX128;
+                feeGrowthInside1LastX128 = positionWithId.feeGrowthInside1LastX128;
+                tokensOwed0 = positionWithId.tokensOwed0;
+                tokensOwed1 = positionWithId.tokensOwed1;
+            }));
+        };
+        _recoverPositionsEntries := Buffer.toArray(positionBuffer);
+    };
+
+    public shared (msg) func recoverTickBitmaps(tickBitmaps : [(Int, Nat)]) : async () {
+        _recoverTickBitmapsEntries := tickBitmaps;
+    };
+
+    public shared (msg) func recoverTicks(ticks : [Types.TickInfoWithId]) : async () {
+        var tickBuffer : Buffer.Buffer<(Text, Types.TickInfo)> = Buffer.Buffer<(Text, Types.TickInfo)>(0);
+        for (tickWithId in ticks.vals()) {
+            tickBuffer.add((tickWithId.id, {
+                var liquidityGross = tickWithId.liquidityGross;
+                var liquidityNet = tickWithId.liquidityNet;
+                var feeGrowthOutside0X128 = tickWithId.feeGrowthOutside0X128;
+                var feeGrowthOutside1X128 = tickWithId.feeGrowthOutside1X128;
+                var tickCumulativeOutside = tickWithId.tickCumulativeOutside;
+                var secondsPerLiquidityOutsideX128 = tickWithId.secondsPerLiquidityOutsideX128;
+                var secondsOutside = tickWithId.secondsOutside;
+                var initialized = tickWithId.initialized;
+            }));
+        };
+        _recoverTicksEntries := Buffer.toArray(tickBuffer);
+    };
+
+    public shared (msg) func recoverUserPositionIds(userPositionIds : [(Text, [Nat])]) : async () {
+        _recoverUserPositionIdsEntries := userPositionIds;
+    };
+
+    public shared (msg) func resetPositionTickService() : async () {
+        _positionTickService := PositionTick.Service(
+            _recoverUserPositionsEntries, 
+            _recoverPositionsEntries, 
+            _recoverTickBitmapsEntries, 
+            _recoverTicksEntries, 
+            _recoverUserPositionIdsEntries, 
+            []
+        );
+
+        // clear
+        _recoverUserPositionsEntries := [];
+        _recoverPositionsEntries := [];
+        _recoverTickBitmapsEntries := [];
+        _recoverTicksEntries := [];
+        _recoverUserPositionIdsEntries := [];
+    };
+
+    public shared (msg) func recoverMetadata(
+        metadata: Types.PoolMetadata, 
+        feeGrowthGlobal: { feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }
+    ) : async () {
+        _feeGrowthGlobal0X128 := feeGrowthGlobal.feeGrowthGlobal0X128;
+        _feeGrowthGlobal1X128 := feeGrowthGlobal.feeGrowthGlobal1X128;
+        _token0 := metadata.token0;
+        _token1 := metadata.token1;
+        _fee := metadata.fee;
+        _tick := metadata.tick;
+        _liquidity := metadata.liquidity;
+        _sqrtPriceX96 := metadata.sqrtPriceX96;
+        _maxLiquidityPerTick := metadata.maxLiquidityPerTick;
+        _nextPositionId := metadata.nextPositionId;
     };
 
     system func preupgrade() {
@@ -2233,11 +2275,11 @@ shared (initMsg) actor class SwapPool(
         _upperLimitOrderEntries := [];
     };
     
-    system func inspect({
-        arg : Blob;
-        caller : Principal;
-        msg : Types.SwapPoolMsg;
-    }) : Bool {
-        return _isAvailable(caller) and _hasPermission(msg, caller);
-    };
+    // system func inspect({
+    //     arg : Blob;
+    //     caller : Principal;
+    //     msg : Types.SwapPoolMsg;
+    // }) : Bool {
+    //     return _isAvailable(caller) and _hasPermission(msg, caller);
+    // };
 };
