@@ -14,6 +14,7 @@ import TickBitmap "../libraries/TickBitmap";
 import FullMath "../libraries/FullMath";
 import TickMath "../libraries/TickMath";
 import LiquidityMath "../libraries/LiquidityMath";
+import LiquidityAmounts "../libraries/LiquidityAmounts";
 import SqrtPriceMath "../libraries/SqrtPriceMath";
 import BlockTimestamp "../libraries/BlockTimestamp";
 import FixedPoint128 "../libraries/FixedPoint128";
@@ -223,6 +224,29 @@ module PositionTick {
                 };
                 case (_) { };
             };
+        };
+
+        public func getTokenAmountByLiquidity(
+            sqrtPriceX96: Nat,
+            tickLower: Int,
+            tickUpper: Int,
+            liquidity: Nat,
+        ) : Result.Result<{ amount0: Nat; amount1: Nat }, Text> {
+            var sqrtRatioAX96 = switch (TickMath.getSqrtRatioAtTick(SafeInt.Int24(tickLower))) {
+                case (#ok(r)) { r; };
+                case (#err(code)) { return #err("TickMath getSqrtRatio A AtTick " # debug_show (code)); };
+            };
+            var sqrtRatioBX96 = switch (TickMath.getSqrtRatioAtTick(SafeInt.Int24(tickUpper))) {
+                case (#ok(r)) { r; };
+                case (#err(code)) { return #err("TickMath getSqrtRatio B AtTick " # debug_show (code)); };
+            };
+            var result = LiquidityAmounts.getAmountsForLiquidity(
+                SafeUint.Uint160(sqrtPriceX96),
+                SafeUint.Uint160(sqrtRatioAX96),
+                SafeUint.Uint160(sqrtRatioBX96),
+                SafeUint.Uint128(liquidity),
+            );
+            return #ok({ amount0 = result.amount0; amount1 = result.amount1 });
         };
 
         public func resetPositionsAndTicks(

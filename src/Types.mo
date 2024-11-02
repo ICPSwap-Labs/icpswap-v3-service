@@ -200,6 +200,11 @@ module {
         positionId : Nat;
         liquidity : Text;
     };
+    public type DecreaseLimitOrderArgs = {
+        isLimitOrder : Bool;
+        token0InAmount : Nat;
+        token1InAmount : Nat;
+    };
     public type ClaimArgs = {
         positionId : Nat;
     };
@@ -226,6 +231,7 @@ module {
         #claim;
         #swap;
         #transferPosition : Nat;
+        #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; };
     };
     public type TxStorage = actor {
         push : (SwapRecordInfo) -> async ();
@@ -308,6 +314,8 @@ module {
     public type LimitOrderValue = {
         userPositionId : Nat;
         owner : Principal;
+        token0InAmount : Nat;
+        token1InAmount : Nat;
     };
     public type ClaimedPoolData = {
         token0 : Token;

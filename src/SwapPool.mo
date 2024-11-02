@@ -195,7 +195,10 @@ shared (initMsg) actor class SwapPool(
         switch (_popLimitOrderStack()) {
             case (?(key, value)) {
                 var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
-                ignore _decreaseLiquidity(value.owner, { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
+                ignore _decreaseLiquidity(
+                    value.owner, 
+                    { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; }, 
+                    { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
             };
             case (_) {};
         };
@@ -371,7 +374,7 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    private func _decreaseLiquidity(owner : Principal, args : Types.DecreaseLiquidityArgs) : Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {        
+    private func _decreaseLiquidity(owner : Principal, loArgs : Types.DecreaseLimitOrderArgs, args : Types.DecreaseLiquidityArgs) : Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {        
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         var liquidityDelta = TextUtils.toNat(args.liquidity);
         if (Nat.equal(liquidityDelta, 0)) { return #err(#InternalError("Illegal liquidity delta")); };
@@ -391,7 +394,17 @@ shared (initMsg) actor class SwapPool(
         _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
         _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
-            _pushSwapInfoCache(#decreaseLiquidity, Principal.toText(Principal.fromActor(this)), Principal.toText(owner), Principal.toText(owner), liquidityDelta, collectResult.amount0, collectResult.amount1, true);
+            _pushSwapInfoCache(
+                if (not loArgs.isLimitOrder) { #decreaseLiquidity; } 
+                else { #limitOrder({ positionId = args.positionId; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }); }, 
+                Principal.toText(Principal.fromActor(this)), 
+                Principal.toText(owner), 
+                Principal.toText(owner), 
+                liquidityDelta, 
+                collectResult.amount0, 
+                collectResult.amount1, 
+                true
+            );
             ignore _tokenHolderService.deposit2(owner, _token0, collectResult.amount0, _token1, collectResult.amount1);
         };
         return #ok({
@@ -1275,11 +1288,17 @@ shared (initMsg) actor class SwapPool(
         var tickLower = userPositionInfo.tickLower;
         var tickUpper = userPositionInfo.tickUpper;
         if (tickLimit > tickUpper or tickLimit < tickLower) { return #err(#InternalError("Invalid tickLimit.")); };
+        var tokenAmount = switch (_positionTickService.getTokenAmountByLiquidity(
+            _sqrtPriceX96, tickLower, tickUpper, userPositionInfo.liquidity
+        )) {
+            case (#ok(result)) { result };
+            case (#err(code)) { return #err(#InternalError(code)); };
+        };
         var timestamp = Int.abs(Time.now());
         if (tickCurrent < tickLower and tickLimit > tickLower) {
-            _upperLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; });
+            _upperLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
         } else if (tickCurrent > tickUpper and tickLimit < tickUpper) {
-            _lowerLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; });
+            _lowerLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
         } else {
             return #err(#InternalError("Invalid price range."));
         };
@@ -1357,7 +1376,7 @@ shared (initMsg) actor class SwapPool(
             return #err(#InternalError("Check operator failed"));
         };
 
-        return _decreaseLiquidity(msg.caller, args);
+        return _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; }, args);
     };
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
