@@ -355,6 +355,7 @@ module {
         poolData : PoolData;
         moduleHashBefore : ?Blob;
         moduleHashAfter : ?Blob;
+        backup : { timestamp : Nat; isDone : Bool; retryCount : Nat; isSent : Bool; };
         turnOffAvailable : PoolUpgradeTaskStep;
         stop : PoolUpgradeTaskStep;
         upgrade : PoolUpgradeTaskStep;
@@ -434,6 +435,7 @@ module {
         #batchAddPoolControllers : () -> ([Principal], [Principal]);
         #batchClearRemovedPool : () -> [Principal];
         #batchRemovePoolControllers : () -> ([Principal], [Principal]);
+        #batchRemovePools : () -> [Principal];
         #batchSetPoolAdmins : () -> ([Principal], [Principal]);
         #batchSetPoolAvailable : () -> ([Principal], Bool);
         #batchSetPoolLimitOrderAvailable : () -> ([Principal], Bool);
@@ -447,6 +449,7 @@ module {
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();
         #getInitArgs : () -> ();
+        #getNextPoolVersion : () -> ();
         #getPasscodesByPrincipal : () -> Principal;
         #getPendingUpgradePoolList : () -> ();
         #getPool : () -> GetPoolArgs;
@@ -536,5 +539,10 @@ module {
         addPasscode : (Principal, Passcode) -> async Result.Result<(), Error>;
         deletePasscode : (Principal, Passcode) -> async Result.Result<(), Error>;
         getRemovedPools : query () -> async Result.Result<[PoolData], Error>;
+    };
+    public type SwapDataBackupActor = actor {
+        backup : (Principal) -> async Result.Result<(), Error>;
+        isBackupDone : (Principal) -> async Result.Result<Bool, Error>;
+        removeBackupData : (Principal) -> async Result.Result<(), Error>;
     };
 };

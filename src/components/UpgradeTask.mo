@@ -8,6 +8,22 @@ import SwapPool "../SwapPool";
 
 module UpgradeTask {
 
+    public func stepBackup(task: Types.PoolUpgradeTask, backupCid : Principal) : async Types.PoolUpgradeTask {
+        var backupAct = actor (Principal.toText(backupCid)) : Types.SwapDataBackupActor;
+        ignore await backupAct.backup(task.poolData.canisterId);
+        {
+            poolData = task.poolData;
+            moduleHashBefore = task.moduleHashBefore;
+            moduleHashAfter = task.moduleHashAfter;
+            backup = { timestamp = BlockTimestamp.blockTimestamp(); isDone = false; retryCount = 0; isSent = true; };
+            turnOffAvailable = task.turnOffAvailable;
+            stop = task.stop;
+            upgrade = task.upgrade;
+            start = task.start;
+            turnOnAvailable = task.turnOnAvailable;
+        };
+    };
+
     public func stepTurnOffAvailable(task: Types.PoolUpgradeTask) : async Types.PoolUpgradeTask {
         var poolCid = task.poolData.canisterId;
         var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
@@ -17,6 +33,7 @@ module UpgradeTask {
             poolData = task.poolData;
             moduleHashBefore = module_hash;
             moduleHashAfter = task.moduleHashAfter;
+            backup = task.backup;
             turnOffAvailable = { timestamp = BlockTimestamp.blockTimestamp(); isDone = true; };
             stop = task.stop;
             upgrade = task.upgrade;
@@ -31,6 +48,7 @@ module UpgradeTask {
             poolData = task.poolData;
             moduleHashBefore = task.moduleHashBefore;
             moduleHashAfter = task.moduleHashAfter;
+            backup = task.backup;
             turnOffAvailable = task.turnOffAvailable;
             stop = { timestamp = BlockTimestamp.blockTimestamp(); isDone = true; };
             upgrade = task.upgrade;
@@ -48,6 +66,7 @@ module UpgradeTask {
             poolData = task.poolData;
             moduleHashBefore = task.moduleHashBefore;
             moduleHashAfter = task.moduleHashAfter;
+            backup = task.backup;
             turnOffAvailable = task.turnOffAvailable;
             stop = task.stop;
             upgrade = { timestamp = BlockTimestamp.blockTimestamp(); isDone = true; };
@@ -64,6 +83,7 @@ module UpgradeTask {
             poolData = task.poolData;
             moduleHashBefore = task.moduleHashBefore;
             moduleHashAfter = module_hash;
+            backup = task.backup;
             turnOffAvailable = task.turnOffAvailable;
             stop = task.stop;
             upgrade = task.upgrade;
@@ -79,6 +99,7 @@ module UpgradeTask {
             moduleHashBefore = task.moduleHashBefore;
             moduleHashAfter = task.moduleHashAfter;
             turnOffAvailable = task.turnOffAvailable;
+            backup = task.backup;
             stop = task.stop;
             upgrade = task.upgrade;
             start = task.start;

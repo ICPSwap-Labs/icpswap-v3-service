@@ -66,6 +66,27 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         };
     };
 
+    public shared ({ caller }) func batchRemovePoolsValidate(poolCids : [Principal]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        switch (await _factoryAct.getPools()) {
+            case (#ok(pools)) {
+                for (poolCid in poolCids.vals()) {
+                    var existingFlag = false;
+                    for (it in pools.vals()) {
+                        if (Principal.equal(poolCid, it.canisterId)) {
+                            existingFlag := true;
+                        };
+                    };
+                    if (not existingFlag) { return #Err(Principal.toText(poolCid) # " doesn't exist."); };
+                };
+                return #Ok(debug_show (poolCids));
+            };
+            case (#err(msg)) {
+                return #Err(debug_show (msg));
+            };
+        };
+    };
+
     // public shared ({ caller }) func removePoolWithdrawErrorLogValidate(poolCid : Principal, id : Nat, rollback : Bool) : async Result {
     //     assert (Principal.equal(caller, governanceCid));
 

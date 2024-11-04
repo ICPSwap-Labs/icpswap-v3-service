@@ -32,6 +32,7 @@ shared (initMsg) actor class SwapFactory(
     feeReceiverCid : Principal,
     passcodeManagerCid : Principal,
     trustedCanisterManagerCid : Principal,
+    backupCid : Principal,
     governanceCid : ?Principal,
 ) = this {
     private type LockState = {
@@ -53,6 +54,8 @@ shared (initMsg) actor class SwapFactory(
     private stable var _lockState : LockState = { locked = false; time = 0};
 
     // upgrade task
+    private stable var _nextPoolVersion : Text = "3.5.0";
+    private stable var _backupAct = actor (Principal.toText(backupCid)) : Types.SwapDataBackupActor;
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
     private stable var _pendingUpgradePoolList = List.nil<Types.PoolData>();
     private stable var _upgradeFailedPoolList = List.nil<Types.PoolData>();
@@ -236,6 +239,7 @@ shared (initMsg) actor class SwapFactory(
         feeReceiverCid : Principal;
         passcodeManagerCid : Principal;
         trustedCanisterManagerCid : Principal;
+        backupCid : Principal;
         governanceCid : ?Principal;
     }, Types.Error> {
         #ok({
@@ -243,6 +247,7 @@ shared (initMsg) actor class SwapFactory(
             feeReceiverCid = feeReceiverCid;
             passcodeManagerCid = passcodeManagerCid;
             trustedCanisterManagerCid = trustedCanisterManagerCid;
+            backupCid = backupCid;
             governanceCid = governanceCid;  
         });
     };
@@ -278,6 +283,10 @@ shared (initMsg) actor class SwapFactory(
         return #ok(List.toArray(_upgradeFailedPoolList));
     };
 
+    public query func getNextPoolVersion() : async Text {
+        _nextPoolVersion;
+    };
+
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
@@ -293,9 +302,37 @@ shared (initMsg) actor class SwapFactory(
         _poolDataService.removePool(poolKey);
     };
 
+    public shared (msg) func batchRemovePools(poolCids : [Principal]) : async Result.Result<(), Types.Error> {
+        _checkPermission(msg.caller);
+        // Check if all cids are SwapPools
+        for (poolCid in poolCids.vals()) {
+            var found = false;
+            label poolCheck for ((poolKey, poolData) in _poolDataService.getPools().entries()) {
+                if (Principal.equal(poolCid, poolData.canisterId)) {
+                    found := true;
+                    break poolCheck;
+                };
+            };
+            if (not found) {
+                return #err(#InternalError("Canister " # Principal.toText(poolCid) # " is not a SwapPool"));
+            };
+        };
+
+        // Remove all pools
+        for (poolCid in poolCids.vals()) {
+            label removePool for ((poolKey, poolData) in _poolDataService.getPools().entries()) {
+                if (Principal.equal(poolCid, poolData.canisterId)) {
+                    ignore _poolDataService.removePool(poolKey);
+                    break removePool;
+                };
+            };
+        };
+        #ok();
+    };
+
     public shared (msg) func setUpgradePoolList(args : Types.UpgradePoolArgs) : async Result.Result<(), Types.Error> {
         _checkPermission(msg.caller);
-        // check task map is empty
+        // check if task map is empty
         if (List.size(_pendingUpgradePoolList) > 0) { return #err(#InternalError("Please wait until the upgrade task list is empty")); };
         // set a limit on the number of upgrade tasks
         if (Array.size(args.poolIds) > 100) { return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 100")); };
@@ -454,6 +491,26 @@ shared (initMsg) actor class SwapFactory(
         true;
     };
 
+    private func _checkPoolVersion(poolId : Principal) : async Bool {
+        try {
+            let pool = actor(Principal.toText(poolId)) : actor { getVersion : shared query () -> async Text };
+            let version = await pool.getVersion();
+            let v1 = Text.split(version, #text("."));
+            let v2 = Text.split(_nextPoolVersion, #text("."));
+            let v1Iter = Iter.map<Text,Nat>(v1, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
+            let v2Iter = Iter.map<Text,Nat>(v2, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
+            let v1Arr = Iter.toArray(v1Iter);
+            let v2Arr = Iter.toArray(v2Iter);
+            if (v1Arr[0] < v2Arr[0]) { true }
+            else if (v1Arr[0] > v2Arr[0]) { false }
+            else if (v1Arr[1] < v2Arr[1]) { true }
+            else if (v1Arr[1] > v2Arr[1]) { false }
+            else { v1Arr[2] < v2Arr[2] };
+        } catch (_) {
+            false;
+        };
+    };
+
     private func _checkPermission(caller : Principal) {
         assert(_hasPermission(caller));
     };
@@ -521,6 +578,7 @@ shared (initMsg) actor class SwapFactory(
                     poolData = pd;
                     moduleHashBefore = null;
                     moduleHashAfter = null;
+                    backup = { timestamp = 0; isDone = false; isSent = false; retryCount = 0; };
                     turnOffAvailable = { timestamp = 0; isDone = false; };
                     stop = { timestamp = 0; isDone = false; };
                     upgrade = { timestamp = 0; isDone = false; };
@@ -545,8 +603,68 @@ shared (initMsg) actor class SwapFactory(
         switch (_currentUpgradeTask) {
             case (?task) {
                 try {
+                    // check if the pool version is the same as the next version
+                    let isVersionMatch = await _checkPoolVersion(task.poolData.canisterId);
+                    if (isVersionMatch) {
+                        _currentUpgradeTask := null;
+                        if (null != _setNextUpgradeTask()) { 
+                            ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); 
+                        };
+                        return;
+                    };
                     // execute step
-                    if (not task.turnOffAvailable.isDone) {
+                    if (not task.backup.isDone) {
+                        if (not task.backup.isSent) {
+                            var currentTask = await UpgradeTask.stepBackup(task, backupCid);
+                            _currentUpgradeTask := ?currentTask;
+                            ignore Timer.setTimer<system>(#seconds (30), _execUpgrade);
+                        } else {
+                            // timer to check if backup is done
+                            switch (await _backupAct.isBackupDone(task.poolData.canisterId)) {
+                                case (#ok(isDone)) {
+                                    if (isDone) {
+                                        _currentUpgradeTask := ?{
+                                            poolData = task.poolData;
+                                            moduleHashBefore = task.moduleHashBefore;
+                                            moduleHashAfter = task.moduleHashAfter;
+                                            backup = { timestamp = task.backup.timestamp; isDone = true; isSent = true; retryCount = task.backup.retryCount; };
+                                            turnOffAvailable = task.turnOffAvailable;
+                                            stop = task.stop;
+                                            upgrade = task.upgrade;
+                                            start = task.start;
+                                            turnOnAvailable = task.turnOnAvailable;
+                                        };
+                                        ignore Timer.setTimer<system>(#seconds (0), _execUpgrade);
+                                    } else {
+                                        let newRetryCount = task.backup.retryCount + 1;
+                                        if (newRetryCount > 3) {
+                                            _upgradeFailedPoolList := List.push(task.poolData, _upgradeFailedPoolList);
+                                            _currentUpgradeTask := null;
+                                            if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };
+                                        } else {
+                                            _currentUpgradeTask := ?{
+                                                poolData = task.poolData;
+                                                moduleHashBefore = task.moduleHashBefore;
+                                                moduleHashAfter = task.moduleHashAfter;
+                                                backup = { timestamp = task.backup.timestamp; isDone = false; isSent = true; retryCount = newRetryCount; };
+                                                turnOffAvailable = task.turnOffAvailable;
+                                                stop = task.stop;
+                                                upgrade = task.upgrade;
+                                                start = task.start;
+                                                turnOnAvailable = task.turnOnAvailable;
+                                            };
+                                            ignore Timer.setTimer<system>(#seconds (30), _execUpgrade);
+                                        };
+                                    };
+                                };
+                                case (#err(_)) {
+                                    _upgradeFailedPoolList := List.push(task.poolData, _upgradeFailedPoolList);
+                                    _currentUpgradeTask := null;
+                                    if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };
+                                };
+                            };
+                        };
+                    } else if (not task.turnOffAvailable.isDone) {
                         var currentTask = await UpgradeTask.stepTurnOffAvailable(task);
                         _currentUpgradeTask := ?currentTask;
                         ignore Timer.setTimer<system>(#seconds (10), _execUpgrade);
@@ -564,6 +682,7 @@ shared (initMsg) actor class SwapFactory(
                         ignore Timer.setTimer<system>(#seconds (5), _execUpgrade);
                     } else if (not task.turnOnAvailable.isDone) {
                         var currentTask = await UpgradeTask.stepTurnOnAvailable(task);
+                        ignore _backupAct.removeBackupData(task.poolData.canisterId);
                         _addTaskHis(currentTask);
                         _currentUpgradeTask := null;
                         ignore Timer.setTimer<system>(#seconds (0), _execUpgrade);
@@ -611,6 +730,7 @@ shared (initMsg) actor class SwapFactory(
             case (#addPoolControllers _)                 { _hasPermission(caller) };
             case (#removePoolControllers _)              { _hasPermission(caller) };
             case (#setPoolAdmins _)                      { _hasPermission(caller) };
+            case (#setBackupCid _)                       { _hasPermission(caller) };
             case (#setPoolAvailable _)                   { _hasPermission(caller) };
             case (#setUpgradePoolList _)                 { _hasPermission(caller) };
             case (#batchAddPoolControllers _)            { _hasPermission(caller) };
