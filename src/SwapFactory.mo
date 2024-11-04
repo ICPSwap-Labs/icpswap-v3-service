@@ -730,7 +730,6 @@ shared (initMsg) actor class SwapFactory(
             case (#addPoolControllers _)                 { _hasPermission(caller) };
             case (#removePoolControllers _)              { _hasPermission(caller) };
             case (#setPoolAdmins _)                      { _hasPermission(caller) };
-            case (#setBackupCid _)                       { _hasPermission(caller) };
             case (#setPoolAvailable _)                   { _hasPermission(caller) };
             case (#setUpgradePoolList _)                 { _hasPermission(caller) };
             case (#batchAddPoolControllers _)            { _hasPermission(caller) };
