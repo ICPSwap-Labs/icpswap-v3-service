@@ -8,6 +8,7 @@ import Types "./Types";
 
 shared (initMsg) actor class SwapDataBackup(
     factoryCid : Principal,
+    governanceCid : ?Principal,
 ) = this {
 
     // Store pool backup data
@@ -237,7 +238,7 @@ shared (initMsg) actor class SwapDataBackup(
     };
 
     private func _hasPermission(caller: Principal): Bool {
-        return Prim.isController(caller) or Principal.equal(caller, factoryCid);
+        return Prim.isController(caller) or Principal.equal(caller, factoryCid) or (switch (governanceCid) {case (?cid) { Principal.equal(caller, cid) }; case (_) { false };});
     };
 
     // --------------------------- Version Control      -------------------------------
