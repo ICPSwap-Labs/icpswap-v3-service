@@ -39,6 +39,8 @@ shared (initMsg) actor class SwapFeeReceiver(
     private var _poolMap: HashMap.HashMap<Principal, Types.ClaimedPoolData> = HashMap.HashMap<Principal, Types.ClaimedPoolData>(100, Principal.equal, Principal.hash);
     // sync flag
     private stable var _isSyncing : Bool = false;
+    // last sync time
+    private stable var _lastSyncTime : Nat = 0;
     // claim log
     private var _tokenClaimLog : Buffer.Buffer<Types.ReceiverClaimLog> = Buffer.Buffer<Types.ReceiverClaimLog>(0);
     private stable var _tokenClaimLogArray : [Types.ReceiverClaimLog] = [];
@@ -172,14 +174,14 @@ shared (initMsg) actor class SwapFeeReceiver(
         return #ok(_canisterId);
     };
 
-    public query func getSyncingStatus(): async Result.Result<{ isSyncing:Bool; progress:Text; }, Types.Error> {
+    public query func getSyncingStatus(): async Result.Result<{ isSyncing:Bool; lastSyncTime : Nat; progress:Text; }, Types.Error> {
         var count = 0;
         var total = 0;
         for ((token, swapped) in TrieSet.toArray(_tokenSet).vals()) {
             if (swapped) { count := count + 1; };
             total := total + 1;
         };
-        return #ok({ isSyncing = _isSyncing; progress = debug_show(count) # "/" # debug_show(total); });
+        return #ok({ isSyncing = _isSyncing; lastSyncTime = _lastSyncTime; progress = debug_show(count) # "/" # debug_show(total); });
     };
 
     public query func getFees(): async Result.Result<{ICPFee:Nat;ICSFee:Nat;}, Types.Error> {
@@ -534,6 +536,7 @@ shared (initMsg) actor class SwapFeeReceiver(
             // double check for releasing thread
             if(_isSyncing) { return; };
             _isSyncing := true;
+            _lastSyncTime := BlockTimestamp.blockTimestamp();
             ignore Timer.setTimer<system>(#nanoseconds (0), _autoClaim); 
         };
     };
