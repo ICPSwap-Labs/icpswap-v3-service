@@ -15,6 +15,10 @@ cat > dfx.json <<- EOF
       "main": "./src/SwapFactory.mo",
       "type": "motoko"
     },
+    "SwapDataBackup": {
+      "main": "./src/SwapDataBackup.mo",
+      "type": "motoko"
+    },
     "PasscodeManager": {
       "main": "./src/PasscodeManager.mo",
       "type": "motoko"
@@ -97,8 +101,10 @@ echo "==> install base_index"
 dfx deploy base_index --argument="(principal \"$(dfx canister id price)\", principal \"$(dfx canister id node_index)\")"
 echo "==> install node_index"
 dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx canister id price)\")"
+echo "==> install SwapDataBackup"
+dfx canister install SwapDataBackup --argument="(principal \"$(dfx canister id SwapFactory)\", null)"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", null)"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", null)"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
@@ -329,9 +335,9 @@ function test_limit_order()
     depost $token1 1667302813453000
     #tickLower tickUpper amount0Desired amount0Min amount1Desired amount1Min ### liquidity tickCurrent sqrtRatioX96
 
-    for ((batch = 0; batch < 100; batch++)); do
+    # for ((batch = 0; batch < 100; batch++)); do
       mintAndAddLimitOrder 24900 36060 100000000 92884678893 1667302813 1573153132015 36060
-    done
+    # done
 
     wait
 
@@ -343,6 +349,7 @@ function test_limit_order()
     mint -23040 0 100000000000 92884678893 1667302813453 1573153132015 529634421680 24850 274450166607934908532224538203
     
     echo "==> add lower limit order 3"
+    # dfx canister call $poolId addLimitOrder "(record { positionId = 3 :nat; tickLimit = -23040 :int; })"
     dfx canister call $poolId addLimitOrder "(record { positionId = 102 :nat; tickLimit = -23040 :int; })"
 
     withdrawAll
