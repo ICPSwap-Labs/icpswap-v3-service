@@ -162,7 +162,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
 
     public shared ({ caller }) func addPoolControllersValidate(poolCid : Principal, controllers : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
-        if (not (await _checkPool(poolCid))) {
+        if ((not (await _checkPool(poolCid))) and (not (await _checkRemovedPool(poolCid)))) {
             return #Err(Principal.toText(poolCid) # " doesn't exist.");
         };
         return #Ok(debug_show (poolCid) # ", " # debug_show (controllers));
@@ -294,6 +294,22 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
 
     private func _checkPool(poolCid : Principal) : async Bool {
         switch (await _factoryAct.getPools()) {
+            case (#ok(pools)) {
+                for (it in pools.vals()) {
+                    if (Principal.equal(poolCid, it.canisterId)) {
+                        return true;
+                    };
+                };
+                return false;
+            };
+            case (#err(_)) {
+                return false;
+            };
+        };
+    };
+
+    private func _checkRemovedPool(poolCid : Principal) : async Bool {
+        switch (await _factoryAct.getRemovedPools()) {
             case (#ok(pools)) {
                 for (it in pools.vals()) {
                     if (Principal.equal(poolCid, it.canisterId)) {
