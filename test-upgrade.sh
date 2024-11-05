@@ -117,6 +117,7 @@ ICRC2Id=`dfx canister id ICRC2`
 testId=`dfx canister id Test`
 infoId=`dfx canister id base_index`
 swapFactoryId=`dfx canister id SwapFactory`
+swapDataBackupId=`dfx canister id SwapDataBackup`
 positionIndexId=`dfx canister id PositionIndex`
 swapFeeReceiverId=`dfx canister id SwapFeeReceiver`
 zeroForOne="true"
@@ -499,5 +500,5 @@ function testUpgrade()
 
 testUpgrade
 
-dfx stop
-mv dfx.json.bak dfx.json
+# dfx stop
+# mv dfx.json.bak dfx.json

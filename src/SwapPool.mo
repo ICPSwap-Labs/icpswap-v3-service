@@ -2177,49 +2177,6 @@ shared (initMsg) actor class SwapPool(
         };
     });
 
-    public shared ({ caller }) func transferAll(recipient : Principal) : async Result.Result<{
-        token0Result: Nat; token1Result: Nat;
-    }, Types.Error> {
-        _checkControllerPermission(caller);
-        // todo check if the recipient is the target canister
-        var value0 : Nat = await _token0Act.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
-        var value1 : Nat = await _token1Act.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
-        var fee0 : Nat = await _token0Act.fee();
-        var fee1 : Nat = await _token1Act.fee();
-        try {
-            var amount0 = 0;
-            var amount1 = 0;
-            if (value0 > fee0) {
-                amount0 := Nat.sub(value0, fee0);
-                switch (await _token0Act.transfer({
-                    from = { owner = Principal.fromActor(this); subaccount = null };
-                    from_subaccount = null; to = { owner = recipient; subaccount = null }; 
-                    amount = amount0; fee = ?fee0; 
-                    memo = null; created_at_time = null; 
-                })) {
-                    case (#Ok(_)) { };
-                    case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
-                };
-            };
-            if (value1 > fee1) {
-                amount1 := Nat.sub(value1, fee1);
-                switch (await _token1Act.transfer({
-                    from = { owner = Principal.fromActor(this); subaccount = null };
-                    from_subaccount = null; to = { owner = recipient; subaccount = null }; 
-                    amount = amount1; fee = ?fee1; 
-                    memo = null; created_at_time = null; 
-                })) {
-                    case (#Ok(_)) { };
-                    case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
-                };
-            };
-            return #ok({ token0Result = amount0; token1Result = amount1; });
-        } catch (e) {        
-            let msg: Text = debug_show (Error.message(e));
-            return #err(#InternalError(msg));
-        };
-    };
-
     system func preupgrade() {
         _userPositionsEntries := Iter.toArray(_positionTickService.getUserPositions().entries());
         _positionsEntries := Iter.toArray(_positionTickService.getPositions().entries());

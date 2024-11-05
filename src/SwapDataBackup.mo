@@ -16,21 +16,23 @@ shared (initMsg) actor class SwapDataBackup(
         isDone : Bool;
         isFailed : Bool;
         errorMsg : Text;
-        metadata : ?Types.PoolMetadata;
-        allTokenBalances : ?[(Principal, { balance0 : Nat; balance1 : Nat; })];
-        positions : ?[Types.PositionInfoWithId];
-        ticks : ?[Types.TickInfoWithId]; 
-        tickBitmaps : ?[(Int, Nat)];
-        tokenAmountState : ?{
+        metadata : Types.PoolMetadata;
+        allTokenBalances : [(Principal, { balance0 : Nat; balance1 : Nat; })];
+        positions : [Types.PositionInfoWithId];
+        ticks : [Types.TickInfoWithId]; 
+        tickBitmaps : [(Int, Nat)];
+        tokenAmountState : {
             token0Amount : Nat;
             token1Amount : Nat;
             swapFee0Repurchase : Nat;
             swapFee1Repurchase : Nat;
             swapFeeReceiver : Text;
         };
-        userPositions : ?[Types.UserPositionInfoWithId];
-        userPositionIds : ?[(Text, [Nat])];
-        feeGrowthGlobal : ?{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; };
+        userPositions : [Types.UserPositionInfoWithId];
+        userPositionIds : [(Text, [Nat])];
+        feeGrowthGlobal : { feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; };
+        limitOrders : { lowerLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)]; upperLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)]; };
+        limitOrderStack : [(Types.LimitOrderKey, Types.LimitOrderValue)];
     };
 
     private stable var _poolBackupEntries : [(Principal, PoolBackupData)] = [];
@@ -56,8 +58,7 @@ shared (initMsg) actor class SwapDataBackup(
         let metadata = switch (await poolAct.metadata()) {
             case (#ok(metadata)) { metadata };
             case (#err(code)) { 
-                _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get pool metadata failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                return #err(#InternalError("Get pool metadata failed: " # debug_show (code))); 
+                return #err(_setBackupError(poolCid, "Get metadata failed: " # debug_show(code)));
             };
         };
         let allTokenBalances = switch (await poolAct.allTokenBalance(0,0)) {
@@ -65,26 +66,25 @@ shared (initMsg) actor class SwapDataBackup(
                 switch (await poolAct.allTokenBalance(0,paged.totalElements)) {
                     case (#ok(all)) { all.content; };
                     case (#err(code)) {
-                        _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get all token balance failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                        return #err(#InternalError("Get all token balance failed: " # debug_show (code))); 
+                        return #err(_setBackupError(poolCid, "Get all token balance failed: " # debug_show(code)));
                     };
                 };
             };
-            case (#err(code)) { return #err(#InternalError("Get all token balance failed: " # debug_show (code))); };
+            case (#err(code)) {
+                return #err(_setBackupError(poolCid, "Get all token balance failed: " # debug_show(code)));
+            };
         };
         let positions = switch (await poolAct.getPositions(0,0)) {
             case (#ok(paged)) {
                 switch (await poolAct.getPositions(0,paged.totalElements)) {
                     case (#ok(all)) { all.content; };
                     case (#err(code)) {
-                        _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get positions failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                        return #err(#InternalError("Get positions failed: " # debug_show (code))); 
+                        return #err(_setBackupError(poolCid, "Get positions failed: " # debug_show(code)));
                     };
                 };
             };
             case (#err(code)) {
-                _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get positions failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                return #err(#InternalError("Get positions failed: " # debug_show (code))); 
+                return #err(_setBackupError(poolCid, "Get positions failed: " # debug_show(code)));
             };
         };
         let ticks = switch (await poolAct.getTicks(0,0)) {
@@ -92,63 +92,90 @@ shared (initMsg) actor class SwapDataBackup(
                 switch (await poolAct.getTicks(0,paged.totalElements)) {
                     case (#ok(all)) { all.content; };
                     case (#err(code)) {
-                        _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get ticks failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                        return #err(#InternalError("Get ticks failed: " # debug_show (code))); 
+                        return #err(_setBackupError(poolCid, "Get ticks failed: " # debug_show(code)));
                     };
                 };
             };
             case (#err(code)) {
-                _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get ticks failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                return #err(#InternalError("Get ticks failed: " # debug_show (code))); 
-            };
-        };
-        let tickBitmaps = switch (await poolAct.getTickBitmaps()) {
-            case (#ok(data)) { data };
-            case (#err(code)) {
-                _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get tick bitmaps failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                return #err(#InternalError("Get tick bitmaps failed: " # debug_show (code))); 
+                return #err(_setBackupError(poolCid, "Get ticks failed: " # debug_show(code)));
             };
         };
         let tokenAmountState = switch (await poolAct.getTokenAmountState()) {
             case (#ok(data)) { data; };
-            case (#err(code)) { return #err(#InternalError("Get token amount state failed: " # debug_show (code))); };
+            case (#err(code)) { 
+                return #err(_setBackupError(poolCid, "Get token amount state failed: " # debug_show(code)));
+            };
         };
         let userPositions = switch (await poolAct.getUserPositions(0,0)) {
             case (#ok(paged)) {
                 switch (await poolAct.getUserPositions(0,paged.totalElements)) {
                     case (#ok(all)) { all.content; };
                     case (#err(code)) {
-                        _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get user positions failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                        return #err(#InternalError("Get user positions failed: " # debug_show (code))); 
+                        return #err(_setBackupError(poolCid, "Get user positions failed: " # debug_show(code)));
                     };
                 };
             };
             case (#err(code)) {
-                _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get user positions failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                return #err(#InternalError("Get user positions failed: " # debug_show (code))); 
+                return #err(_setBackupError(poolCid, "Get user positions failed: " # debug_show(code)));
             };
         };
         let userPositionIds = switch (await poolAct.getUserPositionIds()) {
             case (#ok(data)) { data };
-            case (#err(code)) {
-                _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get user position ids failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                return #err(#InternalError("Get user position ids failed: " # debug_show (code))); 
-            };
+            case (#err(code)) { return #err(_setBackupError(poolCid, "Get user position ids failed: " # debug_show(code))); };
         };
-        let feeGrowthGlobal = switch (await poolAct.getFeeGrowthGlobal()) {
-            case (#ok(data)) { data };
-            case (#err(code)) {
-                _poolBackupMap.put(poolCid, { isDone = false; isFailed = true; errorMsg = "Get fee growth global failed: " # debug_show (code); metadata = null; allTokenBalances = null; positions = null; ticks = null; tickBitmaps = null; tokenAmountState = null; userPositions = null; userPositionIds = null; feeGrowthGlobal = null; }); 
-                return #err(#InternalError("Get fee growth global failed: " # debug_show (code))); 
-            };
-        };
+
         // after version 3.5.0
-        // todo backup getLimitOrderAvailabilityState, getLimitOrders, getLimitOrderStack 
+        // let initArgs = switch (await poolAct.getInitArgs()) {
+        //     case (#ok(data)) { data };
+        //     case (#err(code)) { return #err(_setBackupError(poolCid, "Get init args failed: " # debug_show(code))); };
+        // };
+        // let tickBitmaps = switch (await poolAct.getTickBitmaps()) {
+        //     case (#ok(data)) { data };
+        //     case (#err(code)) { return #err(_setBackupError(poolCid, "Get tick bitmaps failed: " # debug_show(code))); };
+        // };
+        // let feeGrowthGlobal = switch (await poolAct.getFeeGrowthGlobal()) {
+        //     case (#ok(data)) { data };
+        //     case (#err(code)) { return #err(_setBackupError(poolCid, "Get fee growth global failed: " # debug_show(code))); };
+        // };
+        // let limitOrders = switch (await poolAct.getLimitOrders()) {
+        //     case (#ok(data)) { data };
+        //     case (#err(code)) {  return #err(_setBackupError(poolCid, "Get limit orders failed: " # debug_show(code))); };
+        // };
+        // let limitOrderStack = switch (await poolAct.getLimitOrderStack()) {
+        //     case (#ok(data)) { data };
+        //     case (#err(code)) { return #err(_setBackupError(poolCid, "Get limit order stack failed: " # debug_show(code))); };
+        // };
+        // _poolBackupMap.put(poolCid, {
+        //     isDone = true;
+        //     isFailed = false;
+        //     errorMsg = "";
+        //     metadata = metadata;
+        //     allTokenBalances = allTokenBalances;
+        //     positions = positions;
+        //     ticks = ticks;
+        //     tickBitmaps = tickBitmaps;
+        //     tokenAmountState = tokenAmountState;
+        //     userPositions = userPositions;
+        //     userPositionIds = userPositionIds;
+        //     feeGrowthGlobal = feeGrowthGlobal;
+        //     limitOrders = limitOrders;
+        //     limitOrderStack = limitOrderStack;
+        // });
         _poolBackupMap.put(poolCid, {
-            isDone = true; isFailed = false; errorMsg = ""; 
-            metadata = ?metadata; allTokenBalances = ?allTokenBalances; positions = ?positions; ticks = ?ticks; 
-            tickBitmaps = ?tickBitmaps; tokenAmountState = ?tokenAmountState; userPositions = ?userPositions; 
-            userPositionIds = ?userPositionIds; feeGrowthGlobal = ?feeGrowthGlobal;
+            isDone = true;
+            isFailed = false;
+            errorMsg = "";
+            metadata = metadata;
+            allTokenBalances = allTokenBalances;
+            positions = positions;
+            ticks = ticks;
+            tokenAmountState = tokenAmountState;
+            userPositions = userPositions;
+            userPositionIds = userPositionIds;
+            tickBitmaps = [];
+            feeGrowthGlobal = { feeGrowthGlobal0X128 = 0; feeGrowthGlobal1X128 = 0; };
+            limitOrders = { lowerLimitOrders = []; upperLimitOrders = []; };
+            limitOrderStack = [];
         });
         return #ok();
     };
@@ -232,6 +259,49 @@ shared (initMsg) actor class SwapDataBackup(
 
     //     return Principal.toText(Principal.fromActor(pool));
     // };
+
+    // Add this helper function near the top of the class
+    private func _setBackupError(poolCid: Principal, errorMsg: Text) : Types.Error {
+        let errorData : PoolBackupData = {
+            isDone = false;
+            isFailed = true;
+            errorMsg = errorMsg;
+            metadata = {
+                token0 = { address = ""; standard = "" };
+                token1 = { address = ""; standard = "" };
+                fee = 0;
+                tickSpacing = 0;
+                sqrtPriceX96 = 0;
+                key = "";
+                liquidity = 0;
+                maxLiquidityPerTick = 0;
+                nextPositionId = 0;
+                tick = 0;
+            };
+            allTokenBalances = [];
+            positions = [];
+            ticks = [];
+            tickBitmaps = [];
+            tokenAmountState = {
+                token0Amount = 0;
+                token1Amount = 0;
+                swapFee0Repurchase = 0;
+                swapFee1Repurchase = 0;
+                swapFeeReceiver = "";
+            };
+            userPositions = [];
+            userPositionIds = [];
+            feeGrowthGlobal = {
+                feeGrowthGlobal0X128 = 0;
+                feeGrowthGlobal1X128 = 0;
+            };
+            limitOrders = { lowerLimitOrders = []; upperLimitOrders = []; };
+            limitOrderStack = [];
+        };
+        _poolBackupMap.put(poolCid, errorData);
+        #InternalError(errorMsg);
+    };
+
 
     private func _checkPermission(caller : Principal) {
         assert(_hasPermission(caller));

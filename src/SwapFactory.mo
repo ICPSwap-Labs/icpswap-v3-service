@@ -54,6 +54,7 @@ shared (initMsg) actor class SwapFactory(
     private stable var _lockState : LockState = { locked = false; time = 0};
 
     // upgrade task
+    // make sure the version is not the same as the previous one and same as the new version of SwapPool
     private stable var _nextPoolVersion : Text = "3.5.0";
     private stable var _backupAct = actor (Principal.toText(backupCid)) : Types.SwapDataBackupActor;
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
@@ -603,18 +604,17 @@ shared (initMsg) actor class SwapFactory(
         switch (_currentUpgradeTask) {
             case (?task) {
                 try {
-                    // check if the pool version is the same as the next version
-                    let isVersionMatch = await _checkPoolVersion(task.poolData.canisterId);
-                    if (isVersionMatch) {
-                        _currentUpgradeTask := null;
-                        if (null != _setNextUpgradeTask()) { 
-                            ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); 
-                        };
-                        return;
-                    };
                     // execute step
                     if (not task.backup.isDone) {
                         if (not task.backup.isSent) {
+                            // check if the pool version is outdated
+                            let isVersionOutdated = await _checkPoolVersion(task.poolData.canisterId);
+                            if (not isVersionOutdated) {
+                                _addTaskHis(task);
+                                _currentUpgradeTask := null;
+                                if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };
+                                return;
+                            };
                             var currentTask = await UpgradeTask.stepBackup(task, backupCid);
                             _currentUpgradeTask := ?currentTask;
                             ignore Timer.setTimer<system>(#seconds (30), _execUpgrade);
@@ -638,6 +638,7 @@ shared (initMsg) actor class SwapFactory(
                                     } else {
                                         let newRetryCount = task.backup.retryCount + 1;
                                         if (newRetryCount > 3) {
+                                            _addTaskHis(task);
                                             _upgradeFailedPoolList := List.push(task.poolData, _upgradeFailedPoolList);
                                             _currentUpgradeTask := null;
                                             if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };
@@ -688,6 +689,7 @@ shared (initMsg) actor class SwapFactory(
                         ignore Timer.setTimer<system>(#seconds (0), _execUpgrade);
                     };
                 } catch (_) {
+                    _addTaskHis(task);
                     _upgradeFailedPoolList := List.push(task.poolData, _upgradeFailedPoolList);
                     _currentUpgradeTask := null;
                     if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };

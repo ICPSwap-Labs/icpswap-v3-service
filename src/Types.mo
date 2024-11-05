@@ -425,7 +425,6 @@ module {
         // --------  Controller permission required.  ---------
         #init : () -> (Nat, Int, Nat);
         #setAdmins : () -> [Principal];
-        #transferAll : () -> (Principal);
         #upgradeTokenStandard : () -> Principal;
         #resetTokenAmountState : () -> (Nat, Nat, Nat, Nat);
     };
@@ -522,6 +521,7 @@ module {
         getVersion : query () -> async Text;
         getTickBitmaps : query () -> async Result.Result<[(Int, Nat)], Error>;
         getFeeGrowthGlobal : query () -> async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Error>;
+        getInitArgs : query () -> async Result.Result<{ token0 : Token; token1 : Token; infoCid : Principal; feeReceiverCid : Principal; trustedCanisterManagerCid : Principal; }, Error>;
 
         // --- recover ---
         recoverUserPositions : shared ([UserPositionInfoWithId]) -> async ();

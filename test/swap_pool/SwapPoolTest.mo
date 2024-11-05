@@ -146,7 +146,7 @@ shared (initMsg) actor class SwapPoolTest(
         _checkAdminPermission(msg.caller);
         _isLimitOrderAvailable := available;
     };
-    public query func getLimitOrderAvailabilityState() : async Bool { _isLimitOrderAvailable; };
+    public query func getLimitOrderAvailabilityState() : async Result.Result<Bool, Types.Error> { #ok(_isLimitOrderAvailable); };
 
     private stable var _limitOrderStack : List.List<(Types.LimitOrderKey, Types.LimitOrderValue)> = List.nil<(Types.LimitOrderKey, Types.LimitOrderValue)>();
     private func _pushLimitOrderStack(limitOrder : (Types.LimitOrderKey, Types.LimitOrderValue)) : () { _limitOrderStack := ?(limitOrder, _limitOrderStack); };
@@ -195,7 +195,10 @@ shared (initMsg) actor class SwapPoolTest(
         switch (_popLimitOrderStack()) {
             case (?(key, value)) {
                 var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
-                ignore _decreaseLiquidity(value.owner, { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
+                ignore _decreaseLiquidity(
+                    value.owner, 
+                    { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; }, 
+                    { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
             };
             case (_) {};
         };
@@ -371,7 +374,7 @@ shared (initMsg) actor class SwapPoolTest(
         });
     };
 
-    private func _decreaseLiquidity(owner : Principal, args : Types.DecreaseLiquidityArgs) : Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {        
+    private func _decreaseLiquidity(owner : Principal, loArgs : Types.DecreaseLimitOrderArgs, args : Types.DecreaseLiquidityArgs) : Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {        
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         var liquidityDelta = TextUtils.toNat(args.liquidity);
         if (Nat.equal(liquidityDelta, 0)) { return #err(#InternalError("Illegal liquidity delta")); };
@@ -391,7 +394,17 @@ shared (initMsg) actor class SwapPoolTest(
         _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
         _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
-            _pushSwapInfoCache(#decreaseLiquidity, Principal.toText(Principal.fromActor(this)), Principal.toText(owner), Principal.toText(owner), liquidityDelta, collectResult.amount0, collectResult.amount1, true);
+            _pushSwapInfoCache(
+                if (not loArgs.isLimitOrder) { #decreaseLiquidity; } 
+                else { #limitOrder({ positionId = args.positionId; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }); }, 
+                Principal.toText(Principal.fromActor(this)), 
+                Principal.toText(owner), 
+                Principal.toText(owner), 
+                liquidityDelta, 
+                collectResult.amount0, 
+                collectResult.amount1, 
+                true
+            );
             ignore _tokenHolderService.deposit2(owner, _token0, collectResult.amount0, _token1, collectResult.amount1);
         };
         return #ok({
@@ -772,8 +785,8 @@ shared (initMsg) actor class SwapPoolTest(
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
         ).val();
-        var swapFee0Repurchase = 0;
-        // var swapFee0Repurchase = SafeUint.Uint128(swapFee0Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
+        // var swapFee0Repurchase = 0;
+        var swapFee0Repurchase = SafeUint.Uint128(swapFee0Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
         var swapFee0Lp = if (swapFee0Total > swapFee0Repurchase) {
             SafeUint.Uint128(swapFee0Total).sub(SafeUint.Uint128(swapFee0Repurchase)).val();
         } else { swapFee0Repurchase := 0; swapFee0Total };
@@ -784,8 +797,8 @@ shared (initMsg) actor class SwapPoolTest(
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
         ).val();
-        var swapFee1Repurchase = 0;
-        // var swapFee1Repurchase = SafeUint.Uint128(swapFee1Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
+        // var swapFee1Repurchase = 0;
+        var swapFee1Repurchase = SafeUint.Uint128(swapFee1Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
         var swapFee1Lp = if (swapFee1Total > swapFee1Repurchase) {
             SafeUint.Uint128(swapFee1Total).sub(SafeUint.Uint128(swapFee1Repurchase)).val();
         } else { swapFee1Repurchase := 0; swapFee1Total };
@@ -1275,11 +1288,17 @@ shared (initMsg) actor class SwapPoolTest(
         var tickLower = userPositionInfo.tickLower;
         var tickUpper = userPositionInfo.tickUpper;
         if (tickLimit > tickUpper or tickLimit < tickLower) { return #err(#InternalError("Invalid tickLimit.")); };
+        var tokenAmount = switch (_positionTickService.getTokenAmountByLiquidity(
+            _sqrtPriceX96, tickLower, tickUpper, userPositionInfo.liquidity
+        )) {
+            case (#ok(result)) { result };
+            case (#err(code)) { return #err(#InternalError(code)); };
+        };
         var timestamp = Int.abs(Time.now());
         if (tickCurrent < tickLower and tickLimit > tickLower) {
-            _upperLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; });
+            _upperLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
         } else if (tickCurrent > tickUpper and tickLimit < tickUpper) {
-            _lowerLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; });
+            _lowerLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
         } else {
             return #err(#InternalError("Invalid price range."));
         };
@@ -1357,7 +1376,7 @@ shared (initMsg) actor class SwapPoolTest(
             return #err(#InternalError("Check operator failed"));
         };
 
-        return _decreaseLiquidity(msg.caller, args);
+        return _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; }, args);
     };
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
@@ -1495,17 +1514,17 @@ shared (initMsg) actor class SwapPoolTest(
         };
     };
 
-    public shared (msg) func removeWithdrawErrorLog(id : Nat, rollback : Bool) : async () {
-        assert(_isAvailable(msg.caller));
-        _checkAdminPermission(msg.caller);
-        switch (_tokenAmountService.getWithdrawErrorLog().get(id)) {
-            case (?log) {
-                if (rollback) { ignore _tokenHolderService.deposit(log.user, log.token, log.amount); };
-                _tokenAmountService.getWithdrawErrorLog().delete(id);
-            };
-            case (_) {};
-        };
-    };
+    // public shared (msg) func removeWithdrawErrorLog(id : Nat, rollback : Bool) : async () {
+    //     assert(_isAvailable(msg.caller));
+    //     _checkAdminPermission(msg.caller);
+    //     switch (_tokenAmountService.getWithdrawErrorLog().get(id)) {
+    //         case (?log) {
+    //             if (rollback) { ignore _tokenHolderService.deposit(log.user, log.token, log.amount); };
+    //             _tokenAmountService.getWithdrawErrorLog().delete(id);
+    //         };
+    //         case (_) {};
+    //     };
+    // };
     public shared(msg) func removeErrorTransferLog(index: Nat, rollback: Bool) : async () {
         assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
@@ -1915,6 +1934,17 @@ shared (initMsg) actor class SwapPoolTest(
         });
     };
 
+    public query func getTickBitmaps() : async Result.Result<[(Int, Nat)], Types.Error> {
+        return #ok(Iter.toArray(_positionTickService.getTickBitmaps().entries()));
+    };
+
+    public query func getFeeGrowthGlobal() : async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Types.Error> {
+        return #ok({
+            feeGrowthGlobal0X128 = _feeGrowthGlobal0X128;
+            feeGrowthGlobal1X128 = _feeGrowthGlobal1X128;
+        });
+    };
+
     public query func getUserPositionIds() : async Result.Result<[(Text, [Nat])], Types.Error> {
         return #ok(Iter.toArray(_positionTickService.getUserPositionIds().entries()));
     };
@@ -1969,9 +1999,9 @@ shared (initMsg) actor class SwapPoolTest(
         });
     };
 
-    public query func getWithdrawErrorLog() : async Result.Result<[(Nat, Types.WithdrawErrorLog)], Types.Error> {
-        return #ok(Iter.toArray(_tokenAmountService.getWithdrawErrorLog().entries()));
-    };
+    // public query func getWithdrawErrorLog() : async Result.Result<[(Nat, Types.WithdrawErrorLog)], Types.Error> {
+    //     return #ok(Iter.toArray(_tokenAmountService.getWithdrawErrorLog().entries()));
+    // };
     public query func getTransferLogs() : async Result.Result<[Types.TransferLog], Types.Error> {
         return #ok(Iter.toArray(_transferLog.vals()));
     };
@@ -2079,7 +2109,7 @@ shared (initMsg) actor class SwapPoolTest(
             case (#removeErrorTransferLog _) { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setAvailable _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setWhiteList _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
-            case (#removeWithdrawErrorLog _) { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
+            // case (#removeWithdrawErrorLog _) { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             // Anyone
             case (_)                            { true };
         }
@@ -2146,6 +2176,49 @@ shared (initMsg) actor class SwapPoolTest(
             };
         };
     });
+
+    // public shared ({ caller }) func transferAll(recipient : Principal) : async Result.Result<{
+    //     token0Result: Nat; token1Result: Nat;
+    // }, Types.Error> {
+    //     _checkControllerPermission(caller);
+    //     // todo check if the recipient is the target canister
+    //     var value0 : Nat = await _token0Act.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
+    //     var value1 : Nat = await _token1Act.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
+    //     var fee0 : Nat = await _token0Act.fee();
+    //     var fee1 : Nat = await _token1Act.fee();
+    //     try {
+    //         var amount0 = 0;
+    //         var amount1 = 0;
+    //         if (value0 > fee0) {
+    //             amount0 := Nat.sub(value0, fee0);
+    //             switch (await _token0Act.transfer({
+    //                 from = { owner = Principal.fromActor(this); subaccount = null };
+    //                 from_subaccount = null; to = { owner = recipient; subaccount = null }; 
+    //                 amount = amount0; fee = ?fee0; 
+    //                 memo = null; created_at_time = null; 
+    //             })) {
+    //                 case (#Ok(_)) { };
+    //                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
+    //             };
+    //         };
+    //         if (value1 > fee1) {
+    //             amount1 := Nat.sub(value1, fee1);
+    //             switch (await _token1Act.transfer({
+    //                 from = { owner = Principal.fromActor(this); subaccount = null };
+    //                 from_subaccount = null; to = { owner = recipient; subaccount = null }; 
+    //                 amount = amount1; fee = ?fee1; 
+    //                 memo = null; created_at_time = null; 
+    //             })) {
+    //                 case (#Ok(_)) { };
+    //                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
+    //             };
+    //         };
+    //         return #ok({ token0Result = amount0; token1Result = amount1; });
+    //     } catch (e) {        
+    //         let msg: Text = debug_show (Error.message(e));
+    //         return #err(#InternalError(msg));
+    //     };
+    // };
 
     system func preupgrade() {
         _userPositionsEntries := Iter.toArray(_positionTickService.getUserPositions().entries());
