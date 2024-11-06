@@ -5,6 +5,7 @@ import Nat "mo:base/Nat";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
+import ICRCTypes "./ICRCTypes";
 
 module {
 
@@ -382,6 +383,7 @@ module {
         #getLimitOrderStack : () -> ();
         #getPosition : () -> GetPositionArgs;
         #getPositions : () -> (Nat, Nat);
+        #getSortedUserLimitOrders : () -> Principal;
         #getSwapRecordState : () -> ();
         #getTickBitmaps : () -> ();
         #getTickInfos : () -> (Nat, Nat);
@@ -427,6 +429,10 @@ module {
         #setAdmins : () -> [Principal];
         #upgradeTokenStandard : () -> Principal;
         #resetTokenAmountState : () -> (Nat, Nat, Nat, Nat);
+         // ------ icrc21
+        #icrc10_supported_standards : () -> ();
+        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
+        #icrc28_trusted_origins : () -> ();
     };
     public type SwapFactoryMsg = {
         #addPasscode : () -> (Principal, Passcode);
@@ -465,6 +471,10 @@ module {
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;
         #upgradePoolTokenStandard : () -> (Principal, Principal);
+         // ------ icrc21
+        #icrc10_supported_standards : () -> ();
+        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
+        #icrc28_trusted_origins : () -> ();
     };
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();

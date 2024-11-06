@@ -26,6 +26,8 @@ import PoolData "./components/PoolData";
 import UpgradeTask "./components/UpgradeTask";
 import SwapPool "./SwapPool";
 import Types "./Types";
+import ICRCTypes "./ICRCTypes";
+import ICRC21 "./components/ICRC21";
 
 shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
@@ -286,6 +288,18 @@ shared (initMsg) actor class SwapFactory(
 
     public query func getNextPoolVersion() : async Text {
         _nextPoolVersion;
+    };
+
+    public func icrc28_trusted_origins() : async ICRCTypes.Icrc28TrustedOriginsResponse {
+        return ICRC21.icrc28_trusted_origins();
+    };
+
+    public query func icrc10_supported_standards() : async [{ url : Text; name : Text }] {
+        ICRC21.icrc10_supported_standards();
+    };
+    
+    public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
+        return ICRC21.icrc21_canister_call_consent_message(request);
     };
 
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
