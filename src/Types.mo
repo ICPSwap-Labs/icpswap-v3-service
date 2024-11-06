@@ -382,6 +382,7 @@ module {
         #getLimitOrderStack : () -> ();
         #getPosition : () -> GetPositionArgs;
         #getPositions : () -> (Nat, Nat);
+        #getSortedUserLimitOrders : () -> Principal;
         #getSwapRecordState : () -> ();
         #getTickBitmaps : () -> ();
         #getTickInfos : () -> (Nat, Nat);

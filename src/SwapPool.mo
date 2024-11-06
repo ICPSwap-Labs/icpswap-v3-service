@@ -1,5 +1,6 @@
 import Nat "mo:base/Nat";
 import Int "mo:base/Int";
+import Array "mo:base/Array";
 import Iter "mo:base/Iter";
 import List "mo:base/List";
 import Buffer "mo:base/Buffer";
@@ -237,6 +238,29 @@ shared (initMsg) actor class SwapPool(
             lowerLimitOrderIds = Buffer.toArray(lowerLimitOrderIds);
             upperLimitOrdersIds = Buffer.toArray(upperLimitOrderIds);
         });
+    };
+
+    public query func getSortedUserLimitOrders(user : Principal) : async Result.Result<[{ timestamp:Nat; userPositionId:Nat; }], Types.Error> {
+        let userPositionIds = _positionTickService.getUserPositionIdsByOwner(PrincipalUtils.toAddress(user));
+        var allLimitOrders : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }>(0);
+        for (userPositionId in userPositionIds.vals()) {
+            label ut for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+                if (Nat.equal(userPositionId, value.userPositionId)) {
+                    allLimitOrders.add({ timestamp=key.timestamp; userPositionId=userPositionId; });
+                    break ut;
+                };
+            };
+            label lt for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
+                if (Nat.equal(userPositionId, value.userPositionId)) {
+                    allLimitOrders.add({ timestamp=key.timestamp; userPositionId=userPositionId; });
+                    break lt;
+                };
+            };
+        };
+        let sortedOrders = Array.sort<{ timestamp:Nat; userPositionId:Nat; }>(
+            Buffer.toArray(allLimitOrders), func(a, b) { Nat.compare(b.timestamp, a.timestamp) }
+        );
+        return #ok(sortedOrders);
     };
 
     private stable var _transferLogArray : [(Nat, Types.TransferLog)] = [];
