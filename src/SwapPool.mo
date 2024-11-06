@@ -32,6 +32,8 @@ import TickBitmap "./libraries/TickBitmap";
 import FullMath "./libraries/FullMath";
 import SwapMath "./libraries/SwapMath";
 import FixedPoint128 "./libraries/FixedPoint128";
+import ICRCTypes "./ICRCTypes";
+import ICRC21 "./components/ICRC21";
 import SafeUint "mo:commons/math/SafeUint";
 import SafeInt "mo:commons/math/SafeInt";
 import IntUtils "mo:commons/math/SafeInt/IntUtils";
@@ -2188,6 +2190,16 @@ shared (initMsg) actor class SwapPool(
         } else {
             return #err(#InternalError("Insufficient balance: " # Nat.toText(balance)));
         };
+    };
+
+    public func icrc28_trusted_origins() : async ICRCTypes.Icrc28TrustedOriginsResponse {
+        return ICRC21.icrc28_trusted_origins();
+    };
+    public query func icrc10_supported_standards() : async [{ url : Text; name : Text }] {
+        ICRC21.icrc10_supported_standards();
+    };
+    public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
+        return ICRC21.icrc21_canister_call_consent_message(request);
     };
 
     // jobs...
