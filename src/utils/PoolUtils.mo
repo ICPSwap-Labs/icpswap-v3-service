@@ -2,7 +2,6 @@ import Text "mo:base/Text";
 import Nat "mo:base/Nat";
 import Blob "mo:base/Blob";
 import Nat8 "mo:base/Nat8";
-import Nat64 "mo:base/Nat64";
 import Array "mo:base/Array";
 import Types "../Types";
 

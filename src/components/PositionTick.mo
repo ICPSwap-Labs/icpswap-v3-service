@@ -1,15 +1,12 @@
 import Nat "mo:base/Nat";
-import Debug "mo:base/Debug";
 import Int "mo:base/Int";
 import Text "mo:base/Text";
 import Hash "mo:base/Hash";
 import List "mo:base/List";
-import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import HashMap "mo:base/HashMap";
 import SafeUint "mo:commons/math/SafeUint";
 import SafeInt "mo:commons/math/SafeInt";
-import IntUtils "mo:commons/math/SafeInt/IntUtils";
 import ListUtils "mo:commons/utils/ListUtils";
 import Types "../Types";
 import Tick "../libraries/Tick";
@@ -17,6 +14,7 @@ import TickBitmap "../libraries/TickBitmap";
 import FullMath "../libraries/FullMath";
 import TickMath "../libraries/TickMath";
 import LiquidityMath "../libraries/LiquidityMath";
+import LiquidityAmounts "../libraries/LiquidityAmounts";
 import SqrtPriceMath "../libraries/SqrtPriceMath";
 import BlockTimestamp "../libraries/BlockTimestamp";
 import FixedPoint128 "../libraries/FixedPoint128";
@@ -228,6 +226,29 @@ module PositionTick {
             };
         };
 
+        public func getTokenAmountByLiquidity(
+            sqrtPriceX96: Nat,
+            tickLower: Int,
+            tickUpper: Int,
+            liquidity: Nat,
+        ) : Result.Result<{ amount0: Nat; amount1: Nat }, Text> {
+            var sqrtRatioAX96 = switch (TickMath.getSqrtRatioAtTick(SafeInt.Int24(tickLower))) {
+                case (#ok(r)) { r; };
+                case (#err(code)) { return #err("TickMath getSqrtRatio A AtTick " # debug_show (code)); };
+            };
+            var sqrtRatioBX96 = switch (TickMath.getSqrtRatioAtTick(SafeInt.Int24(tickUpper))) {
+                case (#ok(r)) { r; };
+                case (#err(code)) { return #err("TickMath getSqrtRatio B AtTick " # debug_show (code)); };
+            };
+            var result = LiquidityAmounts.getAmountsForLiquidity(
+                SafeUint.Uint160(sqrtPriceX96),
+                SafeUint.Uint160(sqrtRatioAX96),
+                SafeUint.Uint160(sqrtRatioBX96),
+                SafeUint.Uint128(liquidity),
+            );
+            return #ok({ amount0 = result.amount0; amount1 = result.amount1 });
+        };
+
         public func resetPositionsAndTicks(
             _userPositionsEntriesBak: [(Nat, Types.UserPositionInfo)],
             _positionsEntriesBak: [(Text, Types.PositionInfo)],
@@ -257,7 +278,8 @@ module PositionTick {
             if (not _checkTicks(tickLower, tickUpper)) {
                 return #err("illegal ticks");
             };
-            var position = switch (_updatePosition(
+            // var position = 
+            switch (_updatePosition(
                 SafeInt.Int24(tickLower),
                 SafeInt.Int24(tickUpper),
                 SafeInt.Int128(liquidityDelta),
@@ -267,14 +289,14 @@ module PositionTick {
                 SafeUint.Uint128(maxLiquidityPerTick),
                 SafeInt.Int24(tickSpacing),
             )) {
-                case (#ok(result)) { result; };
+                case (#ok(_)) {  };
                 case (#err(code)) { return #err(code); };
             };
             var sqrtRatioAtTickLower = switch (TickMath.getSqrtRatioAtTick(SafeInt.Int24(tickLower))) {
-                case (#ok(r)) { r; }; case (#err(code)) { return #err("modify TickMath.getSqrtRatioAtTick Lower failed: " # debug_show(code)); };
+                case (#ok(r)) { r; }; case (#err(_code)) { return #err("modify TickMath.getSqrtRatioAtTick Lower failed: " # debug_show(_code)); };
             };
             var sqrtRatioAtTickUpper = switch (TickMath.getSqrtRatioAtTick(SafeInt.Int24(tickUpper))) {
-                 case (#ok(r)) { r; }; case (#err(code)) { return #err("modify TickMath.getSqrtRatioAtTick Upper failed: " # debug_show(code)); };
+                 case (#ok(r)) { r; }; case (#err(_code)) { return #err("modify TickMath.getSqrtRatioAtTick Upper failed: " # debug_show(_code)); };
             };
             var amount0:Int = 0;
             var amount1:Int = 0;

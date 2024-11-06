@@ -15,6 +15,10 @@ cat > dfx.json <<- EOF
       "main": "./src/SwapFactory.mo",
       "type": "motoko"
     },
+    "SwapDataBackup": {
+      "main": "./src/SwapDataBackup.mo",
+      "type": "motoko"
+    },
     "PasscodeManager": {
       "main": "./src/PasscodeManager.mo",
       "type": "motoko"
@@ -86,7 +90,7 @@ dfx canister install DIP20A --argument="(\"DIPA Logo\", \"DIPA\", \"DIPA\", 8, $
 dfx canister install DIP20B --argument="(\"DIPB Logo\", \"DIPB\", \"DIPB\", 8, $TOTAL_SUPPLY, principal \"$MINTER_PRINCIPAL\", $TRANS_FEE)"
 
 echo "==> install SwapFeeReceiver"
-dfx canister install SwapFeeReceiver
+dfx canister install SwapFeeReceiver --argument="(principal \"$(dfx canister id SwapFactory)\", record {address=\"$(dfx canister id ICRC2)\"; standard=\"ICRC2\"}, record {address=\"$(dfx canister id ICRC2)\"; standard=\"ICRC2\"}, principal \"$MINTER_PRINCIPAL\")"
 echo "==> install TrustedCanisterManager"
 dfx canister install TrustedCanisterManager --argument="(null)"
 echo "==> install Test"
@@ -97,17 +101,23 @@ echo "==> install base_index"
 dfx deploy base_index --argument="(principal \"$(dfx canister id price)\", principal \"$(dfx canister id node_index)\")"
 echo "==> install node_index"
 dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx canister id price)\")"
+echo "==> install SwapDataBackup"
+dfx canister install SwapDataBackup --argument="(principal \"$(dfx canister id SwapFactory)\", null)"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", null)"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", null)"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
 
+dfx canister deposit-cycles 50698725619460 SwapFactory
+
 dipAId=`dfx canister id DIP20A`
 dipBId=`dfx canister id DIP20B`
+ICRC2Id=`dfx canister id ICRC2`
 testId=`dfx canister id Test`
 infoId=`dfx canister id base_index`
 swapFactoryId=`dfx canister id SwapFactory`
+swapDataBackupId=`dfx canister id SwapDataBackup`
 positionIndexId=`dfx canister id PositionIndex`
 swapFeeReceiverId=`dfx canister id SwapFeeReceiver`
 zeroForOne="true"
@@ -172,6 +182,21 @@ function create_pool() #sqrtPriceX96
     echo $balance
 }
 
+# create pool
+function create_pool_2() #sqrtPriceX96
+{
+    dfx canister call ICRC2 icrc2_approve "(record{amount=1000000000000;created_at_time=null;expected_allowance=null;expires_at=null;fee=null;from_subaccount=null;memo=null;spender=record {owner= principal \"$(dfx canister id PasscodeManager)\";subaccount=null;}})"
+    dfx canister call PasscodeManager depositFrom "(record {amount=100000000;fee=0;})"
+    dfx canister call PasscodeManager requestPasscode "(principal \"$dipBId\", principal \"$ICRC2Id\", 3000)"
+    
+    result=`dfx canister call SwapFactory createPool "(record {token0 = record {address = \"$dipBId\"; standard = \"DIP20\";}; token1 = record {address = \"$ICRC2Id\"; standard = \"ICRC2\";}; fee = 3000; sqrtPriceX96 = \"$1\"})"`
+    if [[ ! "$result" =~ " ok = record " ]]; then
+        echo "\033[31mcreate pool fail. $result - \033[0m"
+    fi
+    echo "create_pool_2 result: $result"
+    poolId2=`echo $result | awk -F"canisterId = principal \"" '{print $2}' | awk -F"\";" '{print $1}'`
+}
+
 function depost() # token tokenAmount
 {   
     echo "=== pool deposit  ==="
@@ -223,21 +248,19 @@ function decrease() #positionId liquidity amount0Min amount1Min ### liquidity ti
     result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
     echo "unused balance result: $result"
 
-    withdrawAmount0=${result#*=}
-    withdrawAmount0=${withdrawAmount0#*=}
-    withdrawAmount0=${withdrawAmount0%:*}
-    withdrawAmount0=${withdrawAmount0//" "/""}
+    withdrawAmount0=$(echo "$result" | sed -n 's/.*balance0 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
+    withdrawAmount1=$(echo "$result" | sed -n 's/.*balance1 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
     echo "withdraw amount0: $withdrawAmount0"
-
-    withdrawAmount1=${result##*=}
-    withdrawAmount1=${withdrawAmount1%:*}
-    withdrawAmount1=${withdrawAmount1//" "/""}
     echo "withdraw amount1: $withdrawAmount1"
 
-    result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat; })"`
-    echo "$token0 withdraw result: $result"
-    result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat; })"`
-    echo "$token1 withdraw result: $result"
+    if [ "$withdrawAmount0" -ne 0 ]; then
+      result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
+      echo "token0 withdraw result: $result"
+    fi
+    if [ "$withdrawAmount1" -ne 0 ]; then
+      result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
+      echo "token1 withdraw result: $result"
+    fi
 
     info=`dfx canister call $poolId metadata`
     info=${info//"_"/""}
@@ -270,15 +293,9 @@ function swap() #depostToken depostAmount amountIn amountOutMinimum ### liquidit
     result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
     echo "unused balance result: $result"
 
-    withdrawAmount0=${result#*=}
-    withdrawAmount0=${withdrawAmount0#*=}
-    withdrawAmount0=${withdrawAmount0%:*}
-    withdrawAmount0=${withdrawAmount0//" "/""}
+    withdrawAmount0=$(echo "$result" | sed -n 's/.*balance0 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
+    withdrawAmount1=$(echo "$result" | sed -n 's/.*balance1 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
     echo "withdraw amount0: $withdrawAmount0"
-
-    withdrawAmount1=${result##*=}
-    withdrawAmount1=${withdrawAmount1%:*}
-    withdrawAmount1=${withdrawAmount1//" "/""}
     echo "withdraw amount1: $withdrawAmount1"
 
     result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
@@ -324,132 +341,8 @@ function income() #positionId tickLower tickUpper
     result=`dfx canister call $poolId getPosition "(record {tickLower = $2: int; tickUpper = $3: int})"`
 }
 
-#----------------- test rollback ------------------------
-allBalanceBefore=""
-allBalanceAfter=""
-positionsBefore=""
-positionsAfter=""
-ticksBefore=""
-ticksAfter=""
-userPositionsBefore=""
-userPositionsAfter=""
-metadataBefore=""
-metadataAfter=""
-tokenStateBefore=""
-tokenStateAfter=""
-recordBefore=""
-recordAfter=""
-function checkRollback() 
+function stepsBeforeUpgrade() 
 {
-    if [ "$positionsBefore" = "$positionsAfter" ]; then
-      echo "\033[32m positions are same. \033[0m"
-    else
-      echo "\033[31m positions are not same. \033[0m"
-    fi
-
-    if [ "$ticksBefore" = "$ticksAfter" ]; then
-      echo "\033[32m ticks are same. \033[0m"
-    else
-      echo "\033[31m ticks are not same. \033[0m"
-    fi
-
-    if [ "$userPositionsBefore" = "$userPositionsAfter" ]; then
-      echo "\033[32m user positions are same. \033[0m"
-    else
-      echo "\033[31m user positions are not same. \033[0m"
-    fi
-
-    if [ "$allBalanceBefore" = "$allBalanceAfter" ]; then
-      echo "\033[32m user balance are same. \033[0m"
-    else
-      echo "\033[31m user balance are not same. \033[0m"
-    fi
-
-    if [ "$tokenStateBefore" = "$tokenStateAfter" ]; then
-      echo "\033[32m token state are same. \033[0m"
-    else
-      echo "\033[31m token state are not same. \033[0m"
-    fi
-
-    if [ "$recordBefore" = "$recordAfter" ]; then
-      echo "\033[32m record are same. \033[0m"
-    else
-      echo "\033[31m record are not same. \033[0m"
-    fi
-
-    echo $metadataBefore
-    echo $metadataAfter
-}
-function recordBefore() 
-{
-    allBalanceBefore=`dfx canister call $poolId allTokenBalance "(0: nat, 100: nat)"`
-    positionsBefore=`dfx canister call $poolId getPositions "(0: nat, 100: nat)"`
-    ticksBefore=`dfx canister call $poolId getTicks "(0: nat, 100: nat)"`
-    userPositionsBefore=`dfx canister call $poolId getUserPositions "(0: nat, 100: nat)"`
-    metadataBefore=`dfx canister call $poolId metadata`
-    tokenStateBefore=`dfx canister call $poolId getTokenAmountState`
-    recordBefore=`dfx canister call $poolId getSwapRecordState`
-}
-function recordAfter() 
-{
-    allBalanceAfter=`dfx canister call $poolId allTokenBalance "(0: nat, 100: nat)"`
-    positionsAfter=`dfx canister call $poolId getPositions "(0: nat, 100: nat)"`
-    ticksAfter=`dfx canister call $poolId getTicks "(0: nat, 100: nat)"`
-    userPositionsAfter=`dfx canister call $poolId getUserPositions "(0: nat, 100: nat)"`
-    metadataAfter=`dfx canister call $poolId metadata`
-    tokenStateAfter=`dfx canister call $poolId getTokenAmountState`
-    recordAfter=`dfx canister call $poolId getSwapRecordState`
-}
-#----------------- test rollback ------------------------
-
-#----------------- test withdraw mistransfer balance ------------------------
-function withdraw_mistransfer()
-{
-
-    dfx canister call TrustedCanisterManager addCanister "(principal \"$(dfx canister id ICRC2)\")"
-    result=`dfx canister call TrustedCanisterManager getCanisters`
-    echo "getCanisters: $result"
-
-    dfx canister call ICRC2 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = 100000000:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"
-
-    result=`dfx canister call $poolId withdrawMistransferBalance "(record {address = \"$(dfx canister id ICRC2)\"; standard = \"ICRC1\";})"`
-    echo "withdrawMistransferBalance: $result"
-
-    dfx canister call TrustedCanisterManager deleteCanister "(principal \"$(dfx canister id ICRC2)\")"
-    result=`dfx canister call TrustedCanisterManager getCanisters`
-    echo "getCanisters: $result"
-
-    result=`dfx canister call SwapFactory getInitArgs`
-    echo "SwapFactory getInitArgs: $result"
-}
-#----------------- test withdraw mistransfer balance ------------------------
-
-#----------------- test factory passcode crud ------------------------
-function test_factory_passcode()
-{
-    result=`dfx canister call SwapFactory addPasscode "(principal \"$(dfx identity get-principal)\", record { token0 = principal \"$token0\"; token1 = principal \"$token1\"; fee = 3000; })"`
-    echo "SwapFactory addPasscode: $result"
-
-    result=`dfx canister call SwapFactory getPrincipalPasscodes`
-    echo "SwapFactory getPrincipalPasscodes: $result"
-    
-    result=`dfx canister call SwapFactory deletePasscode "(principal \"$(dfx identity get-principal)\", record { token0 = principal \"$token0\"; token1 = principal \"$token1\"; fee = 3000; })"`
-    echo "SwapFactory deletePasscode: $result"
-}
-#----------------- test factory passcode crud ------------------------
-
-function testMintSwap()
-{   
-    echo
-    echo test mint process
-    echo
-    #sqrtPriceX96
-    create_pool 274450166607934908532224538203
-
-    # withdraw_mistransfer
-
-    # test_factory_passcode
-
     echo
     echo "==> step 1 mint"
     depost $token0 100000000000
@@ -498,7 +391,10 @@ function testMintSwap()
     echo "==> step 9 swap"
     #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
     swap $token0 200203100000000 200203100000000 576342038450924726 12913790762040195 72181 2925487520681317622364346051650 999690534299999993 645608597573140321
+}
 
+function stepsAfterUpgrade() 
+{
     echo "==> step 10 decrease"
     #positionId liquidity amount0Min amount1Min ###  liquidity tickCurrent sqrtRatioX96
     decrease 3 12907855504098158 292494852582912 329709405464581002 5935257942037 72181 2925487520681317622364346051650
@@ -578,10 +474,31 @@ function testMintSwap()
     echo "==> step 25 swap"
     #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
     swap $token1 3435320000 3435320000 91635 1250435266521266 104339 14604295697617397560526319750504 999999996889295605 944931843856954887
+}
 
+function testUpgrade()
+{   
+    echo
+    echo test upgrade process
+    echo
+    #sqrtPriceX96
+    create_pool 274450166607934908532224538203
+    create_pool_2 274450166607934908532224538203
+
+    # stepsBeforeUpgrade
+    
+    echo "==> step upgrade"
+    dfx canister call $poolId getVersion
+    # test getUpgradeFailedPoolList
+    # dfx canister stop $poolId2
+    dfx canister call SwapFactory setUpgradePoolList "(record { poolIds=vec{principal \"$poolId\"; principal \"$poolId2\"} })"
+    sleep 80
+    dfx canister call $poolId getVersion
+
+    # stepsAfterUpgrade
 };
 
-testMintSwap
+testUpgrade
 
-dfx stop
-mv dfx.json.bak dfx.json
+# dfx stop
+# mv dfx.json.bak dfx.json

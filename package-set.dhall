@@ -19,12 +19,22 @@ let
       ,{ dependencies = [ "base" ]
       , name = "commons"
       , repo = "git@github.com:ICPSwap-Labs/ic-commons-v2.git"
-      , version = "v0.0.5"
+      , version = "v0.0.8"
       }
       ,{ dependencies = [] : List Text
       , name = "token-adapter"
       , repo = "git@github.com:ICPSwap-Labs/icpswap-token-adapter.git"
-      , version = "v1.0.6"
+      , version = "v1.0.9"
+      }
+      ,{ dependencies = [ "base" ]
+      , name = "xtended-numbers"
+      , repo = "https://github.com/edjCase/motoko_numbers"
+      , version = "v1.1.0"
+      }
+      ,{ dependencies = [ "base", "xtended-numbers" ]
+      , name = "candid"
+      , repo = "https://github.com/edjCase/motoko_candid"
+      , version = "v1.0.2"
       }
     ]
 let

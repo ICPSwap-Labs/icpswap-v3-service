@@ -1,4 +1,6 @@
 import Principal "mo:base/Principal";
+import Buffer "mo:base/Buffer";
+import Array "mo:base/Array";
 import Nat "mo:base/Nat";
 import HashMap "mo:base/HashMap";
 import Result "mo:base/Result";
@@ -14,9 +16,9 @@ import PoolUtils "./utils/PoolUtils";
 import Types "./Types";
 
 actor class PasscodeManager(
-    tokenCid: Principal, 
-    passcodePrice: Nat, 
-    factoryCid: Principal,
+    tokenCid : Principal,
+    passcodePrice : Nat,
+    factoryCid : Principal,
     governanceCid : Principal,
 ) = this {
 
@@ -25,44 +27,52 @@ actor class PasscodeManager(
         #Err : Text;
     };
     public type DepositArgs = {
-        amount: Nat;
-        fee: Nat;
+        amount : Nat;
+        fee : Nat;
     };
     public type WithdrawArgs = {
         fee : Nat;
         amount : Nat;
     };
-    public type TransferLog = {
-        index: Nat;
-        owner: Principal;
-        from: Principal;
-        fromSubaccount: ?Blob;
-        to: Principal;
-        action: Text;  // deposit, withdraw
-        amount: Nat;
-        fee: Nat;
-        result: Text;  // processing, success, error
-        errorMsg: Text;
-        daysFrom19700101: Nat;
-        timestamp: Nat;
-    };
     public type TokenFrozen = {
-        amount: Nat;
-        timestamp: Time.Time;
-        passcode: {token0: Principal; token1: Principal; fee: Nat;}
+        amount : Nat;
+        timestamp : Time.Time;
+        passcode : { token0 : Principal; token1 : Principal; fee : Nat };
     };
     public type Wallet = {
-        balance: Nat;
-        frozens: [TokenFrozen];
+        balance : Nat;
+        frozens : [TokenFrozen];
+    };
+    public type LogEntry = {
+        timestamp : Int;
+        caller : Principal;
+        message : Text;
+        amount : ?Nat; // Optional amount field
     };
     private let TOKEN : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(Principal.toText(tokenCid), "ICRC2");
-    private let FACTORY = actor(Principal.toText(factoryCid)):  Types.SwapFactoryActor;
+    private let FACTORY = actor (Principal.toText(factoryCid)) : Types.SwapFactoryActor;
     private stable var _walletArray : [(Principal, Nat)] = [];
-    private var _wallet: HashMap.HashMap<Principal, Nat> = HashMap.fromIter(_walletArray.vals(), _walletArray.size(), Principal.equal, Principal.hash);
-    private stable var _transferIndex: Nat = 0;
-    
-    private func _walletDeposit(principal: Principal, amount: Nat) {
-        switch(_wallet.get(principal)) {
+    private var _wallet : HashMap.HashMap<Principal, Nat> = HashMap.fromIter(_walletArray.vals(), _walletArray.size(), Principal.equal, Principal.hash);
+    private stable var _transferIndex : Nat = 0;
+
+    // Logging related code
+    private let MAX_LOGS = 1000;
+    private stable var _logsArray : [LogEntry] = [];
+    private var _logs : Buffer.Buffer<LogEntry> = Buffer.Buffer<LogEntry>(0);
+    private func _addLog(caller : Principal, message : Text, amount : ?Nat) {
+        if (_logs.size() >= MAX_LOGS) {
+            ignore _logs.remove(0); // Remove oldest log
+        };
+        _logs.add({
+            timestamp = Time.now();
+            caller = caller;
+            message = message;
+            amount = amount;
+        });
+    };
+
+    private func _walletDeposit(principal : Principal, amount : Nat) {
+        switch (_wallet.get(principal)) {
             case (?bal) {
                 _wallet.put(principal, Nat.add(bal, amount));
             };
@@ -72,8 +82,8 @@ actor class PasscodeManager(
         };
     };
 
-    private func _walletWithdraw(principal: Principal, amount: Nat) : Bool {
-        switch(_wallet.get(principal)) {
+    private func _walletWithdraw(principal : Principal, amount : Nat) : Bool {
+        switch (_wallet.get(principal)) {
             case (?bal) {
                 if (Nat.greaterOrEqual(bal, amount)) {
                     let balance = Nat.sub(bal, amount);
@@ -93,12 +103,12 @@ actor class PasscodeManager(
         };
     };
 
-    private func _walletBalanceOf(principal: Principal): Nat {
-        switch(_wallet.get(principal)) {
+    private func _walletBalanceOf(principal : Principal) : Nat {
+        switch (_wallet.get(principal)) {
             case (?bal) {
                 return bal;
             };
-            case (_) { return 0; };
+            case (_) { return 0 };
         };
     };
 
@@ -114,15 +124,8 @@ actor class PasscodeManager(
         var amount : Nat = Nat.sub(args.amount, args.fee);
         _transferIndex := _transferIndex + 1;
         try {
-            switch (await TOKEN.transfer({ 
-                from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; 
-                to = { owner = canisterId; subaccount = null }; 
-                amount = amount; 
-                fee = ?args.fee; 
-                memo = Option.make(PoolUtils.natToBlob(_transferIndex)); 
-                created_at_time = null 
-            })) {
-                case (#Ok(index)) {
+            switch (await TOKEN.transfer({ from = { owner = canisterId; subaccount = subaccount }; from_subaccount = subaccount; to = { owner = canisterId; subaccount = null }; amount = amount; fee = ?args.fee; memo = Option.make(PoolUtils.natToBlob(_transferIndex)); created_at_time = null })) {
+                case (#Ok(_)) {
                     _walletDeposit(caller, amount);
                     return #ok(amount);
                 };
@@ -130,8 +133,8 @@ actor class PasscodeManager(
                     return #err(#InternalError(debug_show (msg)));
                 };
             };
-        } catch (e) {        
-            let msg: Text = debug_show (Error.message(e));
+        } catch (e) {
+            let msg : Text = debug_show (Error.message(e));
             return #err(#InternalError(msg));
         };
     };
@@ -144,15 +147,8 @@ actor class PasscodeManager(
         };
         _transferIndex := _transferIndex + 1;
         try {
-            switch (await TOKEN.transferFrom({ 
-                from = { owner = caller; subaccount = null }; 
-                to = { owner = canisterId; subaccount = null }; 
-                amount = args.amount; 
-                fee = ?args.fee; 
-                memo = Option.make(PoolUtils.natToBlob(_transferIndex)); 
-                created_at_time = null 
-            })) {
-                case (#Ok(index)) {
+            switch (await TOKEN.transferFrom({ from = { owner = caller; subaccount = null }; to = { owner = canisterId; subaccount = null }; amount = args.amount; fee = ?args.fee; memo = Option.make(PoolUtils.natToBlob(_transferIndex)); created_at_time = null })) {
+                case (#Ok(_)) {
                     _walletDeposit(caller, args.amount);
                     return #ok(args.amount);
                 };
@@ -161,7 +157,7 @@ actor class PasscodeManager(
                 };
             };
         } catch (e) {
-            let msg: Text = debug_show (Error.message(e));
+            let msg : Text = debug_show (Error.message(e));
             return #err(#InternalError(msg));
         };
     };
@@ -182,24 +178,17 @@ actor class PasscodeManager(
         var amount : Nat = Nat.sub(args.amount, args.fee);
         if (_walletWithdraw(caller, args.amount)) {
             _transferIndex := _transferIndex + 1;
-            try{
-                switch (await TOKEN.transfer({ 
-                    from = { owner = canisterId; subaccount = null }; from_subaccount = null; 
-                    to = { owner = caller; subaccount = null }; 
-                    amount = amount; 
-                    fee = ?args.fee; 
-                    memo = Option.make(PoolUtils.natToBlob(_transferIndex));  
-                    created_at_time = null 
-                })) {
-                    case (#Ok(index)) {
+            try {
+                switch (await TOKEN.transfer({ from = { owner = canisterId; subaccount = null }; from_subaccount = null; to = { owner = caller; subaccount = null }; amount = amount; fee = ?args.fee; memo = Option.make(PoolUtils.natToBlob(_transferIndex)); created_at_time = null })) {
+                    case (#Ok(_)) {
                         return #ok(amount);
                     };
                     case (#Err(msg)) {
                         return #err(#InternalError(debug_show (msg)));
                     };
                 };
-            } catch (e) {        
-                let msg: Text = debug_show (Error.message(e));
+            } catch (e) {
+                let msg : Text = debug_show (Error.message(e));
                 return #err(#InternalError(msg));
             };
         } else {
@@ -207,44 +196,59 @@ actor class PasscodeManager(
         };
     };
 
-    public shared({caller}) func requestPasscode(token0: Principal, token1: Principal, fee: Nat) : async Result.Result<Text, Types.Error> {
+    public shared ({ caller }) func requestPasscode(token0 : Principal, token1 : Principal, fee : Nat) : async Result.Result<Text, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (_walletWithdraw(caller, passcodePrice)) {
             let (sortedToken0, sortedToken1) = if (Principal.toText(token0) > Principal.toText(token1)) {
-                (token1, token0)
-            } else {
-                (token0, token1)
-            };
-            switch(await FACTORY.addPasscode(caller, {
-                token0 = sortedToken0;
-                token1 = sortedToken1;
-                fee = fee;
-            })) {
-                case(#ok()) {
-                    return #ok("ok");
+                (token1, token0);
+            } else { (token0, token1) };
+            try {
+                switch (
+                    await FACTORY.addPasscode(
+                        caller,
+                        {
+                            token0 = sortedToken0;
+                            token1 = sortedToken1;
+                            fee = fee;
+                        },
+                    )
+                ) {
+                    case (#ok()) { return #ok("ok") };
+                    case (#err(msg)) {
+                        _walletDeposit(caller, passcodePrice);
+                        return #err(#InternalError(debug_show (msg)));
+                    };
                 };
-                case(#err(msg)) {
-                    _walletDeposit(caller, passcodePrice);
-                    return #err(#InternalError(debug_show (msg)));
-                };
+            } catch (e) {
+                _addLog(
+                    caller,
+                    "FACTORY.addPasscode error: " # Error.message(e),
+                    ?passcodePrice,
+                );
+                return #err(#InternalError(debug_show (Error.message(e))));
             };
         } else {
             return #err(#InsufficientFunds);
         };
     };
 
-    public shared({caller}) func destoryPasscode(token0: Principal, token1: Principal, fee: Nat) : async Result.Result<Text, Types.Error> {
+    public shared ({ caller }) func destoryPasscode(token0 : Principal, token1 : Principal, fee : Nat) : async Result.Result<Text, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
-        switch(await FACTORY.deletePasscode(caller, {
-            token0 = token0;
-            token1 = token1;
-            fee = fee;
-        })) {
-            case(#ok()) {
+        switch (
+            await FACTORY.deletePasscode(
+                caller,
+                {
+                    token0 = token0;
+                    token1 = token1;
+                    fee = fee;
+                },
+            )
+        ) {
+            case (#ok()) {
                 _walletDeposit(caller, passcodePrice);
                 return #ok("ok");
             };
-            case(#err(msg)) {
+            case (#err(msg)) {
                 return #err(#InternalError(debug_show (msg)));
             };
         };
@@ -286,42 +290,46 @@ actor class PasscodeManager(
             return #err(#InternalError("The transfer amount needs to be less than balance."));
         };
         var amount : Nat = Nat.sub(value, fee);
-        try{
-            switch (await TOKEN.transfer({ 
-                from = { owner = Principal.fromActor(this); subaccount = null }; 
-                from_subaccount = null; 
-                to = { owner = recipient; subaccount = null }; 
-                amount = amount; 
-                fee = ?fee; 
-                memo = null; 
-                created_at_time = null 
-            })) {
-                case (#Ok(index)) { return #ok(amount) };
-                case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
+        try {
+            switch (await TOKEN.transfer({ from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; to = { owner = recipient; subaccount = null }; amount = amount; fee = ?fee; memo = null; created_at_time = null })) {
+                case (#Ok(_)) { return #ok(amount) };
+                case (#Err(msg)) {
+                    return #err(#InternalError(debug_show (msg)));
+                };
             };
             return #ok(amount);
-        } catch (e) {   
-            let msg: Text = debug_show (Error.message(e));
+        } catch (e) {
+            let msg : Text = debug_show (Error.message(e));
+            _addLog(
+                caller,
+                "TOKEN.transfer error: " # Error.message(e),
+                ?amount,
+            );
             return #err(#InternalError(msg));
         };
     };
 
-    public shared (msg) func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
+    public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
             available = Cycles.available();
         });
     };
 
-    public func balanceOf(principal: Principal): async Nat {
+    public query func balanceOf(principal : Principal) : async Nat {
         return _walletBalanceOf(principal);
     };
 
-    public func balances(): async [(Principal, Nat)] {
-        return Iter.toArray(_wallet.entries())
+    public query func balances() : async [(Principal, Nat)] {
+        return Iter.toArray(_wallet.entries());
     };
 
-    public func metadata(): async {tokenCid: Principal; factoryCid: Principal; passcodePrice: Nat; governanceCid: Principal;} {
+    public query func metadata() : async {
+        tokenCid : Principal;
+        factoryCid : Principal;
+        passcodePrice : Nat;
+        governanceCid : Principal;
+    } {
         return {
             tokenCid = tokenCid;
             factoryCid = factoryCid;
@@ -330,15 +338,29 @@ actor class PasscodeManager(
         };
     };
 
+    public query func getLogs(count : ?Nat) : async [LogEntry] {
+        let logs = Buffer.toArray(_logs);
+        switch (count) {
+            case (null) { logs };
+            case (?n) {
+                let size = logs.size();
+                let start = if (size > n) { size - n } else { 0 };
+                Array.tabulate(size - start, func(i : Nat) : LogEntry = logs[start + i]);
+            };
+        };
+    };
+
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.4.0";
-    public query (msg) func getVersion() : async Text { _version };
+    private var _version : Text = "3.5.0";
+    public query func getVersion() : async Text { _version };
 
     system func preupgrade() {
         _walletArray := Iter.toArray(_wallet.entries());
+        _logsArray := Buffer.toArray(_logs);
     };
 
     system func postupgrade() {
         _walletArray := [];
+        _logsArray := [];
     };
-}
+};
