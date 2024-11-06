@@ -352,6 +352,7 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func clearRemovedPool(canisterId : Principal) : async Text {
         _checkPermission(msg.caller);
+        await _addPoolControllers(canisterId, [feeReceiverCid]);
         _poolDataService.deletePool(Principal.toText(canisterId));
     };
 
