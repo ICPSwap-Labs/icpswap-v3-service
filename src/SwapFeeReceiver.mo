@@ -51,6 +51,33 @@ shared (initMsg) actor class SwapFeeReceiver(
     private var _tokenBurnLog : Buffer.Buffer<Types.ReceiverBurnLog> = Buffer.Buffer<Types.ReceiverBurnLog>(0);
     private stable var _tokenBurnLogArray : [Types.ReceiverBurnLog] = [];
 
+    private stable var _locked : Bool = false;
+    private func _acquireLock() : Bool {
+        if (_locked) { return false; };
+        _locked := true;
+        true;
+    };
+    private func _releaseLock() { _locked := false; };
+
+    // Track active timers
+    private var _activeTimers : Buffer.Buffer<Timer.TimerId> = Buffer.Buffer(0);
+    private func _scheduleRetry(delay: Nat, operation: () -> async ()) : async () {
+        let timerId = Timer.setTimer<system>(#seconds(delay), func() : async () {
+            try {
+                await operation();
+            } catch (e) {
+            // Log error but don't reschedule to avoid infinite retry loops
+                Debug.print("Retry operation failed: " # Error.message(e));
+            };
+        });
+        _activeTimers.add(timerId);
+    };
+    // Clean up function remains the same
+    private func _cleanupTimers() {
+        for (timerId in _activeTimers.vals()) { Timer.cancelTimer(timerId); };
+        _activeTimers.clear();
+    };
+
     private var _factoryAct = actor (Principal.toText(factoryCid)) : Types.SwapFactoryActor;
 
     public shared ({ caller }) func claim(pool : Principal, token : Types.Token, amount : Nat) : async Result.Result<Nat, Types.Error> {
@@ -129,13 +156,6 @@ shared (initMsg) actor class SwapFeeReceiver(
         ignore _autoSyncPools();
     };
 
-    public shared ({ caller }) func claimPool(poolId: Principal, canisterId: Principal) : async Result.Result<Bool, Types.Error> {
-        _checkPermission(caller);
-        switch (_poolMap.get(poolId)) {
-            case(?data){ return #ok(await _claim(poolId, canisterId, data)); }; case(_) { return #err(#InternalError("No such pool data")); };
-        };
-    };
-
     public shared ({ caller }) func swapToICP(token : Types.Token) : async Result.Result<Bool, Types.Error> {
         _checkPermission(caller);
         return #ok(await _swapToICP(token));
@@ -152,15 +172,7 @@ shared (initMsg) actor class SwapFeeReceiver(
         return #ok(await _burnICS());
     };
 
-    public shared ({ caller }) func getTokenBalance(token : Types.Token) : async Result.Result<Nat, Types.Error> {
-        _checkPermission(caller);
-        var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return #err(#InternalError("Uninitialized _canisterId.")); }; };
-        var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
-        return #ok(await tokenAct.balanceOf({ owner = canisterId; subaccount = null; }));
-    };
-
-    public shared ({ caller }) func getBalances() : async Result.Result<{ ICP:Nat; ICS:Nat; }, Types.Error> {
-        _checkPermission(caller);
+    public shared func getBaseBalances() : async Result.Result<{ ICP:Nat; ICS:Nat; }, Types.Error> {
         var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return #err(#InternalError("Uninitialized _canisterId.")); }; };
         var ICPAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
         var ICSAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICS.address, ICS.standard);
@@ -292,103 +304,156 @@ shared (initMsg) actor class SwapFeeReceiver(
         balance : Nat,
         fee : Nat
     ) : async () {
-        var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
-        var poolId = poolData.canisterId;
-        var poolAct = actor (Principal.toText(poolId)) : Types.SwapPoolActor;
-        var transferedAmount = balance - fee;
-        switch (await tokenAct.transfer({
-            from = { owner = canisterId; subaccount = null }; from_subaccount = null; 
-            to = { owner = poolData.canisterId; subaccount = Option.make(AccountUtils.principalToBlob(canisterId)) }; 
-            amount = transferedAmount; fee = ?fee; 
-            memo = Option.make(Text.encodeUtf8("_ICRC1SwapToICP")); 
-            created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
-        })) {
-            case (#Ok(_)) {
-                _addTokenSwapLog(token, transferedAmount, 0, "", "transfer", ?poolId);
-                switch (await poolAct.deposit({ token = token.address; amount = transferedAmount - fee; fee = fee; })) {
-                    case (#ok(depositedAmount)) {
-                        _addTokenSwapLog(token, depositedAmount, 0, "", "deposit", ?poolId);
-                        switch (await poolAct.swap({
-                            zeroForOne = if (Functions.tokenEqual(ICP, poolData.token0)) { false } else { true };
-                            amountIn = debug_show(depositedAmount);
-                            amountOutMinimum = "0";
-                        })) {
-                            case (#ok(swappedAmount)) {
-                                _addTokenSwapLog(token, depositedAmount, swappedAmount, "", "swap", ?poolId);
-                                if (swappedAmount <= _ICPFee) {
-                                    _addTokenSwapLog(ICP, 0, 0, "Skip: swappedAmount less than _ICPFee", "withdraw", ?poolId);
-                                };
-                                switch (await poolAct.withdraw({ token = ICP.address; fee = _ICPFee; amount = swappedAmount; })) {
-                                    case (#ok(withdrawedAmount)) {
-                                        _addTokenSwapLog(ICP, 0, withdrawedAmount, "", "withdraw", ?poolId);
+        // Check and acquire lock
+        assert(_acquireLock());
+        try {
+            var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
+            var poolId = poolData.canisterId;
+            var poolAct = actor (Principal.toText(poolId)) : Types.SwapPoolActor;
+            // Calculate amounts before external calls
+            var transferedAmount = balance - fee;
+            // First external call - transfer
+            switch (await tokenAct.transfer({
+                from = { owner = canisterId; subaccount = null }; 
+                from_subaccount = null; 
+                to = { owner = poolData.canisterId; subaccount = Option.make(AccountUtils.principalToBlob(canisterId)) }; 
+                amount = transferedAmount; 
+                fee = ?fee; 
+                memo = Option.make(Text.encodeUtf8("_ICRC1SwapToICP")); 
+                created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
+            })) {
+                case (#Ok(_)) {
+                    _addTokenSwapLog(token, transferedAmount, 0, "", "transfer", ?poolId);
+                    // Second external call - deposit
+                    switch (await poolAct.deposit({ token = token.address; amount = transferedAmount - fee; fee = fee; })) {
+                        case (#ok(depositedAmount)) {
+                            _addTokenSwapLog(token, depositedAmount, 0, "", "deposit", ?poolId);
+                            // Third external call - swap
+                            switch (await poolAct.swap({
+                                zeroForOne = if (Functions.tokenEqual(ICP, poolData.token0)) { false } else { true };
+                                amountIn = debug_show(depositedAmount);
+                                amountOutMinimum = "0";
+                            })) {
+                                case (#ok(swappedAmount)) {
+                                    _addTokenSwapLog(token, depositedAmount, swappedAmount, "", "swap", ?poolId);
+                                    // Check if swapped amount is worth withdrawing
+                                    if (swappedAmount <= _ICPFee) {
+                                        _addTokenSwapLog(ICP, 0, 0, "Skip: swappedAmount less than _ICPFee", "withdraw", ?poolId);
+                                        _releaseLock();
+                                        return;
                                     };
-                                    case (#err(msg)) {
-                                        _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "withdraw", ?poolId);
+                                    // Final external call - withdraw
+                                    switch (await poolAct.withdraw({ token = ICP.address; fee = _ICPFee; amount = swappedAmount; })) {
+                                        case (#ok(withdrawedAmount)) { _addTokenSwapLog(ICP, 0, withdrawedAmount, "", "withdraw", ?poolId); };
+                                        case (#err(msg)) { _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "withdraw", ?poolId); };
                                     };
                                 };
+                                case (#err(msg)) { _addTokenSwapLog(token, depositedAmount, 0, debug_show(msg), "swap", ?poolId); };
                             };
-                            case (#err(msg)) {_addTokenSwapLog(token, depositedAmount, 0, debug_show(msg), "swap", ?poolId);};
                         };
+                        case (#err(msg)) { _addTokenSwapLog(token, transferedAmount, 0, debug_show(msg), "deposit", ?poolId); };
                     };
-                    case (#err(msg)) { _addTokenSwapLog(token, transferedAmount, 0, debug_show(msg), "deposit", ?poolId); };
+                };
+                case (#Err(msg)) { 
+                    _addTokenSwapLog(token, 0, 0, debug_show(msg), "transfer", ?poolId); 
                 };
             };
-            case (#Err(msg)) { _addTokenSwapLog(token, 0, 0, debug_show(msg), "transfer", ?poolId); };
+        } catch (e) {
+            // Log any unexpected errors
+            _addTokenSwapLog(token, 0, 0, "_ICRC1SwapToICP failed: " # debug_show(Error.message(e)), "ICRC1SwapToICP", ?poolData.canisterId );
+        } finally {
+            // Always release the lock, even if an error occurred
+            _releaseLock();
         };
     };
 
     private func _commonSwap(
         poolData : Types.PoolData,
-        tokenIn : Types.Token, 
+        tokenIn : Types.Token,
         balance : Nat,
-        tokenInFee : Nat,
-        tokenOut : Types.Token, 
+        tokenInFee : Nat, 
+        tokenOut : Types.Token,
         tokenOutFee : Nat,
     ) : async () {
-        var tokenInAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(tokenIn.address, tokenIn.standard);
-        var poolId = poolData.canisterId;
-        var poolAct = actor (Principal.toText(poolId)) : Types.SwapPoolActor;
-        var approvedAmount = balance - tokenInFee;
-        switch (await tokenInAct.approve({
-            from_subaccount = null; 
-            spender = poolData.canisterId; 
-            amount = approvedAmount; 
-            fee = ?tokenInFee; memo = null; created_at_time = null;
-        })) {
-            case (#Ok(_)) {
-                _addTokenSwapLog(tokenIn, approvedAmount, 0, "", "approve", ?poolId);
-                var depositAmount = approvedAmount - tokenInFee * 3;
-                switch (await poolAct.depositFrom({ token = tokenIn.address; amount = depositAmount; fee = tokenInFee })) {
-                    case (#ok(depositedAmount)) {
-                        _addTokenSwapLog(tokenIn, depositedAmount, 0, "", "depositFrom", ?poolId);
-                        switch (await poolAct.swap({
-                            zeroForOne = if (Functions.tokenEqual(tokenOut, poolData.token0)) { false } else { true };
-                            amountIn = debug_show(depositedAmount);
-                            amountOutMinimum = "0";
-                        })) {
-                            case (#ok(swappedAmount)) {
-                                _addTokenSwapLog(tokenIn, depositedAmount, swappedAmount, "", "swap", ?poolId);
-                                if (Functions.tokenEqual(tokenOut, ICP) and swappedAmount <= _ICPFee) {
-                                    _addTokenSwapLog(tokenOut, 0, 0, "Skip: swappedAmount less than _ICPFee", "withdraw", ?poolId);
-                                };
-                                switch (await poolAct.withdraw({ token = tokenOut.address; fee = tokenOutFee; amount = swappedAmount; })) {
-                                    case (#ok(withdrawedAmount)) { _addTokenSwapLog(tokenOut, 0, withdrawedAmount, "", "withdraw", ?poolId); };
-                                    case (#err(msg)) { _addTokenSwapLog(tokenOut, 0, 0, debug_show(msg), "withdraw", ?poolId); };
-                                };
-                            };
-                            case (#err(msg)) {_addTokenSwapLog(tokenIn, depositedAmount, 0, debug_show(msg), "swap", ?poolId);};
-                        };
-                    };
-                    case (#err(msg)) {_addTokenSwapLog(tokenIn, approvedAmount, 0, debug_show(msg), "depositFrom", ?poolId);};
-                };
+        // Check and acquire lock
+        assert(_acquireLock());
+        try {
+            // Safety checks for calculations
+            if (balance <= tokenInFee) {
+                _addTokenSwapLog(tokenIn, 0, 0, "Insufficient balance for fee", "validation", ?poolData.canisterId);
+                return;
             };
-            case (#Err(msg)) {_addTokenSwapLog(tokenIn, 0, 0, debug_show(msg), "approve", ?poolId);};
+            if (balance <= (tokenInFee * 4)) {  // Need at least 4x fee for the operations
+                _addTokenSwapLog(tokenIn, 0, 0, "Insufficient balance for operations", "validation", ?poolData.canisterId);
+                return;
+            };
+            // Calculate amounts before any external calls
+            var approvedAmount = balance - tokenInFee;
+            var depositAmount = approvedAmount - tokenInFee * 3;
+            var tokenInAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(tokenIn.address, tokenIn.standard);
+            var poolId = poolData.canisterId;
+            var poolAct = actor (Principal.toText(poolId)) : Types.SwapPoolActor;
+            // First external call - approve
+            switch (await tokenInAct.approve({
+                from_subaccount = null; 
+                spender = poolData.canisterId; 
+                amount = approvedAmount; 
+                fee = ?tokenInFee; 
+                memo = null; 
+                created_at_time = null;
+            })) {
+                case (#Ok(_)) {
+                    _addTokenSwapLog(tokenIn, approvedAmount, 0, "", "approve", ?poolId);
+                    // Second external call - depositFrom
+                    switch (await poolAct.depositFrom({ token = tokenIn.address; amount = depositAmount; fee = tokenInFee; })) {
+                        case (#ok(depositedAmount)) {
+                            _addTokenSwapLog(tokenIn, depositedAmount, 0, "", "depositFrom", ?poolId);
+                            // Third external call - swap
+                            switch (await poolAct.swap({
+                                zeroForOne = if (Functions.tokenEqual(tokenOut, poolData.token0)) { false } else { true };
+                                amountIn = debug_show(depositedAmount);
+                                amountOutMinimum = "0";
+                            })) {
+                                case (#ok(swappedAmount)) {
+                                    _addTokenSwapLog(tokenIn, depositedAmount, swappedAmount, "", "swap", ?poolId);
+                                    // Check minimum amount for tokenOut if it's ICP
+                                    if (Functions.tokenEqual(tokenOut, ICP) and swappedAmount <= _ICPFee) {
+                                        _addTokenSwapLog(tokenOut, 0, 0, "Skip: swappedAmount less than _ICPFee", "withdraw", ?poolId);
+                                        _releaseLock();
+                                        return;
+                                    };
+                                    // Final external call - withdraw
+                                    switch (await poolAct.withdraw({ token = tokenOut.address; fee = tokenOutFee; amount = swappedAmount; })) {
+                                        case (#ok(withdrawedAmount)) { _addTokenSwapLog(tokenOut, 0, withdrawedAmount, "", "withdraw", ?poolId);  };
+                                        case (#err(msg)) { _addTokenSwapLog(tokenOut, 0, 0, debug_show(msg), "withdraw", ?poolId); };
+                                    };
+                                };
+                                case (#err(msg)) { _addTokenSwapLog(tokenIn, depositedAmount, 0, debug_show(msg), "swap", ?poolId); };
+                            };
+                        };
+                        case (#err(msg)) { _addTokenSwapLog(tokenIn, approvedAmount, 0, debug_show(msg), "depositFrom", ?poolId); };
+                    };
+                };
+                case (#Err(msg)) { _addTokenSwapLog(tokenIn, 0, 0, debug_show(msg), "approve", ?poolId); };
+            };
+        } catch (e) {
+            // Log any unexpected errors
+            _addTokenSwapLog(tokenIn, 0, 0, "_commonSwap failed: " # debug_show(Error.message(e)), "commonSwap", ?poolData.canisterId);
+        } finally {
+            // Always release the lock, even if an error occurred
+            _releaseLock();
         };
     };
 
     private func _swapICPToICS() : async () {
         try {
-            var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return; }; };
+            var canisterId = switch (_canisterId) { 
+                case(?p){ p };
+                case(_) {
+                    _addTokenSwapLog( ICP, 0, 0, "_swapICPToICS failed: Uninitialized canisterId", "swapICPToICS", null);
+                    return;
+                }; 
+            };
             var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
             var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
             if (balance <= (_ICPFee * 10)) { return; };
@@ -404,14 +469,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 };
             };
         } catch (e) {
-            _addTokenSwapLog(
-                ICP,
-                0,
-                0,
-                "_swapICPToICS failed: " # debug_show (Error.message(e)),
-                "swapICPToICS",
-                null
-            );
+            _addTokenSwapLog(ICP, 0, 0, "_swapICPToICS failed: " # debug_show (Error.message(e)), "swapICPToICS", null);
             // Retry after 1 hour
             ignore Timer.setTimer<system>(#seconds(3600), _swapICPToICS);
         };
@@ -605,8 +663,8 @@ shared (initMsg) actor class SwapFeeReceiver(
                 step = "autoSync";
                 poolId = null;
             });
-            // Retry after 1 hour
-            ignore Timer.setTimer<system>(#seconds(3600), _autoSyncPools);
+            // Use _scheduleRetry instead of direct Timer.setTimer
+            await _scheduleRetry(3600, _autoSyncPools);
         };
     };
 
@@ -621,6 +679,7 @@ shared (initMsg) actor class SwapFeeReceiver(
         _tokenClaimLogArray := Buffer.toArray(_tokenClaimLog);
         _tokenSwapLogArray := Buffer.toArray(_tokenSwapLog);
         _tokenBurnLogArray := Buffer.toArray(_tokenBurnLog);
+        _cleanupTimers();
     };
 
     system func postupgrade() {
@@ -631,6 +690,7 @@ shared (initMsg) actor class SwapFeeReceiver(
         _tokenClaimLogArray := [];
         _tokenSwapLogArray := [];
         _tokenBurnLogArray := [];
+        _locked := false;
     };
 
     system func inspect({
@@ -642,7 +702,6 @@ shared (initMsg) actor class SwapFeeReceiver(
             // Controller
             case (#burnICS _)            { Prim.isController(caller) };
             case (#claim _)              { Prim.isController(caller) };
-            case (#claimPool _)          { Prim.isController(caller) };
             case (#setFees _)            { Prim.isController(caller) };
             case (#setCanisterId _)      { Prim.isController(caller) };
             case (#startAutoSyncPools _) { Prim.isController(caller) };
