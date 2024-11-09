@@ -258,18 +258,31 @@ shared (initMsg) actor class SwapFeeReceiver(
     };
 
     private func _burnICS() : async () {
-        var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
-        var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICS.address, ICS.standard);
-        var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
-        switch (await tokenAct.transfer({
-            from = { owner = canisterId; subaccount = null }; from_subaccount = null; 
-            to = { owner = governanceCid; subaccount = null }; amount = balance; fee = null; 
-            memo = Option.make(Text.encodeUtf8("_burnICS")); 
-            created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
-        })) {
-            case (#Ok(amount)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = amount; errMsg = ""; }); };
-            case (#Err(msg)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = 0; errMsg = debug_show(msg); }); };
-        };       
+        try {
+            var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
+            var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICS.address, ICS.standard);
+            var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
+            switch (await tokenAct.transfer({
+                from = { owner = canisterId; subaccount = null }; 
+                from_subaccount = null; 
+                to = { owner = governanceCid; subaccount = null }; 
+                amount = balance; 
+                fee = null; 
+                memo = Option.make(Text.encodeUtf8("_burnICS")); 
+                created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
+            })) {
+                case (#Ok(amount)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = amount; errMsg = ""; }); };
+                case (#Err(msg)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = 0; errMsg = debug_show(msg); }); };
+            };       
+        } catch (e) {
+            _tokenBurnLog.add({ 
+                timestamp = BlockTimestamp.blockTimestamp(); 
+                amount = 0; 
+                errMsg = "_burnICS failed: " # debug_show (Error.message(e));
+            });
+            // Retry after 1 hour
+            ignore Timer.setTimer<system>(#seconds(3600), _burnICS);
+        };
     };
 
     private func _ICRC1SwapToICP(
@@ -336,7 +349,6 @@ shared (initMsg) actor class SwapFeeReceiver(
         var poolId = poolData.canisterId;
         var poolAct = actor (Principal.toText(poolId)) : Types.SwapPoolActor;
         var approvedAmount = balance - tokenInFee;
-        // todo log this
         switch (await tokenInAct.approve({
             from_subaccount = null; 
             spender = poolData.canisterId; 
@@ -375,15 +387,34 @@ shared (initMsg) actor class SwapFeeReceiver(
     };
 
     private func _swapICPToICS() : async () {
-        var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return; }; };
-        var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
-        var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
-        if (balance <= (_ICPFee * 10)) { return; };
-        switch (await _factoryAct.getPool({ token0 = ICP; token1 = ICS; fee = 3000; })) {
-            case (#ok(poolData)) { await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee); return; };
-            case (#err(msg)) { _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null); return; };
+        try {
+            var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return; }; };
+            var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
+            var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
+            if (balance <= (_ICPFee * 10)) { return; };
+            switch (await _factoryAct.getPool({ token0 = ICP; token1 = ICS; fee = 3000; })) {
+                case (#ok(poolData)) { 
+                    await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee); 
+                    ignore Timer.setTimer<system>(#nanoseconds (1), _burnICS);
+                    return; 
+                };
+                case (#err(msg)) { 
+                    _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null); 
+                    return; 
+                };
+            };
+        } catch (e) {
+            _addTokenSwapLog(
+                ICP,
+                0,
+                0,
+                "_swapICPToICS failed: " # debug_show (Error.message(e)),
+                "swapICPToICS",
+                null
+            );
+            // Retry after 1 hour
+            ignore Timer.setTimer<system>(#seconds(3600), _swapICPToICS);
         };
-        ignore Timer.setTimer<system>(#nanoseconds (1), _burnICS);
     };
 
     private func _swapToICP(tokenIn : Types.Token) : async Bool {
@@ -490,56 +521,92 @@ shared (initMsg) actor class SwapFeeReceiver(
     };
 
     private func _autoSwap() : async () {
-        // swap token to ICP
-        for ((token, swapped) in TrieSet.toArray(_tokenSet).vals()) {
-            if((not swapped) and (not Text.equal(token.address, ICP.address)) and (not Text.equal(token.address, ICS.address))) {
-                _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (token, true), Functions.tokenHash(token), _tokenSetEqual);
-                try {
-                    let _ = await _swapToICP(token);
-                } catch (e) {
-                    _addTokenSwapLog(token, 0, 0, "Call _swapToICP failed: " # debug_show (Error.message(e)), "_swapToICP", null);
+        try {
+            for ((token, swapped) in TrieSet.toArray(_tokenSet).vals()) {
+                if((not swapped) and (not Text.equal(token.address, ICP.address)) and (not Text.equal(token.address, ICS.address))) {
+                    _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (token, true), Functions.tokenHash(token), _tokenSetEqual);
+                    try {
+                        let _ = await _swapToICP(token);
+                    } catch (e) {
+                        _addTokenSwapLog(token, 0, 0, "Call _swapToICP failed: " # debug_show (Error.message(e)), "_swapToICP", null);
+                    };
+                    ignore Timer.setTimer<system>(#nanoseconds (1), _autoSwap);
+                    return;
                 };
-                ignore Timer.setTimer<system>(#nanoseconds (1), _autoSwap);
-                return;
             };
+            _isSyncing := false;
+            ignore Timer.setTimer<system>(#nanoseconds (1), _swapICPToICS);
+        } catch (e) {
+            _addTokenSwapLog(
+                { address = ""; standard = ""; },
+                0,
+                0,
+                "_autoSwap failed: " # debug_show (Error.message(e)),
+                "autoSwap",
+                null
+            );
+            // Retry after 1 hour
+            ignore Timer.setTimer<system>(#seconds(3600), _autoSwap);
         };
-        // swapping all finished means synchronization ends
-         _isSyncing := false;
-        ignore Timer.setTimer<system>(#nanoseconds (1), _swapICPToICS);
     };
 
     private func _autoClaim() : async () {
-        var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
-        for ((cid, data) in _poolMap.entries()) {
-            if (not data.claimed) {
-                _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
-                try {
-                    let _ = await _claim(cid, canisterId, data);
-                } catch (e) {
-                    _tokenClaimLog.add({
-                        timestamp = BlockTimestamp.blockTimestamp();
-                        amount = 0;
-                        poolId = cid;
-                        token = { address = ""; standard = ""; };
-                        errMsg = "Call _claim failed: " # debug_show (Error.message(e));
-                    });
+        try {
+            var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
+            for ((cid, data) in _poolMap.entries()) {
+                if (not data.claimed) {
+                    _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
+                    try {
+                        let _ = await _claim(cid, canisterId, data);
+                    } catch (e) {
+                        _tokenClaimLog.add({
+                            timestamp = BlockTimestamp.blockTimestamp();
+                            amount = 0;
+                            poolId = cid;
+                            token = { address = ""; standard = ""; };
+                            errMsg = "Call _claim failed: " # debug_show (Error.message(e));
+                        });
+                    };
+                    ignore Timer.setTimer<system>(#nanoseconds (1), _autoClaim);
+                    return;
                 };
-                ignore Timer.setTimer<system>(#nanoseconds (1), _autoClaim);
-                return;
-                // break l;
             };
+            ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+        } catch (e) {
+            _tokenClaimLog.add({
+                timestamp = BlockTimestamp.blockTimestamp();
+                amount = 0;
+                poolId = Principal.fromText("aaaaa-aa");  // default principal
+                token = { address = ""; standard = ""; };
+                errMsg = "_autoClaim failed: " # debug_show (Error.message(e));
+            });
+            // Retry after 1 hour
+            ignore Timer.setTimer<system>(#seconds(3600), _autoClaim);
         };
-        ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
     };
 
     private func _autoSyncPools() : async () {
-        if (_isSyncing) { return; };
-        if (await _syncPools()) {
-            // double check for releasing thread
-            if(_isSyncing) { return; };
-            _isSyncing := true;
-            _lastSyncTime := BlockTimestamp.blockTimestamp();
-            ignore Timer.setTimer<system>(#nanoseconds (0), _autoClaim); 
+        try {
+            if (_isSyncing) { return; };
+            if (await _syncPools()) {
+                if(_isSyncing) { return; };
+                _isSyncing := true;
+                _lastSyncTime := BlockTimestamp.blockTimestamp();
+                ignore Timer.setTimer<system>(#nanoseconds (0), _autoClaim); 
+            };
+        } catch (e) {
+            // Log error and retry after delay
+            _tokenSwapLog.add({
+                timestamp = BlockTimestamp.blockTimestamp();
+                token = { address = ""; standard = ""; };
+                amountIn = 0;
+                amountOut = 0;
+                errMsg = "_autoSyncPools failed: " # debug_show(Error.message(e));
+                step = "autoSync";
+                poolId = null;
+            });
+            // Retry after 1 hour
+            ignore Timer.setTimer<system>(#seconds(3600), _autoSyncPools);
         };
     };
 
