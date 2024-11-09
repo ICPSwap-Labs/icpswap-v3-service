@@ -237,15 +237,16 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query func getSortedUserLimitOrders(user : Principal) : async Result.Result<[{ timestamp:Nat; userPositionId:Nat; token0Amount:Nat; token1Amount:Nat; }], Types.Error> {
-        var allLimitOrders : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0Amount:Nat; token1Amount:Nat; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0Amount:Nat; token1Amount:Nat; }>(0);
+    public query func getSortedUserLimitOrders(user : Principal) : async Result.Result<[{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }], Types.Error> {
+        var allLimitOrders : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }>(0);
         for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
             if (Principal.equal(user, value.owner)) {
                 allLimitOrders.add({ 
                     timestamp=key.timestamp; 
                     userPositionId=value.userPositionId;
-                    token0Amount=value.token0InAmount;
-                    token1Amount=value.token1InAmount;
+                    token0InAmount=value.token0InAmount;
+                    token1InAmount=value.token1InAmount;
+                    tickLimit=key.tickLimit;
                 });
             };
         };
@@ -254,12 +255,13 @@ shared (initMsg) actor class SwapPool(
                 allLimitOrders.add({ 
                     timestamp=key.timestamp; 
                     userPositionId=value.userPositionId;
-                    token0Amount=value.token0InAmount;
-                    token1Amount=value.token1InAmount;
+                    token0InAmount=value.token0InAmount;
+                    token1InAmount=value.token1InAmount;
+                    tickLimit=key.tickLimit;
                 });
             };
         };
-        let sortedOrders = Array.sort<{ timestamp:Nat; userPositionId:Nat; token0Amount:Nat; token1Amount:Nat; }>(
+        let sortedOrders = Array.sort<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }>(
             Buffer.toArray(allLimitOrders), func(a, b) { Nat.compare(b.timestamp, a.timestamp) }
         );
         return #ok(sortedOrders);
