@@ -174,14 +174,14 @@ shared (initMsg) actor class SwapFeeReceiver(
         return #ok(_canisterId);
     };
 
-    public query func getSyncingStatus(): async Result.Result<{ isSyncing:Bool; lastSyncTime : Nat; progress:Text; }, Types.Error> {
+    public query func getSyncingStatus(): async Result.Result<{ isSyncing:Bool; lastSyncTime : Nat; swapProgress:Text; }, Types.Error> {
         var count = 0;
         var total = 0;
         for ((token, swapped) in TrieSet.toArray(_tokenSet).vals()) {
             if (swapped) { count := count + 1; };
             total := total + 1;
         };
-        return #ok({ isSyncing = _isSyncing; lastSyncTime = _lastSyncTime; progress = debug_show(count) # "/" # debug_show(total); });
+        return #ok({ isSyncing = _isSyncing; lastSyncTime = _lastSyncTime; swapProgress = debug_show(count) # "/" # debug_show(total); });
     };
 
     public query func getFees(): async Result.Result<{ICPFee:Nat;ICSFee:Nat;}, Types.Error> {
@@ -374,15 +374,16 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    private func _swapICPToICS() : async Bool {
-        var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return false; }; };
+    private func _swapICPToICS() : async () {
+        var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return; }; };
         var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
         var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
-        if (balance <= (_ICPFee * 10)) { return false; };
+        if (balance <= (_ICPFee * 10)) { return; };
         switch (await _factoryAct.getPool({ token0 = ICP; token1 = ICS; fee = 3000; })) {
-            case (#ok(poolData)) { await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee); return true; };
-            case (#err(msg)) { _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null); return false; };
+            case (#ok(poolData)) { await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee); return; };
+            case (#err(msg)) { _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null); return; };
         };
+        ignore Timer.setTimer<system>(#nanoseconds (1), _burnICS);
     };
 
     private func _swapToICP(tokenIn : Types.Token) : async Bool {
@@ -504,6 +505,7 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
         // swapping all finished means synchronization ends
          _isSyncing := false;
+        ignore Timer.setTimer<system>(#nanoseconds (1), _swapICPToICS);
     };
 
     private func _autoClaim() : async () {
@@ -541,8 +543,8 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    // auto claim every 10 days
-    ignore Timer.recurringTimer<system>(#seconds(864000), _autoSyncPools);
+    // auto claim every 7 days
+    let _claimSwapFeeRepurchasePerWeek = Timer.recurringTimer<system>(#seconds(604800), _autoSyncPools);
 
     // --------------------------- Version Control ------------------------------------
     private var _version : Text = "3.5.0";
