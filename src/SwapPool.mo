@@ -219,47 +219,49 @@ shared (initMsg) actor class SwapPool(
         lowerLimitOrderIds : [{ timestamp:Nat; userPositionId:Nat; }]; 
         upperLimitOrdersIds : [{ timestamp:Nat; userPositionId:Nat; }]; 
     }, Types.Error> {
-        let userPositionIds = _positionTickService.getUserPositionIdsByOwner(PrincipalUtils.toAddress(user));
         var lowerLimitOrderIds : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }>(0);
         var upperLimitOrderIds : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }>(0);
-        for (userPositionId in userPositionIds.vals()) {
-            label ut for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
-                if (Nat.equal(userPositionId, value.userPositionId)) {
-                    upperLimitOrderIds.add({ timestamp=key.timestamp; userPositionId=userPositionId; });
-                    break ut;
-                };
+        for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+            if (Principal.equal(user, value.owner)) {
+                upperLimitOrderIds.add({ timestamp=key.timestamp; userPositionId=value.userPositionId; });
             };
-            label lt for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
-                if (Nat.equal(userPositionId, value.userPositionId)) {
-                    lowerLimitOrderIds.add({ timestamp=key.timestamp; userPositionId=userPositionId; });
-                    break lt;
-                };
+        };
+        for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
+            if (Principal.equal(user, value.owner)) {
+                lowerLimitOrderIds.add({ timestamp=key.timestamp; userPositionId=value.userPositionId; });
             };
-        };     
+        };
         return #ok({
             lowerLimitOrderIds = Buffer.toArray(lowerLimitOrderIds);
             upperLimitOrdersIds = Buffer.toArray(upperLimitOrderIds);
         });
     };
 
-    public query func getSortedUserLimitOrders(user : Principal) : async Result.Result<[{ timestamp:Nat; userPositionId:Nat; }], Types.Error> {
-        let userPositionIds = _positionTickService.getUserPositionIdsByOwner(PrincipalUtils.toAddress(user));
-        var allLimitOrders : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }>(0);
-        for (userPositionId in userPositionIds.vals()) {
-            label ut for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
-                if (Nat.equal(userPositionId, value.userPositionId)) {
-                    allLimitOrders.add({ timestamp=key.timestamp; userPositionId=userPositionId; });
-                    break ut;
-                };
-            };
-            label lt for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
-                if (Nat.equal(userPositionId, value.userPositionId)) {
-                    allLimitOrders.add({ timestamp=key.timestamp; userPositionId=userPositionId; });
-                    break lt;
-                };
+    public query func getSortedUserLimitOrders(user : Principal) : async Result.Result<[{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }], Types.Error> {
+        var allLimitOrders : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }>(0);
+        for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+            if (Principal.equal(user, value.owner)) {
+                allLimitOrders.add({ 
+                    timestamp=key.timestamp; 
+                    userPositionId=value.userPositionId;
+                    token0InAmount=value.token0InAmount;
+                    token1InAmount=value.token1InAmount;
+                    tickLimit=key.tickLimit;
+                });
             };
         };
-        let sortedOrders = Array.sort<{ timestamp:Nat; userPositionId:Nat; }>(
+        for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
+            if (Principal.equal(user, value.owner)) {
+                allLimitOrders.add({ 
+                    timestamp=key.timestamp; 
+                    userPositionId=value.userPositionId;
+                    token0InAmount=value.token0InAmount;
+                    token1InAmount=value.token1InAmount;
+                    tickLimit=key.tickLimit;
+                });
+            };
+        };
+        let sortedOrders = Array.sort<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }>(
             Buffer.toArray(allLimitOrders), func(a, b) { Nat.compare(b.timestamp, a.timestamp) }
         );
         return #ok(sortedOrders);

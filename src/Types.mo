@@ -479,15 +479,13 @@ module {
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();
         #claim : () -> (Principal, Token, Nat);
-        #claimPool : () -> (Principal, Principal);
-        #getBalances : () -> ();
+        #getBaseBalances : () -> ();
         #getCanisterId : () -> ();
         #getCycleInfo : () -> ();
         #getFees : () -> ();
         #getInitArgs : () -> ();
         #getPools : () -> ();
         #getSyncingStatus : () -> ();
-        #getTokenBalance : () -> Token;
         #getTokenBurnLog : () -> ();
         #getTokenClaimLog : () -> ();
         #getTokenSwapLog : () -> ();
