@@ -409,6 +409,7 @@ module {
         #quote : () -> SwapArgs;
         #quoteForAll : () -> SwapArgs;
         #refreshIncome : () -> Nat;
+        #removeLimitOrder : () -> Nat;
         #sumTick : () -> ();
         #swap : () -> SwapArgs;
         #transferPosition : () -> (Principal, Principal, Nat);
