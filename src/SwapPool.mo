@@ -200,7 +200,7 @@ shared (initMsg) actor class SwapPool(
                 var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
                 ignore _decreaseLiquidity(
                     value.owner, 
-                    { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; }, 
+                    { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; tickLimit = key.tickLimit; }, 
                     { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
             };
             case (_) {};
@@ -424,7 +424,7 @@ shared (initMsg) actor class SwapPool(
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
             _pushSwapInfoCache(
                 if (not loArgs.isLimitOrder) { #decreaseLiquidity; } 
-                else { #limitOrder({ positionId = args.positionId; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }); }, 
+                else { #limitOrder({ positionId = args.positionId; tickLimit = loArgs.tickLimit; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }); }, 
                 Principal.toText(Principal.fromActor(this)), 
                 Principal.toText(owner), 
                 Principal.toText(owner), 
@@ -1333,6 +1333,41 @@ shared (initMsg) actor class SwapPool(
         return #ok(true);
     };
 
+    public shared (msg) func removeLimitOrder(positionId : Nat) : async Result.Result<Bool, Types.Error> {
+        assert(_isAvailable(msg.caller) and _isLimitOrderAvailable);
+        if (Principal.isAnonymous(msg.caller)) return #err(#InternalError("Illegal anonymous call"));
+        // Check if position exists
+        let userPosition = _positionTickService.getUserPosition(positionId);
+        if (userPosition.liquidity > 0) {
+            // Position exists, verify caller is owner
+            if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), positionId)) {
+                return #err(#InternalError("Caller is not owner"));
+            };
+        };
+        // Try to remove from both upper and lower order lists
+        var removed = false;
+        label search {
+            // Check upper limit orders
+            for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+                if (value.userPositionId == positionId) {
+                    _upperLimitOrders.delete(key);
+                    removed := true;
+                    break search;
+                };
+            };
+            // Check lower limit orders 
+            for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #fwd)) {
+                if (value.userPositionId == positionId) {
+                    _lowerLimitOrders.delete(key);
+                    removed := true;
+                    break search;
+                };
+            };
+        };
+        if (not removed) { return #err(#InternalError("Limit order not found")); };
+        return #ok(true);
+    };
+
     public shared (msg) func increaseLiquidity(args : Types.IncreaseLiquidityArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(msg.caller));
         // verify msg.caller matches the owner of position
@@ -1404,7 +1439,7 @@ shared (initMsg) actor class SwapPool(
             return #err(#InternalError("Check operator failed"));
         };
 
-        return _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; }, args);
+        return _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
     };
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
