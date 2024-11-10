@@ -1,12 +1,9 @@
-import Principal "mo:base/Principal";
 import Int "mo:base/Int";
 import Time "mo:base/Time";
 import Buffer "mo:base/Buffer";
-import Order "mo:base/Order";
 import Debug "mo:base/Debug";
 import Error "mo:base/Error";
 import Nat "mo:base/Nat";
-import Option "mo:base/Option";
 import Text "mo:base/Text";
 import Types "../Types";
 import EvictingQueue "mo:commons/collections/EvictingQueue";
@@ -114,18 +111,18 @@ module SwapRecord {
             let now : Int = Time.now();
             if (_checkSyncInterval(now)) {
                 _lastSyncTime := now;
-                Debug.print("==> start job.");
+                // Debug.print("==> start job.");
                 var tempRecordCache : Buffer.Buffer<Types.SwapRecordInfo> = _getRecordToBePushed();
                 if (tempRecordCache.size() > 0) {
                     try {
-                        Debug.print("==> start push record to : " # _infoCid);
+                        // Debug.print("==> start push record to : " # _infoCid);
                         await _infoAct.batchPush(Buffer.toArray<Types.SwapRecordInfo>(tempRecordCache));
-                        Debug.print("==> push success..");
+                        // Debug.print("==> push success..");
                         if (_retryCount > 0) {
                             _retryCount := 0;
                         };
                     } catch (e) {
-                        Debug.print("==> push fail. " # Error.message(e) # ", retryCount = " # Nat.toText(_retryCount));
+                        // Debug.print("==> push fail. " # Error.message(e) # ", retryCount = " # Nat.toText(_retryCount));
                         _rollbackRecordToBePushed(tempRecordCache);
                         _retryCount := _retryCount + 1;
                         ignore _errors.add({ time = now; message = Error.message(e) } : Types.PushError);
@@ -154,8 +151,8 @@ module SwapRecord {
         };
 
         public func _checkSyncInterval(now : Int) : Bool {
-            Debug.print("==> now : " # debug_show(now));
-            Debug.print("==> _lastSyncTime : " # debug_show(_lastSyncTime));
+            // Debug.print("==> now : " # debug_show(now));
+            // Debug.print("==> _lastSyncTime : " # debug_show(_lastSyncTime));
             if (_retryCount < 3) {
                 true;
             } else {

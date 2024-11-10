@@ -1,6 +1,5 @@
 import Nat "mo:base/Nat";
 import Int "mo:base/Int";
-import Array "mo:base/Array";
 import Iter "mo:base/Iter";
 import List "mo:base/List";
 import Buffer "mo:base/Buffer";
@@ -15,25 +14,23 @@ import Time "mo:base/Time";
 import Timer "mo:base/Timer";
 import HashMap "mo:base/HashMap";
 import RBTree "mo:base/RBTree";
-import PoolUtils "./utils/PoolUtils";
-import AccountUtils "./utils/AccountUtils";
-import PositionTick "./components/PositionTick";
-import TokenHolder "./components/TokenHolder";
-import TokenAmount "./components/TokenAmount";
-import SwapRecord "./components/SwapRecord";
-import Types "./Types";
-import LiquidityMath "./libraries/LiquidityMath";
-import LiquidityAmounts "./libraries/LiquidityAmounts";
-import TickMath "./libraries/TickMath";
-import SqrtPriceMath "./libraries/SqrtPriceMath";
-import Tick "./libraries/Tick";
-import BlockTimestamp "./libraries/BlockTimestamp";
-import TickBitmap "./libraries/TickBitmap";
-import FullMath "./libraries/FullMath";
-import SwapMath "./libraries/SwapMath";
-import FixedPoint128 "./libraries/FixedPoint128";
-import ICRCTypes "./ICRCTypes";
-import ICRC21 "./components/ICRC21";
+import PoolUtils "../../src/utils/PoolUtils";
+import AccountUtils "../../src/utils/AccountUtils";
+import PositionTick "../../src/components/PositionTick";
+import TokenHolder "../../src/components/TokenHolder";
+import TokenAmount "../../src/components/TokenAmount";
+import SwapRecord "../../src/components/SwapRecord";
+import Types "../../src/Types";
+import LiquidityMath "../../src/libraries/LiquidityMath";
+import LiquidityAmounts "../../src/libraries/LiquidityAmounts";
+import TickMath "../../src/libraries/TickMath";
+import SqrtPriceMath "../../src/libraries/SqrtPriceMath";
+import Tick "../../src/libraries/Tick";
+import BlockTimestamp "../../src/libraries/BlockTimestamp";
+import TickBitmap "../../src/libraries/TickBitmap";
+import FullMath "../../src/libraries/FullMath";
+import SwapMath "../../src/libraries/SwapMath";
+import FixedPoint128 "../../src/libraries/FixedPoint128";
 import SafeUint "mo:commons/math/SafeUint";
 import SafeInt "mo:commons/math/SafeInt";
 import IntUtils "mo:commons/math/SafeInt/IntUtils";
@@ -47,7 +44,7 @@ import Bool "mo:base/Bool";
 import Prim "mo:⛔";
 import Hash "mo:base/Hash";
 
-shared (initMsg) actor class SwapPool(
+shared (initMsg) actor class SwapPoolTest(
     token0 : Types.Token,
     token1 : Types.Token,
     infoCid : Principal,
@@ -200,7 +197,7 @@ shared (initMsg) actor class SwapPool(
                 var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
                 ignore _decreaseLiquidity(
                     value.owner, 
-                    { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; tickLimit = key.tickLimit; }, 
+                    { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; }, 
                     { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
             };
             case (_) {};
@@ -219,52 +216,27 @@ shared (initMsg) actor class SwapPool(
         lowerLimitOrderIds : [{ timestamp:Nat; userPositionId:Nat; }]; 
         upperLimitOrdersIds : [{ timestamp:Nat; userPositionId:Nat; }]; 
     }, Types.Error> {
+        let userPositionIds = _positionTickService.getUserPositionIdsByOwner(PrincipalUtils.toAddress(user));
         var lowerLimitOrderIds : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }>(0);
         var upperLimitOrderIds : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; }>(0);
-        for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
-            if (Principal.equal(user, value.owner)) {
-                upperLimitOrderIds.add({ timestamp=key.timestamp; userPositionId=value.userPositionId; });
+        for (userPositionId in userPositionIds.vals()) {
+            label ut for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+                if (Nat.equal(userPositionId, value.userPositionId)) {
+                    upperLimitOrderIds.add({ timestamp=key.timestamp; userPositionId=userPositionId; });
+                    break ut;
+                };
             };
-        };
-        for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
-            if (Principal.equal(user, value.owner)) {
-                lowerLimitOrderIds.add({ timestamp=key.timestamp; userPositionId=value.userPositionId; });
+            label lt for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
+                if (Nat.equal(userPositionId, value.userPositionId)) {
+                    lowerLimitOrderIds.add({ timestamp=key.timestamp; userPositionId=userPositionId; });
+                    break lt;
+                };
             };
-        };
+        };     
         return #ok({
             lowerLimitOrderIds = Buffer.toArray(lowerLimitOrderIds);
             upperLimitOrdersIds = Buffer.toArray(upperLimitOrderIds);
         });
-    };
-
-    public query func getSortedUserLimitOrders(user : Principal) : async Result.Result<[{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }], Types.Error> {
-        var allLimitOrders : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }>(0);
-        for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
-            if (Principal.equal(user, value.owner)) {
-                allLimitOrders.add({ 
-                    timestamp=key.timestamp; 
-                    userPositionId=value.userPositionId;
-                    token0InAmount=value.token0InAmount;
-                    token1InAmount=value.token1InAmount;
-                    tickLimit=key.tickLimit;
-                });
-            };
-        };
-        for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
-            if (Principal.equal(user, value.owner)) {
-                allLimitOrders.add({ 
-                    timestamp=key.timestamp; 
-                    userPositionId=value.userPositionId;
-                    token0InAmount=value.token0InAmount;
-                    token1InAmount=value.token1InAmount;
-                    tickLimit=key.tickLimit;
-                });
-            };
-        };
-        let sortedOrders = Array.sort<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }>(
-            Buffer.toArray(allLimitOrders), func(a, b) { Nat.compare(b.timestamp, a.timestamp) }
-        );
-        return #ok(sortedOrders);
     };
 
     private stable var _transferLogArray : [(Nat, Types.TransferLog)] = [];
@@ -424,7 +396,7 @@ shared (initMsg) actor class SwapPool(
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
             _pushSwapInfoCache(
                 if (not loArgs.isLimitOrder) { #decreaseLiquidity; } 
-                else { #limitOrder({ positionId = args.positionId; tickLimit = loArgs.tickLimit; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }); }, 
+                else { #limitOrder({ positionId = args.positionId; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }); }, 
                 Principal.toText(Principal.fromActor(this)), 
                 Principal.toText(owner), 
                 Principal.toText(owner), 
@@ -1333,41 +1305,6 @@ shared (initMsg) actor class SwapPool(
         return #ok(true);
     };
 
-    public shared (msg) func removeLimitOrder(positionId : Nat) : async Result.Result<Bool, Types.Error> {
-        assert(_isAvailable(msg.caller) and _isLimitOrderAvailable);
-        if (Principal.isAnonymous(msg.caller)) return #err(#InternalError("Illegal anonymous call"));
-        // Check if position exists
-        let userPosition = _positionTickService.getUserPosition(positionId);
-        if (userPosition.liquidity > 0) {
-            // Position exists, verify caller is owner
-            if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), positionId)) {
-                return #err(#InternalError("Caller is not owner"));
-            };
-        };
-        // Try to remove from both upper and lower order lists
-        var removed = false;
-        label search {
-            // Check upper limit orders
-            for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
-                if (value.userPositionId == positionId) {
-                    _upperLimitOrders.delete(key);
-                    removed := true;
-                    break search;
-                };
-            };
-            // Check lower limit orders 
-            for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #fwd)) {
-                if (value.userPositionId == positionId) {
-                    _lowerLimitOrders.delete(key);
-                    removed := true;
-                    break search;
-                };
-            };
-        };
-        if (not removed) { return #err(#InternalError("Limit order not found")); };
-        return #ok(true);
-    };
-
     public shared (msg) func increaseLiquidity(args : Types.IncreaseLiquidityArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(msg.caller));
         // verify msg.caller matches the owner of position
@@ -1439,7 +1376,7 @@ shared (initMsg) actor class SwapPool(
             return #err(#InternalError("Check operator failed"));
         };
 
-        return _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
+        return _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; }, args);
     };
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
@@ -2179,7 +2116,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.5.0";
+    private var _version : Text = "3.5.1";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
@@ -2229,16 +2166,6 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
-    public func icrc28_trusted_origins() : async ICRCTypes.Icrc28TrustedOriginsResponse {
-        return ICRC21.icrc28_trusted_origins();
-    };
-    public query func icrc10_supported_standards() : async [{ url : Text; name : Text }] {
-        ICRC21.icrc10_supported_standards();
-    };
-    public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
-        return ICRC21.icrc21_canister_call_consent_message(request);
-    };
-
     // jobs...
     // Clear transfer logs older than 60 days every 12 hours.
     let _clearExpiredTransferLogsJob = Timer.recurringTimer<system>(#seconds(43200), func (): async () {
@@ -2249,6 +2176,49 @@ shared (initMsg) actor class SwapPool(
             };
         };
     });
+
+    // public shared ({ caller }) func transferAll(recipient : Principal) : async Result.Result<{
+    //     token0Result: Nat; token1Result: Nat;
+    // }, Types.Error> {
+    //     _checkControllerPermission(caller);
+    //     // todo check if the recipient is the target canister
+    //     var value0 : Nat = await _token0Act.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
+    //     var value1 : Nat = await _token1Act.balanceOf({ owner = Principal.fromActor(this); subaccount = null; });
+    //     var fee0 : Nat = await _token0Act.fee();
+    //     var fee1 : Nat = await _token1Act.fee();
+    //     try {
+    //         var amount0 = 0;
+    //         var amount1 = 0;
+    //         if (value0 > fee0) {
+    //             amount0 := Nat.sub(value0, fee0);
+    //             switch (await _token0Act.transfer({
+    //                 from = { owner = Principal.fromActor(this); subaccount = null };
+    //                 from_subaccount = null; to = { owner = recipient; subaccount = null }; 
+    //                 amount = amount0; fee = ?fee0; 
+    //                 memo = null; created_at_time = null; 
+    //             })) {
+    //                 case (#Ok(_)) { };
+    //                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
+    //             };
+    //         };
+    //         if (value1 > fee1) {
+    //             amount1 := Nat.sub(value1, fee1);
+    //             switch (await _token1Act.transfer({
+    //                 from = { owner = Principal.fromActor(this); subaccount = null };
+    //                 from_subaccount = null; to = { owner = recipient; subaccount = null }; 
+    //                 amount = amount1; fee = ?fee1; 
+    //                 memo = null; created_at_time = null; 
+    //             })) {
+    //                 case (#Ok(_)) { };
+    //                 case (#Err(msg)) { return #err(#InternalError(debug_show (msg))); };
+    //             };
+    //         };
+    //         return #ok({ token0Result = amount0; token1Result = amount1; });
+    //     } catch (e) {        
+    //         let msg: Text = debug_show (Error.message(e));
+    //         return #err(#InternalError(msg));
+    //     };
+    // };
 
     system func preupgrade() {
         _userPositionsEntries := Iter.toArray(_positionTickService.getUserPositions().entries());
