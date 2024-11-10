@@ -205,6 +205,7 @@ module {
         isLimitOrder : Bool;
         token0InAmount : Nat;
         token1InAmount : Nat;
+        tickLimit : Int;
     };
     public type ClaimArgs = {
         positionId : Nat;
@@ -232,7 +233,7 @@ module {
         #claim;
         #swap;
         #transferPosition : Nat;
-        #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; };
+        #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
     };
     public type TxStorage = actor {
         push : (SwapRecordInfo) -> async ();
