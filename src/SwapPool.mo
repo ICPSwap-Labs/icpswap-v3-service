@@ -1325,9 +1325,9 @@ shared (initMsg) actor class SwapPool(
             case (#err(code)) { return #err(#InternalError(code)); };
         };
         var timestamp = Int.abs(Time.now());
-        if (tickCurrent < tickLower and tickLimit > tickLower) {
+        if (tickCurrent < tickLower and tickLimit > tickLower and tickLimit <= tickUpper) {
             _upperLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
-        } else if (tickCurrent > tickUpper and tickLimit < tickUpper) {
+        } else if (tickCurrent > tickUpper and tickLimit < tickUpper and tickLimit >= tickLower) {
             _lowerLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
         } else {
             return #err(#InternalError("Invalid price range."));

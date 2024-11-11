@@ -283,7 +283,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 memo = Option.make(Text.encodeUtf8("_burnICS")); 
                 created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
             })) {
-                case (#Ok(amount)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = amount; errMsg = ""; }); };
+                case (#Ok(_)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = balance; errMsg = ""; }); };
                 case (#Err(msg)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = 0; errMsg = debug_show(msg); }); };
             };       
         } catch (e) {
