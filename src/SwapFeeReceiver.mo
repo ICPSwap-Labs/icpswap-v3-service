@@ -305,7 +305,7 @@ shared (initMsg) actor class SwapFeeReceiver(
         fee : Nat
     ) : async () {
         // Check and acquire lock
-        assert(_acquireLock());
+        if (not _acquireLock()) { return };
         try {
             var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
             var poolId = poolData.canisterId;
@@ -361,10 +361,9 @@ shared (initMsg) actor class SwapFeeReceiver(
         } catch (e) {
             // Log any unexpected errors
             _addTokenSwapLog(token, 0, 0, "_ICRC1SwapToICP failed: " # debug_show(Error.message(e)), "ICRC1SwapToICP", ?poolData.canisterId );
-        } finally {
-            // Always release the lock, even if an error occurred
-            _releaseLock();
         };
+        // Release lock after everything (success or failure)
+        _releaseLock();
     };
 
     private func _commonSwap(
@@ -376,15 +375,17 @@ shared (initMsg) actor class SwapFeeReceiver(
         tokenOutFee : Nat,
     ) : async () {
         // Check and acquire lock
-        assert(_acquireLock());
+        if (not _acquireLock()) { return };
         try {
             // Safety checks for calculations
             if (balance <= tokenInFee) {
                 _addTokenSwapLog(tokenIn, 0, 0, "Insufficient balance for fee", "validation", ?poolData.canisterId);
+                _releaseLock();
                 return;
             };
             if (balance <= (tokenInFee * 4)) {  // Need at least 4x fee for the operations
                 _addTokenSwapLog(tokenIn, 0, 0, "Insufficient balance for operations", "validation", ?poolData.canisterId);
+                _releaseLock();
                 return;
             };
             // Calculate amounts before any external calls
@@ -439,10 +440,9 @@ shared (initMsg) actor class SwapFeeReceiver(
         } catch (e) {
             // Log any unexpected errors
             _addTokenSwapLog(tokenIn, 0, 0, "_commonSwap failed: " # debug_show(Error.message(e)), "commonSwap", ?poolData.canisterId);
-        } finally {
-            // Always release the lock, even if an error occurred
-            _releaseLock();
         };
+        // Release lock after everything (success or failure)
+        _releaseLock();
     };
 
     private func _swapICPToICS() : async () {
