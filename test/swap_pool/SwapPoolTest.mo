@@ -197,7 +197,7 @@ shared (initMsg) actor class SwapPoolTest(
                 var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
                 ignore _decreaseLiquidity(
                     value.owner, 
-                    { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; }, 
+                    { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; tickLimit = key.tickLimit; }, 
                     { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
             };
             case (_) {};
@@ -396,7 +396,7 @@ shared (initMsg) actor class SwapPoolTest(
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
             _pushSwapInfoCache(
                 if (not loArgs.isLimitOrder) { #decreaseLiquidity; } 
-                else { #limitOrder({ positionId = args.positionId; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }); }, 
+                else { #limitOrder({ positionId = args.positionId; tickLimit = loArgs.tickLimit; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }); }, 
                 Principal.toText(Principal.fromActor(this)), 
                 Principal.toText(owner), 
                 Principal.toText(owner), 
@@ -1376,7 +1376,7 @@ shared (initMsg) actor class SwapPoolTest(
             return #err(#InternalError("Check operator failed"));
         };
 
-        return _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; }, args);
+        return _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
     };
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {

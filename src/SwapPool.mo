@@ -1315,7 +1315,9 @@ shared (initMsg) actor class SwapPool(
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         var tickLower = userPositionInfo.tickLower;
         var tickUpper = userPositionInfo.tickUpper;
-        if (tickLimit > tickUpper or tickLimit < tickLower) { return #err(#InternalError("Invalid tickLimit.")); };
+        if (tickLimit > tickUpper or tickLimit < tickLower) {
+            return #err(#InternalError("Invalid tickLimit: " # "tickLimit=" # debug_show (tickLimit) # ", tickLower=" # debug_show (tickLower) # ", tickUpper=" # debug_show (tickUpper) ));
+        };
         var tokenAmount = switch (_positionTickService.getTokenAmountByLiquidity(
             _sqrtPriceX96, tickLower, tickUpper, userPositionInfo.liquidity
         )) {
@@ -1323,9 +1325,9 @@ shared (initMsg) actor class SwapPool(
             case (#err(code)) { return #err(#InternalError(code)); };
         };
         var timestamp = Int.abs(Time.now());
-        if (tickCurrent < tickLower and tickLimit > tickLower) {
+        if (tickCurrent < tickLower and tickLimit > tickLower and tickLimit <= tickUpper) {
             _upperLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
-        } else if (tickCurrent > tickUpper and tickLimit < tickUpper) {
+        } else if (tickCurrent > tickUpper and tickLimit < tickUpper and tickLimit >= tickLower) {
             _lowerLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
         } else {
             return #err(#InternalError("Invalid price range."));
