@@ -1315,7 +1315,9 @@ shared (initMsg) actor class SwapPool(
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         var tickLower = userPositionInfo.tickLower;
         var tickUpper = userPositionInfo.tickUpper;
-        if (tickLimit > tickUpper or tickLimit < tickLower) { return #err(#InternalError("Invalid tickLimit.")); };
+        if (tickLimit > tickUpper or tickLimit < tickLower) {
+            return #err(#InternalError("Invalid tickLimit: " # "tickLimit=" # debug_show (tickLimit) # ", tickLower=" # debug_show (tickLower) # ", tickUpper=" # debug_show (tickUpper) ));
+        };
         var tokenAmount = switch (_positionTickService.getTokenAmountByLiquidity(
             _sqrtPriceX96, tickLower, tickUpper, userPositionInfo.liquidity
         )) {
