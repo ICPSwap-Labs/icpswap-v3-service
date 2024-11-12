@@ -425,7 +425,6 @@ module {
         #setLimitOrderAvailable : () -> Bool;
         #setWhiteList : () -> [Principal];
         #removeErrorTransferLog : () -> (Nat, Bool);
-        // #removeWithdrawErrorLog : () -> (Nat, Bool);
         // --------  Controller permission required.  ---------
         #init : () -> (Nat, Int, Nat);
         #setAdmins : () -> [Principal];
@@ -451,7 +450,6 @@ module {
         #clearUpgradeFailedPoolList : () -> ();
         #createPool : () -> CreatePoolArgs;
         #deletePasscode : () -> (Principal, Passcode);
-        #getAllPoolUpgradeTaskHis : () -> ();
         #getCurrentUpgradeTask : () -> ();
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();
@@ -461,22 +459,22 @@ module {
         #getPendingUpgradePoolList : () -> ();
         #getPool : () -> GetPoolArgs;
         #getPoolUpgradeTaskHis : () -> Principal;
+        #getPoolUpgradeTaskHisList : () -> ();
         #getPools : () -> ();
         #getPrincipalPasscodes : () -> ();
         #getRemovedPools : () -> ();
         #getUpgradeFailedPoolList : () -> ();
         #getVersion : () -> ();
+        #icrc10_supported_standards : () -> ();
+        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
+        #icrc28_trusted_origins : () -> ();
         #removePool : () -> GetPoolArgs;
         #removePoolControllers : () -> (Principal, [Principal]);
         #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;
-        #upgradePoolTokenStandard : () -> (Principal, Principal);
-         // ------ icrc21
-        #icrc10_supported_standards : () -> ();
-        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
-        #icrc28_trusted_origins : () -> ();
+        #upgradePoolTokenStandard : () -> (Principal, Principal)
     };
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();
