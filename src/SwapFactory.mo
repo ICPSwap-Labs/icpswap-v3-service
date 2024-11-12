@@ -57,7 +57,7 @@ shared (initMsg) actor class SwapFactory(
 
     // upgrade task
     // make sure the version is not the same as the previous one and same as the new version of SwapPool
-    private stable var _nextPoolVersion : Text = "3.5.0";
+    private var _nextPoolVersion : Text = "3.5.0";
     private stable var _backupAct = actor (Principal.toText(backupCid)) : Types.SwapDataBackupActor;
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
     private stable var _pendingUpgradePoolList = List.nil<Types.PoolData>();
