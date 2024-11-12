@@ -365,6 +365,11 @@ module {
         start : PoolUpgradeTaskStep;
         turnOnAvailable : PoolUpgradeTaskStep;
     };
+    public type FailedPoolInfo = {
+        poolData: PoolData;
+        timestamp: Nat;
+        errorMsg: Text;
+    };
     public type PoolInstaller = {
         canisterId : Principal;
         subnet : Text;

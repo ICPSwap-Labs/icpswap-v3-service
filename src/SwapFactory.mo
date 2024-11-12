@@ -43,11 +43,6 @@ shared (initMsg) actor class SwapFactory(
         locked : Bool;
         time : Time.Time;
     };
-    private type FailedPoolInfo = {
-        poolData: Types.PoolData;
-        timestamp: Time.Time;
-        errorMsg: Text;
-    };
 
     /// configuration items
     private stable var _initCycles : Nat = 1860000000000;
@@ -68,7 +63,7 @@ shared (initMsg) actor class SwapFactory(
     private stable var _backupAct = actor (Principal.toText(backupCid)) : Types.SwapDataBackupActor;
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
     private stable var _pendingUpgradePoolList = List.nil<Types.PoolData>();
-    private stable var _upgradeFailedPoolList = List.nil<FailedPoolInfo>();
+    private stable var _upgradeFailedPoolList = List.nil<Types.FailedPoolInfo>();
     // upgrade history
     private stable var _poolUpgradeTaskHis : [(Principal, [Types.PoolUpgradeTask])] = [];
     private var _poolUpgradeTaskHisMap : HashMap.HashMap<Principal, [Types.PoolUpgradeTask]> = HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
@@ -295,7 +290,7 @@ shared (initMsg) actor class SwapFactory(
         switch (_poolUpgradeTaskHisMap.get(poolCid)) { case (?list) { return #ok(list); }; case (_) { return #ok([]); }; };
     };
 
-    public query func getUpgradeFailedPoolList() : async Result.Result<[FailedPoolInfo], Types.Error> {
+    public query func getUpgradeFailedPoolList() : async Result.Result<[Types.FailedPoolInfo], Types.Error> {
         return #ok(List.toArray(_upgradeFailedPoolList));
     };
 
@@ -398,7 +393,7 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func clearUpgradeFailedPoolList() : async () {
         _checkPermission(msg.caller);
-        _upgradeFailedPoolList := List.nil<FailedPoolInfo>();
+        _upgradeFailedPoolList := List.nil<Types.FailedPoolInfo>();
     };
 
     // ---------------        Pools Governance Functions        ----------------------
