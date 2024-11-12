@@ -445,6 +445,7 @@ module {
     public type SwapFactoryMsg = {
         #addPasscode : () -> (Principal, Passcode);
         #addPoolControllers : () -> (Principal, [Principal]);
+        #addPoolInstallers : () -> [PoolInstaller];
         #batchAddPoolControllers : () -> ([Principal], [Principal]);
         #batchClearRemovedPool : () -> [Principal];
         #batchRemovePoolControllers : () -> ([Principal], [Principal]);
@@ -465,6 +466,7 @@ module {
         #getPasscodesByPrincipal : () -> Principal;
         #getPendingUpgradePoolList : () -> ();
         #getPool : () -> GetPoolArgs;
+        #getPoolInstallers : () -> ();
         #getPoolUpgradeTaskHis : () -> Principal;
         #getPoolUpgradeTaskHisList : () -> ();
         #getPools : () -> ();
@@ -478,17 +480,11 @@ module {
         #removePool : () -> GetPoolArgs;
         #removePoolControllers : () -> (Principal, [Principal]);
         #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
+        #removePoolInstaller : () -> Principal;
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;
         #upgradePoolTokenStandard : () -> (Principal, Principal);
-        // ------ icrc21
-        #icrc10_supported_standards : () -> ();
-        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
-        #icrc28_trusted_origins : () -> ();
-        #addPoolInstallers : () -> [PoolInstaller];
-        #removePoolInstaller : () -> Principal;
-        #getPoolInstallers : () -> ();
     };
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();
