@@ -153,6 +153,7 @@ module {
         token1 : Token;
         fee : Nat;
         sqrtPriceX96 : Text;
+        subnet : ?Text;
     };
     public type GetPoolArgs = {
         token0 : Token;
@@ -364,6 +365,12 @@ module {
         start : PoolUpgradeTaskStep;
         turnOnAvailable : PoolUpgradeTaskStep;
     };
+    public type PoolInstaller = {
+        canisterId : Principal;
+        subnet : Text;
+        subnetType: Text;
+        weight : Nat;
+    };
     public type SwapPoolMsg = {
         #addLimitOrder : () -> LimitOrderArgs;
         #allTokenBalance : () -> (Nat, Nat);
@@ -474,7 +481,14 @@ module {
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;
-        #upgradePoolTokenStandard : () -> (Principal, Principal)
+        #upgradePoolTokenStandard : () -> (Principal, Principal);
+        // ------ icrc21
+        #icrc10_supported_standards : () -> ();
+        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
+        #icrc28_trusted_origins : () -> ();
+        #addPoolInstallers : () -> [PoolInstaller];
+        #removePoolInstaller : () -> Principal;
+        #getPoolInstallers : () -> ();
     };
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();
@@ -500,6 +514,7 @@ module {
         #transferAll : () -> (Token, Principal);
     };
     public type SwapPoolActor = actor {
+        init : (Nat, Int, Nat) -> async ();
         allTokenBalance : query (Nat, Nat) -> async Result.Result<Page<(Principal, { balance0: Nat; balance1: Nat; })>, Error>;
         initUserPositionIdMap : shared (userPositionIds : [(Text, [Nat])]) -> async ();
         getUserPositionIds : query () -> async Result.Result<[(Text, [Nat])], Error>;
@@ -552,5 +567,9 @@ module {
         backup : (Principal) -> async Result.Result<(), Error>;
         isBackupDone : (Principal) -> async Result.Result<Bool, Error>;
         removeBackupData : (Principal) -> async Result.Result<(), Error>;
+    };
+    public type SwapPoolInstaller = actor {
+        install : (Token, Token, Principal, Principal, Principal) -> async Principal;
+        getCycleInfo : () -> async Result.Result<CycleInfo, Error>;
     };
 };
