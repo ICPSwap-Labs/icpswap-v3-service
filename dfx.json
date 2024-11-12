@@ -1,5 +1,9 @@
 {
   "canisters": {
+    "SwapPoolInstaller": {
+      "main": "./src/SwapPoolInstaller.mo",
+      "type": "motoko"
+    },
     "SwapFeeReceiver": {
       "main": "./src/SwapFeeReceiver.mo",
       "type": "motoko"

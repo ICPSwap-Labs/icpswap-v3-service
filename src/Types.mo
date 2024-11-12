@@ -153,6 +153,7 @@ module {
         token1 : Token;
         fee : Nat;
         sqrtPriceX96 : Text;
+        subnet : ?Text;
     };
     public type GetPoolArgs = {
         token0 : Token;
@@ -364,6 +365,17 @@ module {
         start : PoolUpgradeTaskStep;
         turnOnAvailable : PoolUpgradeTaskStep;
     };
+    public type FailedPoolInfo = {
+        poolData: PoolData;
+        timestamp: Nat;
+        errorMsg: Text;
+    };
+    public type PoolInstaller = {
+        canisterId : Principal;
+        subnet : Text;
+        subnetType: Text;
+        weight : Nat;
+    };
     public type SwapPoolMsg = {
         #addLimitOrder : () -> LimitOrderArgs;
         #allTokenBalance : () -> (Nat, Nat);
@@ -425,7 +437,6 @@ module {
         #setLimitOrderAvailable : () -> Bool;
         #setWhiteList : () -> [Principal];
         #removeErrorTransferLog : () -> (Nat, Bool);
-        // #removeWithdrawErrorLog : () -> (Nat, Bool);
         // --------  Controller permission required.  ---------
         #init : () -> (Nat, Int, Nat);
         #setAdmins : () -> [Principal];
@@ -439,6 +450,7 @@ module {
     public type SwapFactoryMsg = {
         #addPasscode : () -> (Principal, Passcode);
         #addPoolControllers : () -> (Principal, [Principal]);
+        #addPoolInstallers : () -> [PoolInstaller];
         #batchAddPoolControllers : () -> ([Principal], [Principal]);
         #batchClearRemovedPool : () -> [Principal];
         #batchRemovePoolControllers : () -> ([Principal], [Principal]);
@@ -451,7 +463,6 @@ module {
         #clearUpgradeFailedPoolList : () -> ();
         #createPool : () -> CreatePoolArgs;
         #deletePasscode : () -> (Principal, Passcode);
-        #getAllPoolUpgradeTaskHis : () -> ();
         #getCurrentUpgradeTask : () -> ();
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();
@@ -460,23 +471,25 @@ module {
         #getPasscodesByPrincipal : () -> Principal;
         #getPendingUpgradePoolList : () -> ();
         #getPool : () -> GetPoolArgs;
+        #getPoolInstallers : () -> ();
         #getPoolUpgradeTaskHis : () -> Principal;
+        #getPoolUpgradeTaskHisList : () -> ();
         #getPools : () -> ();
         #getPrincipalPasscodes : () -> ();
         #getRemovedPools : () -> ();
         #getUpgradeFailedPoolList : () -> ();
         #getVersion : () -> ();
+        #icrc10_supported_standards : () -> ();
+        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
+        #icrc28_trusted_origins : () -> ();
         #removePool : () -> GetPoolArgs;
         #removePoolControllers : () -> (Principal, [Principal]);
         #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
+        #removePoolInstaller : () -> Principal;
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;
         #upgradePoolTokenStandard : () -> (Principal, Principal);
-         // ------ icrc21
-        #icrc10_supported_standards : () -> ();
-        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
-        #icrc28_trusted_origins : () -> ();
     };
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();
@@ -502,6 +515,7 @@ module {
         #transferAll : () -> (Token, Principal);
     };
     public type SwapPoolActor = actor {
+        init : (Nat, Int, Nat) -> async ();
         allTokenBalance : query (Nat, Nat) -> async Result.Result<Page<(Principal, { balance0: Nat; balance1: Nat; })>, Error>;
         initUserPositionIdMap : shared (userPositionIds : [(Text, [Nat])]) -> async ();
         getUserPositionIds : query () -> async Result.Result<[(Text, [Nat])], Error>;
@@ -554,5 +568,9 @@ module {
         backup : (Principal) -> async Result.Result<(), Error>;
         isBackupDone : (Principal) -> async Result.Result<Bool, Error>;
         removeBackupData : (Principal) -> async Result.Result<(), Error>;
+    };
+    public type SwapPoolInstaller = actor {
+        install : (Token, Token, Principal, Principal, Principal) -> async Principal;
+        getCycleInfo : () -> async Result.Result<CycleInfo, Error>;
     };
 };
