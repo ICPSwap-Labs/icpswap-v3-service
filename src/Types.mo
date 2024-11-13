@@ -366,7 +366,7 @@ module {
         turnOnAvailable : PoolUpgradeTaskStep;
     };
     public type FailedPoolInfo = {
-        poolData: PoolData;
+        task: PoolUpgradeTask;
         timestamp: Nat;
         errorMsg: Text;
     };
@@ -486,6 +486,7 @@ module {
         #removePoolControllers : () -> (Principal, [Principal]);
         #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
         #removePoolInstaller : () -> Principal;
+        #retryAllFailedUpgrades : () -> ();
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;
