@@ -13,6 +13,7 @@ import List "mo:base/List";
 import Nat "mo:base/Nat";
 import Timer "mo:base/Timer";
 import Prim "mo:⛔";
+import Order "mo:base/Order";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
@@ -73,7 +74,7 @@ shared (initMsg) actor class SwapFactory(
         if (Text.equal(args.token0.address, args.token1.address)) { return #err(#InternalError("Can not use the same token")); };
         if (not _checkStandard(args.token0.standard)) { return #err(#UnsupportedToken("Wrong token0 standard.")); };
         if (not _checkStandard(args.token1.standard)) { return #err(#UnsupportedToken("Wrong token1 standard.")); };
-        let installer: ?InstallerFunc = _getInstaller(args.subnet);
+        let installer: ?InstallerFunc = _getInstallFunc(args.subnet);
         let installFunc : InstallerFunc = switch (installer) {
             case (?_installer) { _installer };
             case (_) { throw Error.reject("Installer not found"); };
@@ -750,39 +751,21 @@ shared (initMsg) actor class SwapFactory(
     // --------------------------------------------------------------------------------------------
     
     private stable var _poolInstallers : [Types.PoolInstaller] = [];
-    public shared({caller}) func addPoolInstallers(installers : [Types.PoolInstaller]) : async () {
-        _checkPermission(caller);
-        let buffer: Buffer.Buffer<Types.PoolInstaller> = Buffer.Buffer<Types.PoolInstaller>(0);
-        for (installer in installers.vals()) {
-            buffer.add(installer);
-        };
-        _poolInstallers := Buffer.toArray(buffer);
+    private type Installer = {
+        #External : Types.SwapPoolInstaller;
+        #Local;
     };
-    public shared({caller}) func removePoolInstaller(canisterId : Principal) : async () {
-        _checkPermission(caller);
-        _poolInstallers := Array.filter<Types.PoolInstaller>(_poolInstallers, func(installer : Types.PoolInstaller) : Bool { not Principal.equal(installer.canisterId, canisterId) });
-    };
-    public query func getPoolInstallers() : async [Types.PoolInstaller] { _poolInstallers };
     private type InstallerFunc = (Types.Token, Types.Token, Principal, Principal, Principal) -> async Types.SwapPoolActor;
-    private func _getInstaller(subnet: ?Text) : ?InstallerFunc {
-        switch (subnet) { 
-            case (?_subnet) {
-                let installer = Array.find<Types.PoolInstaller>(_poolInstallers, func(installer : Types.PoolInstaller) : Bool { installer.subnet == _subnet });
-                switch (installer) {
-                    case (?_installer) {
-                        let fun = func _actInstall(token0: Types.Token, token1: Types.Token, infoCid: Principal, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal) : async Types.SwapPoolActor {
-                            let installer: Types.SwapPoolInstaller = actor(Principal.toText(_installer.canisterId));
-                            let canisterId: Principal = await installer.install(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
-                            return actor(Principal.toText(canisterId)) : Types.SwapPoolActor;
-                        };
-                        return Option.make(fun);
-                    };
-                    case (_) {
-                        return null;
-                    };
+    private func _getInstallFunc(subnet: ?Text) : ?InstallerFunc {
+        switch (_getInstaller(subnet)) {
+            case (?#External(act)) {
+                let fun = func _actInstall(token0: Types.Token, token1: Types.Token, infoCid: Principal, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal) : async Types.SwapPoolActor {
+                    let canisterId: Principal = await act.install(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+                    return actor(Principal.toText(canisterId)) : Types.SwapPoolActor;
                 };
+                return Option.make(fun);
             };
-            case (_) {
+            case (?#Local) {
                 let fun = func (token0: Types.Token, token1: Types.Token, infoCid: Principal, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal) : async Types.SwapPoolActor {
                     Cycles.add<system>(_initCycles);
                     let poolAct = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
@@ -790,8 +773,46 @@ shared (initMsg) actor class SwapFactory(
                 };
                 return Option.make(fun);
             };
+            case (_) { null };  
         };
     };
+    private func _getInstaller(subnet: ?Text) : ?Installer {
+        switch (subnet) {
+            case (?_subnet) {
+                let installer = Array.find<Types.PoolInstaller>(_poolInstallers, func(installer : Types.PoolInstaller) : Bool { installer.subnet == _subnet });
+                return switch (installer) { 
+                    case (?_installer) { Option.make(#External(actor(Principal.toText(_installer.canisterId)): Types.SwapPoolInstaller)) }; 
+                    case (_) { null }; 
+                };
+            };
+            case (_) {
+                if (_poolInstallers.size() == 0) {
+                    return Option.make(#Local);
+                } else {
+                    return Option.make(#External(actor(Principal.toText(_poolInstallers[0].canisterId)) : Types.SwapPoolInstaller));
+                };
+            };
+        };
+    };
+   
+    public shared({caller}) func addPoolInstallers(installers : [Types.PoolInstaller]) : async () {
+        _checkPermission(caller);
+        let buffer: Buffer.Buffer<Types.PoolInstaller> = Buffer.Buffer<Types.PoolInstaller>(0);
+        for (installer in installers.vals()) {
+            buffer.add(installer);
+        };
+        _poolInstallers := Array.sort<Types.PoolInstaller>(Buffer.toArray(buffer), func(a: Types.PoolInstaller, b: Types.PoolInstaller) : Order.Order {
+            if (a.weight > b.weight) { #less }
+            else if (a.weight < b.weight) { #greater }
+            else { #equal }
+        });
+    };
+    public shared({caller}) func removePoolInstaller(canisterId : Principal) : async () {
+        _checkPermission(caller);
+        _poolInstallers := Array.filter<Types.PoolInstaller>(_poolInstallers, func(installer : Types.PoolInstaller) : Bool { not Principal.equal(installer.canisterId, canisterId) });
+    };
+    public query func getPoolInstallers() : async [Types.PoolInstaller] { _poolInstallers };
+    
     // --------------------------- Version Control      -------------------------------
     private var _version : Text = "3.5.0";
     public query func getVersion() : async Text { _version };
