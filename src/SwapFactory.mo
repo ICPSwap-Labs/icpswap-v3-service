@@ -905,6 +905,7 @@ shared (initMsg) actor class SwapFactory(
             case (#batchAddPoolControllers _)            { _hasPermission(caller) };
             case (#batchRemovePoolControllers _)         { _hasPermission(caller) };
             case (#batchSetPoolAdmins _)                 { _hasPermission(caller) };
+            case (#batchRemovePools _)                   { _hasPermission(caller) };
             // Anyone
             case (_)                                   { true };
         };
