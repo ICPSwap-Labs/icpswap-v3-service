@@ -275,6 +275,15 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         };
     };
 
+    public shared ({ caller }) func addPoolInstallersValidate(installers : [Types.PoolInstaller]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        return #Ok(debug_show (installers));
+    };
+    public shared ({ caller }) func removePoolInstallersValidate(installers : [Principal]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        return #Ok(debug_show (installers));
+    };
+
     public query func getInitArgs() : async Result.Result<{    
         factoryCid : Principal;
         governanceCid : Principal;

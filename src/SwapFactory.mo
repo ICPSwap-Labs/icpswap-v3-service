@@ -13,10 +13,12 @@ import List "mo:base/List";
 import Nat "mo:base/Nat";
 import Timer "mo:base/Timer";
 import Prim "mo:⛔";
+import Order "mo:base/Order";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
+import Option "mo:base/Option";
 import SafeUint "mo:commons/math/SafeUint";
 import TextUtils "mo:commons/utils/TextUtils";
 import IC0Utils "mo:commons/utils/IC0Utils";
@@ -28,6 +30,7 @@ import SwapPool "./SwapPool";
 import Types "./Types";
 import ICRCTypes "./ICRCTypes";
 import ICRC21 "./components/ICRC21";
+import BlockTimestamp "./libraries/BlockTimestamp";
 
 shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
@@ -55,13 +58,15 @@ shared (initMsg) actor class SwapFactory(
     private var _infoAct = actor (Principal.toText(infoCid)) : Types.TxStorage;
     private stable var _lockState : LockState = { locked = false; time = 0};
 
+    /**
+        make sure the version is not the same as the previous one and same as the new version of SwapPool
+    **/
+    private var _nextPoolVersion : Text = "3.5.0";
     // upgrade task
-    // make sure the version is not the same as the previous one and same as the new version of SwapPool
-    private stable var _nextPoolVersion : Text = "3.5.0";
     private stable var _backupAct = actor (Principal.toText(backupCid)) : Types.SwapDataBackupActor;
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
-    private stable var _pendingUpgradePoolList = List.nil<Types.PoolData>();
-    private stable var _upgradeFailedPoolList = List.nil<Types.PoolData>();
+    private stable var _pendingUpgradePoolList = List.nil<Types.PoolUpgradeTask>();
+    private stable var _upgradeFailedPoolList = List.nil<Types.FailedPoolInfo>();
     // upgrade history
     private stable var _poolUpgradeTaskHis : [(Principal, [Types.PoolUpgradeTask])] = [];
     private var _poolUpgradeTaskHisMap : HashMap.HashMap<Principal, [Types.PoolUpgradeTask]> = HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
@@ -71,6 +76,11 @@ shared (initMsg) actor class SwapFactory(
         if (Text.equal(args.token0.address, args.token1.address)) { return #err(#InternalError("Can not use the same token")); };
         if (not _checkStandard(args.token0.standard)) { return #err(#UnsupportedToken("Wrong token0 standard.")); };
         if (not _checkStandard(args.token1.standard)) { return #err(#UnsupportedToken("Wrong token1 standard.")); };
+        let installer: ?InstallerFunc = _getInstallFunc(args.subnet);
+        let installFunc : InstallerFunc = switch (installer) {
+            case (?_installer) { _installer };
+            case (_) { throw Error.reject("Installer not found"); };
+        };
         var tickSpacing = switch (_feeTickSpacingMap.get(args.fee)) {
             case (?feeAmountTickSpacingFee) { feeAmountTickSpacingFee };
             case (_) { return #err(#InternalError("TickSpacing cannot be 0")); };
@@ -87,8 +97,8 @@ shared (initMsg) actor class SwapFactory(
                     if(not _deletePasscode(msg.caller, { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; })) {
                         return #err(#InternalError("Passcode is not existed."));
                     };
-                    Cycles.add<system>(_initCycles);
-                    let pool = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+                    // let pool = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+                    let pool: Types.SwapPoolActor = await installFunc(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
                     await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
                     await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), [initMsg.caller]);
                     await _infoAct.addClient(Principal.fromActor(pool));
@@ -266,7 +276,7 @@ shared (initMsg) actor class SwapFactory(
         };
     };
     
-    public query func getPendingUpgradePoolList() : async Result.Result<[Types.PoolData], Types.Error> {
+    public query func getPendingUpgradePoolList() : async Result.Result<[Types.PoolUpgradeTask], Types.Error> {
         return #ok(List.toArray(_pendingUpgradePoolList));
     };
 
@@ -274,7 +284,7 @@ shared (initMsg) actor class SwapFactory(
         return #ok(_currentUpgradeTask);
     };
 
-    public query func getAllPoolUpgradeTaskHis() : async Result.Result<[(Principal, [Types.PoolUpgradeTask])], Types.Error> {
+    public query func getPoolUpgradeTaskHisList() : async Result.Result<[(Principal, [Types.PoolUpgradeTask])], Types.Error> {
         return #ok(Iter.toArray(_poolUpgradeTaskHisMap.entries()));
     };
 
@@ -282,7 +292,7 @@ shared (initMsg) actor class SwapFactory(
         switch (_poolUpgradeTaskHisMap.get(poolCid)) { case (?list) { return #ok(list); }; case (_) { return #ok([]); }; };
     };
 
-    public query func getUpgradeFailedPoolList() : async Result.Result<[Types.PoolData], Types.Error> {
+    public query func getUpgradeFailedPoolList() : async Result.Result<[Types.FailedPoolInfo], Types.Error> {
         return #ok(List.toArray(_upgradeFailedPoolList));
     };
 
@@ -348,20 +358,65 @@ shared (initMsg) actor class SwapFactory(
     public shared (msg) func setUpgradePoolList(args : Types.UpgradePoolArgs) : async Result.Result<(), Types.Error> {
         _checkPermission(msg.caller);
         // check if task map is empty
-        if (List.size(_pendingUpgradePoolList) > 0) { return #err(#InternalError("Please wait until the upgrade task list is empty")); };
+        if (List.size(_pendingUpgradePoolList) > 0) { 
+            return #err(#InternalError("Please wait until the upgrade task list is empty")); 
+        };
         // set a limit on the number of upgrade tasks
-        if (Array.size(args.poolIds) > 100) { return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 100")); };
+        if (Array.size(args.poolIds) > 100) { 
+            return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 100")); 
+        };
         for (poolId in args.poolIds.vals()) {
             label l {
                 for ((poolKey, pooldata) in _poolDataService.getPools().entries()) {
                     if (Principal.equal(poolId, pooldata.canisterId)) {
-                        _pendingUpgradePoolList := List.push(pooldata, _pendingUpgradePoolList);
+                        let newTask : Types.PoolUpgradeTask = {
+                            poolData = pooldata;
+                            moduleHashBefore = null;
+                            moduleHashAfter = null;
+                            backup = { timestamp = 0; isDone = false; isSent = false; retryCount = 0; };
+                            turnOffAvailable = { timestamp = 0; isDone = false; };
+                            stop = { timestamp = 0; isDone = false; };
+                            upgrade = { timestamp = 0; isDone = false; };
+                            start = { timestamp = 0; isDone = false; };
+                            turnOnAvailable = { timestamp = 0; isDone = false; };
+                        };
+                        _pendingUpgradePoolList := List.push(newTask, _pendingUpgradePoolList);
                     };
                 };
             };
         };
         ignore Timer.setTimer<system>(#seconds (10), _execUpgrade);
         return #ok();
+    };
+
+    public shared(msg) func retryAllFailedUpgrades() : async Result.Result<(), Types.Error> {
+        _checkPermission(msg.caller);
+        // Check if there are any pending upgrades
+        if (List.size(_pendingUpgradePoolList) > 0) { 
+            return #err(#InternalError("Cannot retry failed upgrades while there are pending upgrades")); 
+        };
+        // Check if there's a current upgrade task running
+        switch(_currentUpgradeTask) {
+            case (?_) { return #err(#InternalError("Cannot retry failed upgrades while there is an upgrade in progress")); };
+            case (null) {};
+        };
+        // Move all failed tasks to pending list
+        var failedList = _upgradeFailedPoolList;
+        _upgradeFailedPoolList := List.nil<Types.FailedPoolInfo>();
+        // Add each failed task to pending list
+        label addTasks while (not List.isNil(failedList)) {
+            let (failedInfoOpt, remainingList) = List.pop(failedList);
+            failedList := remainingList;
+            switch(failedInfoOpt) {
+                case (?failedInfo) { _pendingUpgradePoolList := List.push(failedInfo.task, _pendingUpgradePoolList); };
+                case (null) {};
+            };
+        };
+        // If we added any tasks, start the upgrade process
+        if (not List.isNil(_pendingUpgradePoolList)) {
+            ignore Timer.setTimer<system>(#seconds (0), _execUpgrade);
+        };
+        #ok();
     };
 
     public shared (msg) func clearRemovedPool(canisterId : Principal) : async Text {
@@ -385,7 +440,7 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func clearUpgradeFailedPoolList() : async () {
         _checkPermission(msg.caller);
-        _upgradeFailedPoolList := List.nil<Types.PoolData>();
+        _upgradeFailedPoolList := List.nil<Types.FailedPoolInfo>();
     };
 
     // ---------------        Pools Governance Functions        ----------------------
@@ -511,19 +566,22 @@ shared (initMsg) actor class SwapFactory(
         try {
             let pool = actor(Principal.toText(poolId)) : actor { getVersion : shared query () -> async Text };
             let version = await pool.getVersion();
+        
+            // Compare versions
             let v1 = Text.split(version, #text("."));
             let v2 = Text.split(_nextPoolVersion, #text("."));
             let v1Iter = Iter.map<Text,Nat>(v1, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
             let v2Iter = Iter.map<Text,Nat>(v2, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
             let v1Arr = Iter.toArray(v1Iter);
             let v2Arr = Iter.toArray(v2Iter);
+            
             if (v1Arr[0] < v2Arr[0]) { true }
             else if (v1Arr[0] > v2Arr[0]) { false }
             else if (v1Arr[1] < v2Arr[1]) { true }
             else if (v1Arr[1] > v2Arr[1]) { false }
             else { v1Arr[2] < v2Arr[2] };
-        } catch (_) {
-            false;
+        } catch (e) {
+            throw Error.reject("Failed to get version: " # Error.message(e));
         };
     };
 
@@ -586,27 +644,17 @@ shared (initMsg) actor class SwapFactory(
     };
 
     private func _setNextUpgradeTask() : ?Types.PoolUpgradeTask {
-        let (poolData, list) = List.pop(_pendingUpgradePoolList);
+        let (task, list) = List.pop(_pendingUpgradePoolList);
         _pendingUpgradePoolList := list;
-        switch (poolData) {
-            case (?pd) {
-                _currentUpgradeTask := ? {
-                    poolData = pd;
-                    moduleHashBefore = null;
-                    moduleHashAfter = null;
-                    backup = { timestamp = 0; isDone = false; isSent = false; retryCount = 0; };
-                    turnOffAvailable = { timestamp = 0; isDone = false; };
-                    stop = { timestamp = 0; isDone = false; };
-                    upgrade = { timestamp = 0; isDone = false; };
-                    start = { timestamp = 0; isDone = false; };
-                    turnOnAvailable = { timestamp = 0; isDone = false; };
-                };
+        switch (task) {
+            case (?t) {
+                _currentUpgradeTask := ?t;
                 _currentUpgradeTask;
             };
-            case (_) { null; };
+            case (_) { null };
         };
     };
-
+    
     private func _addTaskHis(task : Types.PoolUpgradeTask) : () {
         var tempTasks : Buffer.Buffer<Types.PoolUpgradeTask> = Buffer.Buffer<Types.PoolUpgradeTask>(0);
         var currentTaskList = switch (_poolUpgradeTaskHisMap.get(task.poolData.canisterId)) { case (?list) { list }; case (_) { [] }; };
@@ -619,17 +667,45 @@ shared (initMsg) actor class SwapFactory(
         switch (_currentUpgradeTask) {
             case (?task) {
                 try {
-                    // execute step
                     if (not task.backup.isDone) {
                         if (not task.backup.isSent) {
-                            // check if the pool version is outdated
-                            let isVersionOutdated = await _checkPoolVersion(task.poolData.canisterId);
-                            if (not isVersionOutdated) {
-                                _addTaskHis(task);
+                            try {
+                                // check if the pool version is outdated
+                                let isVersionOutdated = await _checkPoolVersion(task.poolData.canisterId);
+                                if (not isVersionOutdated) {
+                                    // Add task to history since it's already up to date
+                                    let timestamp = BlockTimestamp.blockTimestamp();
+                                    _addTaskHis({
+                                        poolData = task.poolData;
+                                        moduleHashBefore = task.moduleHashBefore;
+                                        moduleHashAfter = task.moduleHashAfter;
+                                        backup = { timestamp = timestamp; isDone = true; isSent = false; retryCount = 0; };
+                                        turnOffAvailable = { timestamp = timestamp; isDone = true; };
+                                        stop = { timestamp = timestamp; isDone = true; };
+                                        upgrade = { timestamp = timestamp; isDone = true; };
+                                        start = { timestamp = timestamp; isDone = true; };
+                                        turnOnAvailable = { timestamp = timestamp; isDone = true; };
+                                    });
+                                    _currentUpgradeTask := null;
+                                    if (null != _setNextUpgradeTask()) { 
+                                        ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); 
+                                    };
+                                    return;
+                                };
+                            } catch (e) {
+                                // If version check fails, add to failed list
+                                _upgradeFailedPoolList := List.push({
+                                    task = task;
+                                    timestamp = BlockTimestamp.blockTimestamp();
+                                    errorMsg = Error.message(e);
+                                }, _upgradeFailedPoolList);
                                 _currentUpgradeTask := null;
-                                if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };
+                                if (null != _setNextUpgradeTask()) { 
+                                    ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); 
+                                };
                                 return;
                             };
+                            
                             var currentTask = await UpgradeTask.stepBackup(task, backupCid);
                             _currentUpgradeTask := ?currentTask;
                             ignore Timer.setTimer<system>(#seconds (30), _execUpgrade);
@@ -653,8 +729,11 @@ shared (initMsg) actor class SwapFactory(
                                     } else {
                                         let newRetryCount = task.backup.retryCount + 1;
                                         if (newRetryCount > 3) {
-                                            _addTaskHis(task);
-                                            _upgradeFailedPoolList := List.push(task.poolData, _upgradeFailedPoolList);
+                                            _upgradeFailedPoolList := List.push({
+                                                task = task;
+                                                timestamp = BlockTimestamp.blockTimestamp();
+                                                errorMsg = "Backup failed";
+                                            }, _upgradeFailedPoolList);
                                             _currentUpgradeTask := null;
                                             if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };
                                         } else {
@@ -673,8 +752,12 @@ shared (initMsg) actor class SwapFactory(
                                         };
                                     };
                                 };
-                                case (#err(_)) {
-                                    _upgradeFailedPoolList := List.push(task.poolData, _upgradeFailedPoolList);
+                                case (#err(msg)) {
+                                    _upgradeFailedPoolList := List.push({
+                                        task = task;
+                                        timestamp = BlockTimestamp.blockTimestamp();
+                                        errorMsg = "Check backup status failed: " # debug_show(msg);
+                                    }, _upgradeFailedPoolList);
                                     _currentUpgradeTask := null;
                                     if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };
                                 };
@@ -703,9 +786,12 @@ shared (initMsg) actor class SwapFactory(
                         _currentUpgradeTask := null;
                         ignore Timer.setTimer<system>(#seconds (0), _execUpgrade);
                     };
-                } catch (_) {
-                    _addTaskHis(task);
-                    _upgradeFailedPoolList := List.push(task.poolData, _upgradeFailedPoolList);
+                } catch (e) {
+                    _upgradeFailedPoolList := List.push({
+                        task = task;
+                        timestamp = BlockTimestamp.blockTimestamp();
+                        errorMsg = Error.message(e);
+                    }, _upgradeFailedPoolList);
                     _currentUpgradeTask := null;
                     if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };
                 };
@@ -715,7 +801,71 @@ shared (initMsg) actor class SwapFactory(
             };  
         };
     };
-
+    // --------------------------------------------------------------------------------------------
+    
+    private stable var _poolInstallers : [Types.PoolInstaller] = [];
+    private type Installer = {
+        #External : Types.SwapPoolInstaller;
+        #Local;
+    };
+    private type InstallerFunc = (Types.Token, Types.Token, Principal, Principal, Principal) -> async Types.SwapPoolActor;
+    private func _getInstallFunc(subnet: ?Text) : ?InstallerFunc {
+        switch (_getInstaller(subnet)) {
+            case (?#External(act)) {
+                let fun = func _actInstall(token0: Types.Token, token1: Types.Token, infoCid: Principal, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal) : async Types.SwapPoolActor {
+                    let canisterId: Principal = await act.install(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+                    return actor(Principal.toText(canisterId)) : Types.SwapPoolActor;
+                };
+                return Option.make(fun);
+            };
+            case (?#Local) {
+                let fun = func (token0: Types.Token, token1: Types.Token, infoCid: Principal, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal) : async Types.SwapPoolActor {
+                    Cycles.add<system>(_initCycles);
+                    let poolAct = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+                    return actor(Principal.toText(Principal.fromActor(poolAct))) : Types.SwapPoolActor;
+                };
+                return Option.make(fun);
+            };
+            case (_) { null };  
+        };
+    };
+    private func _getInstaller(subnet: ?Text) : ?Installer {
+        switch (subnet) {
+            case (?_subnet) {
+                let installer = Array.find<Types.PoolInstaller>(_poolInstallers, func(installer : Types.PoolInstaller) : Bool { installer.subnet == _subnet });
+                return switch (installer) { 
+                    case (?_installer) { Option.make(#External(actor(Principal.toText(_installer.canisterId)): Types.SwapPoolInstaller)) }; 
+                    case (_) { null }; 
+                };
+            };
+            case (_) {
+                if (_poolInstallers.size() == 0) {
+                    return Option.make(#Local);
+                } else {
+                    return Option.make(#External(actor(Principal.toText(_poolInstallers[0].canisterId)) : Types.SwapPoolInstaller));
+                };
+            };
+        };
+    };
+   
+    public shared({caller}) func addPoolInstallers(installers : [Types.PoolInstaller]) : async () {
+        _checkPermission(caller);
+        let buffer: Buffer.Buffer<Types.PoolInstaller> = Buffer.Buffer<Types.PoolInstaller>(0);
+        for (installer in installers.vals()) {
+            buffer.add(installer);
+        };
+        _poolInstallers := Array.sort<Types.PoolInstaller>(Buffer.toArray(buffer), func(a: Types.PoolInstaller, b: Types.PoolInstaller) : Order.Order {
+            if (a.weight > b.weight) { #less }
+            else if (a.weight < b.weight) { #greater }
+            else { #equal }
+        });
+    };
+    public shared({caller}) func removePoolInstaller(canisterId : Principal) : async () {
+        _checkPermission(caller);
+        _poolInstallers := Array.filter<Types.PoolInstaller>(_poolInstallers, func(installer : Types.PoolInstaller) : Bool { not Principal.equal(installer.canisterId, canisterId) });
+    };
+    public query func getPoolInstallers() : async [Types.PoolInstaller] { _poolInstallers };
+    
     // --------------------------- Version Control      -------------------------------
     private var _version : Text = "3.5.0";
     public query func getVersion() : async Text { _version };
@@ -739,19 +889,23 @@ shared (initMsg) actor class SwapFactory(
         msg : Types.SwapFactoryMsg;
     }) : Bool {
         return switch (msg) {
-            // Controller
+            // Controller   
             case (#clearRemovedPool _)                   { _hasPermission(caller) };
+            case (#clearPoolUpgradeTaskHis _)            { _hasPermission(caller) };
+            case (#clearUpgradeFailedPoolList _)         { _hasPermission(caller) };
             case (#removePool _)                         { _hasPermission(caller) };
             case (#removePoolErrorTransferLog _)         { _hasPermission(caller) };
             case (#upgradePoolTokenStandard _)           { _hasPermission(caller) };
             case (#addPoolControllers _)                 { _hasPermission(caller) };
             case (#removePoolControllers _)              { _hasPermission(caller) };
+            case (#retryAllFailedUpgrades _)             { _hasPermission(caller) };
             case (#setPoolAdmins _)                      { _hasPermission(caller) };
             case (#setPoolAvailable _)                   { _hasPermission(caller) };
             case (#setUpgradePoolList _)                 { _hasPermission(caller) };
             case (#batchAddPoolControllers _)            { _hasPermission(caller) };
             case (#batchRemovePoolControllers _)         { _hasPermission(caller) };
             case (#batchSetPoolAdmins _)                 { _hasPermission(caller) };
+            case (#batchRemovePools _)                   { _hasPermission(caller) };
             // Anyone
             case (_)                                   { true };
         };
