@@ -1,26 +1,18 @@
 import Text "mo:base/Text";
-import Array "mo:base/Array";
 import Nat "mo:base/Nat";
 import List "mo:base/List";
-import Int "mo:base/Int";
-import Hash "mo:base/Hash";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
-import Time "mo:base/Time";
 import Timer "mo:base/Timer";
-import Debug "mo:base/Debug";
-import Blob "mo:base/Blob";
 import Buffer "mo:base/Buffer";
 import HashMap "mo:base/HashMap";
 import Iter "mo:base/Iter";
-import Option "mo:base/Option";
 import Result "mo:base/Result";
 import Types "./Types";
 import ListUtils "mo:commons/utils/ListUtils";
 import Bool "mo:base/Bool";
 import CollectionUtils "mo:commons/utils/CollectionUtils";
 import PrincipalUtils "mo:commons/utils/PrincipalUtils";
-import Prim "mo:⛔";
 
 shared (initMsg) actor class PositionIndex(
     factoryCid : Principal
@@ -41,17 +33,12 @@ shared (initMsg) actor class PositionIndex(
                 };
                 _poolIds := Buffer.toArray(poolIds);
             };
-            case (#err(msg)) {};
+            case (#err(_)) {};
         };
     };
 
-    private func _autoUpdatePoolIds() : async () {
-        await _updatePoolIds();
-    };
-    let __updatePoolIdsPer30s = Timer.recurringTimer(
-        #seconds(30),
-        _autoUpdatePoolIds,
-    );
+    private func _autoUpdatePoolIds() : async () { await _updatePoolIds(); };
+    let __updatePoolIdsPer30s = Timer.recurringTimer<system>(#seconds(30), _autoUpdatePoolIds);
 
     public shared (msg) func addPoolId(poolId : Text) : async Result.Result<Bool, Types.Error> {
         var user : Text = PrincipalUtils.toAddress(msg.caller);
@@ -107,7 +94,7 @@ shared (initMsg) actor class PositionIndex(
         return #ok(true);
     };
 
-    public shared (msg) func updatePoolIds() : async () {
+    public shared func updatePoolIds() : async () {
         await _updatePoolIds();
     };
 
@@ -126,7 +113,7 @@ shared (initMsg) actor class PositionIndex(
         return #ok(_poolIds);
     };
 
-    public shared (msg) func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
+    public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
             available = Cycles.available();
@@ -134,7 +121,7 @@ shared (initMsg) actor class PositionIndex(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.3.0";
+    private var _version : Text = "3.5.0";
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {

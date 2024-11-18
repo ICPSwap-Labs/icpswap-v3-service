@@ -1,12 +1,4 @@
 import Principal "mo:base/Principal";
-import Int "mo:base/Int";
-import Time "mo:base/Time";
-import Buffer "mo:base/Buffer";
-import Order "mo:base/Order";
-import Debug "mo:base/Debug";
-import Error "mo:base/Error";
-import Nat "mo:base/Nat";
-import Option "mo:base/Option";
 import Text "mo:base/Text";
 import Iter "mo:base/Iter";
 import HashMap "mo:base/HashMap";
@@ -45,19 +37,9 @@ module PoolData {
             };
         };
 
-        public func restorePool(poolId: Text) : Text {
-            switch(_removedPoolMap.remove(poolId)) {
-                case (?poolData) { 
-                    _poolMap.put(poolData.key, poolData);
-                    return Principal.toText(poolData.canisterId); 
-                };
-                case (null) { return "";};
-            };
-        };
-
         public func deletePool(canisterId: Text) : Text {
             switch(_removedPoolMap.remove(canisterId)) {
-                case (?poolData) { return canisterId; };
+                case (?_) { return canisterId; };
                 case (null) { return "";};
             };
         };

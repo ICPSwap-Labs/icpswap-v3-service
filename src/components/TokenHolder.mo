@@ -2,7 +2,6 @@ import Nat "mo:base/Nat";
 import Principal "mo:base/Principal";
 import HashMap "mo:base/HashMap";
 import Iter "mo:base/Iter";
-import Array "mo:base/Array";
 import Types "../Types";
 import Func "../utils/Functions";
 

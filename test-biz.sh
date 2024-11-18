@@ -15,6 +15,10 @@ cat > dfx.json <<- EOF
       "main": "./src/SwapFactory.mo",
       "type": "motoko"
     },
+    "SwapDataBackup": {
+      "main": "./src/SwapDataBackup.mo",
+      "type": "motoko"
+    },
     "PasscodeManager": {
       "main": "./src/PasscodeManager.mo",
       "type": "motoko"
@@ -26,6 +30,10 @@ cat > dfx.json <<- EOF
     },
     "TrustedCanisterManager": {
       "main": "./src/TrustedCanisterManager.mo",
+      "type": "motoko"
+    },
+    "SwapPoolInstaller": {
+      "main": "./src/SwapPoolInstaller.mo",
       "type": "motoko"
     },
     "Test": {
@@ -86,7 +94,7 @@ dfx canister install DIP20A --argument="(\"DIPA Logo\", \"DIPA\", \"DIPA\", 8, $
 dfx canister install DIP20B --argument="(\"DIPB Logo\", \"DIPB\", \"DIPB\", 8, $TOTAL_SUPPLY, principal \"$MINTER_PRINCIPAL\", $TRANS_FEE)"
 
 echo "==> install SwapFeeReceiver"
-dfx canister install SwapFeeReceiver
+dfx canister install SwapFeeReceiver --argument="(principal \"$(dfx canister id SwapFactory)\", record {address=\"$(dfx canister id ICRC2)\"; standard=\"ICRC2\"}, record {address=\"$(dfx canister id ICRC2)\"; standard=\"ICRC2\"}, principal \"$MINTER_PRINCIPAL\")"
 echo "==> install TrustedCanisterManager"
 dfx canister install TrustedCanisterManager --argument="(null)"
 echo "==> install Test"
@@ -97,8 +105,13 @@ echo "==> install base_index"
 dfx deploy base_index --argument="(principal \"$(dfx canister id price)\", principal \"$(dfx canister id node_index)\")"
 echo "==> install node_index"
 dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx canister id price)\")"
+echo "==> install SwapDataBackup"
+dfx canister install SwapDataBackup --argument="(principal \"$(dfx canister id SwapFactory)\", null)"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", null)"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", null)"
+echo "==> install SwapPoolInstaller"
+dfx deploy SwapPoolInstaller --argument="(principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id SwapFactory)\")"
+dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})"  
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
@@ -150,7 +163,7 @@ function create_pool() #sqrtPriceX96
     dfx canister call PasscodeManager depositFrom "(record {amount=100000000;fee=0;})"
     dfx canister call PasscodeManager requestPasscode "(principal \"$token0\", principal \"$token1\", 3000)"
     
-    result=`dfx canister call SwapFactory createPool "(record {token0 = record {address = \"$token0\"; standard = \"DIP20\";}; token1 = record {address = \"$token1\"; standard = \"DIP20\";}; fee = 3000; sqrtPriceX96 = \"$1\"})"`
+    result=`dfx canister call SwapFactory createPool "(record {subnet = opt \"mainnet\"; token0 = record {address = \"$token0\"; standard = \"DIP20\";}; token1 = record {address = \"$token1\"; standard = \"DIP20\";}; fee = 3000; sqrtPriceX96 = \"$1\"})"`
     if [[ ! "$result" =~ " ok = record " ]]; then
         echo "\033[31mcreate pool fail. $result - \033[0m"
     fi
@@ -223,21 +236,19 @@ function decrease() #positionId liquidity amount0Min amount1Min ### liquidity ti
     result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
     echo "unused balance result: $result"
 
-    withdrawAmount0=${result#*=}
-    withdrawAmount0=${withdrawAmount0#*=}
-    withdrawAmount0=${withdrawAmount0%:*}
-    withdrawAmount0=${withdrawAmount0//" "/""}
+    withdrawAmount0=$(echo "$result" | sed -n 's/.*balance0 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
+    withdrawAmount1=$(echo "$result" | sed -n 's/.*balance1 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
     echo "withdraw amount0: $withdrawAmount0"
-
-    withdrawAmount1=${result##*=}
-    withdrawAmount1=${withdrawAmount1%:*}
-    withdrawAmount1=${withdrawAmount1//" "/""}
     echo "withdraw amount1: $withdrawAmount1"
 
-    result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat; })"`
-    echo "$token0 withdraw result: $result"
-    result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat; })"`
-    echo "$token1 withdraw result: $result"
+    if [ "$withdrawAmount0" -ne 0 ]; then
+      result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
+      echo "token0 withdraw result: $result"
+    fi
+    if [ "$withdrawAmount1" -ne 0 ]; then
+      result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
+      echo "token1 withdraw result: $result"
+    fi
 
     info=`dfx canister call $poolId metadata`
     info=${info//"_"/""}
@@ -270,15 +281,9 @@ function swap() #depostToken depostAmount amountIn amountOutMinimum ### liquidit
     result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
     echo "unused balance result: $result"
 
-    withdrawAmount0=${result#*=}
-    withdrawAmount0=${withdrawAmount0#*=}
-    withdrawAmount0=${withdrawAmount0%:*}
-    withdrawAmount0=${withdrawAmount0//" "/""}
+    withdrawAmount0=$(echo "$result" | sed -n 's/.*balance0 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
+    withdrawAmount1=$(echo "$result" | sed -n 's/.*balance1 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
     echo "withdraw amount0: $withdrawAmount0"
-
-    withdrawAmount1=${result##*=}
-    withdrawAmount1=${withdrawAmount1%:*}
-    withdrawAmount1=${withdrawAmount1//" "/""}
     echo "withdraw amount1: $withdrawAmount1"
 
     result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`

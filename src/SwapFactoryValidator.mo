@@ -1,11 +1,10 @@
+import Array "mo:base/Array";
 import Text "mo:base/Text";
-import Nat "mo:base/Nat";
 import Error "mo:base/Error";
 import Bool "mo:base/Bool";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
 import Result "mo:base/Result";
-import PoolUtils "./utils/PoolUtils";
 import Types "./Types";
 
 shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, governanceCid : Principal) = this {
@@ -17,28 +16,70 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
 
     private var _factoryAct = actor (Principal.toText(factoryCid)) : Types.SwapFactoryActor;
 
-    // public shared ({ caller }) func clearRemovedPoolValidate(canisterId : Principal) : async Result {
-    //     assert (Principal.equal(caller, governanceCid));
-    //     switch (await _factoryAct.getRemovedPools()) {
-    //         case (#ok(pools)) {
-    //             for (it in pools.vals()) {
-    //                 if (Principal.equal(canisterId, it.canisterId)) {
-    //                     return #Ok(debug_show (canisterId));
-    //                 };
-    //             };
-    //             return #Err(Principal.toText(canisterId) # " doesn't exist.");
-    //         };
-    //         case (#err(msg)) {
-    //             return #Err(debug_show (msg));
-    //         };
-    //     };
-    // };
+    public shared ({ caller }) func clearRemovedPoolValidate(canisterId : Principal) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        switch (await _factoryAct.getRemovedPools()) {
+            case (#ok(pools)) {
+                for (it in pools.vals()) {
+                    if (Principal.equal(canisterId, it.canisterId)) {
+                        return #Ok(debug_show (canisterId));
+                    };
+                };
+                return #Err(Principal.toText(canisterId) # " doesn't exist.");
+            };
+            case (#err(msg)) {
+                return #Err(debug_show (msg));
+            };
+        };
+    };
+
+    public shared ({ caller }) func batchClearRemovedPoolValidate(poolCids : [Principal]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        switch (await _factoryAct.getRemovedPools()) {
+            case (#ok(pools)) {
+                for (poolCid in poolCids.vals()) {
+                    var existingFlag = false;
+                    for (it in pools.vals()) {
+                        if (Principal.equal(poolCid, it.canisterId)) {
+                            existingFlag := true;
+                        };
+                    };
+                    if (not existingFlag) { return #Err(Principal.toText(poolCid) # " doesn't exist."); };
+                };
+                return #Ok(debug_show (poolCids));
+            };
+            case (#err(msg)) {
+                return #Err(debug_show (msg));
+            };
+        };
+    };
 
     public shared ({ caller }) func removePoolValidate(args : Types.GetPoolArgs) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _factoryAct.getPool(args)) {
-            case (#ok(pool)) {
+            case (#ok(_)) {
                 return #Ok(debug_show (args));
+            };
+            case (#err(msg)) {
+                return #Err(debug_show (msg));
+            };
+        };
+    };
+
+    public shared ({ caller }) func batchRemovePoolsValidate(poolCids : [Principal]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        switch (await _factoryAct.getPools()) {
+            case (#ok(pools)) {
+                for (poolCid in poolCids.vals()) {
+                    var existingFlag = false;
+                    for (it in pools.vals()) {
+                        if (Principal.equal(poolCid, it.canisterId)) {
+                            existingFlag := true;
+                        };
+                    };
+                    if (not existingFlag) { return #Err(Principal.toText(poolCid) # " doesn't exist."); };
+                };
+                return #Ok(debug_show (poolCids));
             };
             case (#err(msg)) {
                 return #Err(debug_show (msg));
@@ -65,30 +106,6 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     //                 };
     //             };
     //             return #Err(Nat.toText(id) # " doesn't exist.");
-    //         };
-    //         case (#err(msg)) {
-    //             return #Err(debug_show (msg));
-    //         };
-    //     };
-    // };
-
-    // public shared ({ caller }) func restorePoolValidate(poolId : Principal) : async Result {
-    //     assert (Principal.equal(caller, governanceCid));
-
-    //     // check if particular pair exists
-
-    //     // check if the version is too old
-
-    //     // check token's canister id and standard
-
-    //     switch (await _factoryAct.getRemovedPools()) {
-    //         case (#ok(pools)) {
-    //             for (it in pools.vals()) {
-    //                 if (Principal.equal(poolId, it.canisterId)) {
-    //                     return #Ok(debug_show (poolId));
-    //                 };
-    //             };
-    //             return #Err(Principal.toText(poolId) # " doesn't exist.");
     //         };
     //         case (#err(msg)) {
     //             return #Err(debug_show (msg));
@@ -145,7 +162,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
 
     public shared ({ caller }) func addPoolControllersValidate(poolCid : Principal, controllers : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
-        if (not (await _checkPool(poolCid))) {
+        if ((not (await _checkPool(poolCid))) and (not (await _checkRemovedPool(poolCid)))) {
             return #Err(Principal.toText(poolCid) # " doesn't exist.");
         };
         return #Ok(debug_show (poolCid) # ", " # debug_show (controllers));
@@ -164,13 +181,29 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         return #Ok(debug_show (poolCid) # ", " # debug_show (controllers));
     };
 
-    // public shared ({ caller }) func setPoolAvailableValidate(poolCid : Principal, available : Bool) : async Result {
-    //     assert (Principal.equal(caller, governanceCid));
-    //     if (not (await _checkPool(poolCid))) {
-    //         return #Err(Principal.toText(poolCid) # " doesn't exist.");
-    //     };
-    //     return #Ok(debug_show (poolCid) # ", " # debug_show (available));
-    // };
+    public shared ({ caller }) func setPoolAvailableValidate(poolCid : Principal, available : Bool) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        if (not (await _checkPool(poolCid))) {
+            return #Err(Principal.toText(poolCid) # " doesn't exist.");
+        };
+        return #Ok(debug_show (poolCid) # ", " # debug_show (available));
+    };
+
+    public shared ({ caller }) func batchSetPoolAvailableValidate(poolCids : [Principal], available : Bool) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        switch (await _checkPools(poolCids)) {
+            case (#ok(_)) { return #Ok(debug_show (poolCids) # ", " # debug_show (available)); };
+            case (#err(msg)) { return #Err(debug_show (msg)); };
+        };
+    };
+
+    public shared ({ caller }) func batchSetPoolLimitOrderAvailableValidate(poolCids : [Principal], available : Bool) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        switch (await _checkPools(poolCids)) {
+            case (#ok(_)) { return #Ok(debug_show (poolCids) # ", " # debug_show (available)); };
+            case (#err(msg)) { return #Err(debug_show (msg)); };
+        };
+    };
 
     public shared ({ caller }) func setPoolAdminsValidate(poolCid : Principal, admins : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
@@ -183,7 +216,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     public shared ({ caller }) func batchAddPoolControllersValidate(poolCids : [Principal], controllers : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {
-            case (#ok(r)) {
+            case (#ok(_)) {
                 return #Ok(debug_show (poolCids) # ", " # debug_show (controllers));
             };
             case (#err(msg)) {
@@ -195,7 +228,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     public shared ({ caller }) func batchRemovePoolControllersValidate(poolCids : [Principal], controllers : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {
-            case (#ok(r)) {
+            case (#ok(_)) {
                 for (it in controllers.vals()) {
                     if (Principal.equal(it, factoryCid)) {
                         return #Err("SwapFactory must be the controller of SwapPool");
@@ -212,13 +245,43 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     public shared ({ caller }) func batchSetPoolAdminsValidate(poolCids : [Principal], admins : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {
-            case (#ok(r)) {
+            case (#ok(_)) {
                 return #Ok(debug_show (poolCids) # ", " # debug_show (admins));
             };
             case (#err(msg)) {
                 return #Err(debug_show (msg));
             };
         };
+    };
+
+    public shared ({ caller }) func setUpgradePoolListlValidate(args : Types.UpgradePoolArgs) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        // set a limit on the number of upgrade tasks
+        if (Array.size(args.poolIds) > 100) { return #Err("The number of canisters to be upgraded cannot be set to more than 100"); };
+        // check task map is empty
+        switch (await _factoryAct.getPendingUpgradePoolList()) {
+            case (#ok(list)) {
+                if (Array.size(list) > 0) {
+                    return #Err("Please wait until the upgrade task list is empty");
+                };
+            };
+            case (#err(msg)) {
+                return #Err("Get pending upgrade pool list failed: " # debug_show(msg));
+            };
+        };        
+        switch (await _checkPools(args.poolIds)) {
+            case (#ok(_)) { return #Ok(debug_show (args)); };
+            case (#err(msg)) { return #Err(debug_show (msg)); };
+        };
+    };
+
+    public shared ({ caller }) func addPoolInstallersValidate(installers : [Types.PoolInstaller]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        return #Ok(debug_show (installers));
+    };
+    public shared ({ caller }) func removePoolInstallersValidate(installers : [Principal]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        return #Ok(debug_show (installers));
     };
 
     public query func getInitArgs() : async Result.Result<{    
@@ -248,7 +311,23 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
                 };
                 return false;
             };
-            case (#err(msg)) {
+            case (#err(_)) {
+                return false;
+            };
+        };
+    };
+
+    private func _checkRemovedPool(poolCid : Principal) : async Bool {
+        switch (await _factoryAct.getRemovedPools()) {
+            case (#ok(pools)) {
+                for (it in pools.vals()) {
+                    if (Principal.equal(poolCid, it.canisterId)) {
+                        return true;
+                    };
+                };
+                return false;
+            };
+            case (#err(_)) {
                 return false;
             };
         };

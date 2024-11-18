@@ -1,15 +1,9 @@
 import Principal "mo:base/Principal";
 import Int "mo:base/Int";
-import Time "mo:base/Time";
-import Buffer "mo:base/Buffer";
 import Hash "mo:base/Hash";
 import HashMap "mo:base/HashMap";
 import Iter "mo:base/Iter";
-import Order "mo:base/Order";
-import Debug "mo:base/Debug";
-import Error "mo:base/Error";
 import Nat "mo:base/Nat";
-import Option "mo:base/Option";
 import Types "../Types";
 
 module TokenAmount {
