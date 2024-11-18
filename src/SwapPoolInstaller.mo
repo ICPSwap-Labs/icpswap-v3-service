@@ -23,7 +23,7 @@ actor class SwapPoolInstaller(
         Cycles.add<system>(_initCycles);
         let act = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
         let canisterId = Principal.fromActor(act);
-        await IC0Utils.update_settings_add_controller(canisterId, [governanceId]);
+        await IC0Utils.update_settings_add_controller(canisterId, [factoryId]);
         return canisterId;
     };
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
