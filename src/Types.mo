@@ -564,6 +564,7 @@ module {
         addPasscode : (Principal, Passcode) -> async Result.Result<(), Error>;
         deletePasscode : (Principal, Passcode) -> async Result.Result<(), Error>;
         getRemovedPools : query () -> async Result.Result<[PoolData], Error>;
+        getPoolInstallers : query () -> async [PoolInstaller];
     };
     public type SwapDataBackupActor = actor {
         backup : (Principal) -> async Result.Result<(), Error>;
