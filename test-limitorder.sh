@@ -113,8 +113,8 @@ echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
 echo "==> install SwapPoolInstaller"
-dfx canister install SwapPoolInstaller --argument="(principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id SwapFactory)\")"
-dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; weight = 100: nat};})"  
+dfx deploy SwapPoolInstaller --argument="(principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id SwapFactory)\")"
+dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})"  
 
 dipAId=`dfx canister id DIP20A`
 dipBId=`dfx canister id DIP20B`
@@ -164,7 +164,7 @@ function create_pool() #sqrtPriceX96
     dfx canister call PasscodeManager depositFrom "(record {amount=100000000;fee=0;})"
     dfx canister call PasscodeManager requestPasscode "(principal \"$token0\", principal \"$token1\", 3000)"
     
-    result=`dfx canister call SwapFactory createPool "(record {subnet = opt \"mainnet\"; subnetType = \"mainnet\"; token0 = record {address = \"$token0\"; standard = \"DIP20\";}; token1 = record {address = \"$token1\"; standard = \"DIP20\";}; fee = 3000; sqrtPriceX96 = \"$1\"})"`
+    result=`dfx canister call SwapFactory createPool "(record {subnet = opt \"mainnet\"; token0 = record {address = \"$token0\"; standard = \"DIP20\";}; token1 = record {address = \"$token1\"; standard = \"DIP20\";}; fee = 3000; sqrtPriceX96 = \"$1\"})"`
     if [[ ! "$result" =~ " ok = record " ]]; then
         echo "\033[31mcreate pool fail. $result - \033[0m"
     fi
@@ -356,8 +356,8 @@ function test_limit_order()
     mint -23040 0 100000000000 92884678893 1667302813453 1573153132015 529634421680 24850 274450166607934908532224538203
     
     echo "==> add lower limit order 3"
-    # dfx canister call $poolId addLimitOrder "(record { positionId = 3 :nat; tickLimit = -23040 :int; })"
-    dfx canister call $poolId addLimitOrder "(record { positionId = 102 :nat; tickLimit = -23040 :int; })"
+    dfx canister call $poolId addLimitOrder "(record { positionId = 3 :nat; tickLimit = -23040 :int; })"
+    #  dfx canister call $poolId addLimitOrder "(record { positionId = 102 :nat; tickLimit = -23040 :int; })"
 
     withdrawAll
 
