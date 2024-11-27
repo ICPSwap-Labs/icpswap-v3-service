@@ -26,6 +26,17 @@ actor class SwapPoolInstaller(
         await IC0Utils.update_settings_add_controller(canisterId, [factoryId]);
         return canisterId;
     };
+
+    public shared func getCanisterStatus() : async { controllers: [Principal]; moduleHash: ?Blob } {
+        let status = await IC0Utils.canister_status(Principal.fromActor(this));
+        let controllers = status.settings.controllers;
+        let moduleHash = status.module_hash;
+        return {
+            controllers = controllers;
+            moduleHash = moduleHash;
+        };
+    };
+
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
