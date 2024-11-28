@@ -206,6 +206,17 @@ shared (initMsg) actor class SwapPool(
             case (_) {};
         };
     };
+    private func _hasActiveLimitOrder(userPositionId: Nat) : Bool {
+        // Check upper limit orders
+        for ((_, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+            if (value.userPositionId == userPositionId) { return true; };
+        };
+        // Check lower limit orders
+        for ((_, value) in RBTree.iter(_lowerLimitOrders.share(), #fwd)) {
+            if (value.userPositionId == userPositionId) { return true; };
+        };
+        return false;
+    };
     public query func getLimitOrders() : async Result.Result<{
         lowerLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)];
         upperLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)];
@@ -1309,7 +1320,10 @@ shared (initMsg) actor class SwapPool(
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
-
+        // Check if position already has an active order
+        if (_hasActiveLimitOrder(args.positionId)) {
+            return #err(#InternalError("Position already has an active limit order"));
+        };
         var tickCurrent = _tick;
         var tickLimit = args.tickLimit;
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
@@ -1741,7 +1755,6 @@ shared (initMsg) actor class SwapPool(
         token0 : Nat;
         token1 : Nat;
     } {
-        assert(_isAvailable(msg.caller));
         var canisterId = Principal.fromActor(this);
         return {
             token0 = await _token0Act.balanceOf({
@@ -2100,8 +2113,7 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query (msg) func checkOwnerOfUserPosition(owner : Principal, positionId : Nat) : async Result.Result<Bool, Types.Error> {
-        assert(_isAvailable(msg.caller));
+    public query func checkOwnerOfUserPosition(owner : Principal, positionId : Nat) : async Result.Result<Bool, Types.Error> {
         return #ok(_positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(owner), positionId));
     };
 

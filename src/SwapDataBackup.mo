@@ -212,20 +212,6 @@ shared (initMsg) actor class SwapDataBackup(
         _poolBackupMap := HashMap.HashMap<Principal, PoolBackupData>(0, Principal.equal, Principal.hash);
         #ok();
     };
-
-    public query func getBackupData(poolCid : Principal) : async Result.Result<PoolBackupData, Types.Error> {
-        switch (_poolBackupMap.get(poolCid)) {
-            case (?backup) {
-                if (backup.isFailed) {
-                    return #err(#InternalError(backup.errorMsg));
-                };
-                #ok(backup);
-            };
-            case (_) {
-                #err(#InternalError("No backup data found for pool " # Principal.toText(poolCid)));
-            };
-        };
-    };
         
     // public shared (msg) func recoverPool() : async Result.Result<Types.PoolData, Types.Error> {
     //     // ----- recover -----
