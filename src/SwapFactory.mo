@@ -428,9 +428,8 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func batchClearRemovedPool(poolCids : [Principal]) : async () {
         _checkPermission(msg.caller);
-        for (poolCid in poolCids.vals()) {
-            ignore _poolDataService.deletePool(Principal.toText(poolCid));
-        };
+        for (poolCid in poolCids.vals()) { await _addPoolControllers(poolCid, [feeReceiverCid]); };
+        for (poolCid in poolCids.vals()) { ignore _poolDataService.deletePool(Principal.toText(poolCid)); };
     };
 
     public shared (msg) func clearPoolUpgradeTaskHis() : async () {
