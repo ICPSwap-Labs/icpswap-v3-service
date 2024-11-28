@@ -366,7 +366,7 @@ shared (initMsg) actor class SwapFactory(
             return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 100")); 
         };
         for (poolId in args.poolIds.vals()) {
-            label l {
+            label poolLoop {
                 for ((poolKey, pooldata) in _poolDataService.getPools().entries()) {
                     if (Principal.equal(poolId, pooldata.canisterId)) {
                         let newTask : Types.PoolUpgradeTask = {
@@ -381,6 +381,7 @@ shared (initMsg) actor class SwapFactory(
                             turnOnAvailable = { timestamp = 0; isDone = false; };
                         };
                         _pendingUpgradePoolList := List.push(newTask, _pendingUpgradePoolList);
+                        break poolLoop; // Break after finding and processing the matching pool
                     };
                 };
             };
