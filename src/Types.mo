@@ -451,6 +451,7 @@ module {
         #addPasscode : () -> (Principal, Passcode);
         #addPoolControllers : () -> (Principal, [Principal]);
         #addPoolInstallers : () -> [PoolInstaller];
+        #addPoolInstallersValidate : () -> [PoolInstaller];
         #batchAddPoolControllers : () -> ([Principal], [Principal]);
         #batchClearRemovedPool : () -> [Principal];
         #batchRemovePoolControllers : () -> ([Principal], [Principal]);
@@ -467,6 +468,7 @@ module {
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();
         #getInitArgs : () -> ();
+        #getInstallerModuleHash : () -> ();
         #getNextPoolVersion : () -> ();
         #getPasscodesByPrincipal : () -> Principal;
         #getPendingUpgradePoolList : () -> ();
@@ -486,7 +488,9 @@ module {
         #removePoolControllers : () -> (Principal, [Principal]);
         #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
         #removePoolInstaller : () -> Principal;
+        #removePoolInstallersValidate : () -> [Principal];
         #retryAllFailedUpgrades : () -> ();
+        #setInstallerModuleHash : () -> Blob;
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;

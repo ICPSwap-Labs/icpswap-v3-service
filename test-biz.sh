@@ -74,10 +74,6 @@ cat > dfx.json <<- EOF
   "defaults": { "build": { "packtool": "vessel sources" } }, "networks": { "local": { "bind": "127.0.0.1:8000", "type": "ephemeral" } }, "version": 1
 }
 EOF
-TOTAL_SUPPLY="1000000000000000000"
-# TRANS_FEE="100000000";
-TRANS_FEE="0";
-MINTER_PRINCIPAL="$(dfx identity get-principal)"
 
 dfx start --clean --background
 echo "-=========== create all"
@@ -85,6 +81,13 @@ dfx canister create --all
 echo "-=========== build all"
 dfx build
 echo
+
+TOTAL_SUPPLY="1000000000000000000"
+# TRANS_FEE="100000000";
+TRANS_FEE="0";
+MINTER_PRINCIPAL="$(dfx identity get-principal)"
+MINTER_WALLET="$(dfx identity get-wallet)"
+
 echo "==> Install canisters"
 echo
 echo "==> install ICRC2"
@@ -108,10 +111,7 @@ dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx ca
 echo "==> install SwapDataBackup"
 dfx canister install SwapDataBackup --argument="(principal \"$(dfx canister id SwapFactory)\", null)"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", null)"
-echo "==> install SwapPoolInstaller"
-dfx deploy SwapPoolInstaller --argument="(principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id SwapFactory)\")"
-dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})"  
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", opt principal \"$MINTER_PRINCIPAL\")"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
@@ -127,6 +127,17 @@ zeroForOne="true"
 echo "==> infoId (\"$infoId\")"
 echo "==> positionIndexId (\"$positionIndexId\")"
 echo "==> swapFeeReceiverId (\"$swapFeeReceiverId\")"
+
+echo "==> install SwapPoolInstaller"
+dfx deploy SwapPoolInstaller --argument="(principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id SwapFactory)\")"
+# dfx canister status SwapPoolInstaller
+dfx canister update-settings SwapPoolInstaller --add-controller "$swapFactoryId"
+dfx canister update-settings SwapPoolInstaller --remove-controller "$MINTER_WALLET"
+# dfx canister status SwapPoolInstaller
+MODULE_HASH=$(dfx canister call SwapPoolInstaller getCanisterStatus | sed -n 's/.*moduleHash = opt blob "\(.*\)".*/\1/p')
+dfx canister call SwapFactory setInstallerModuleHash "(blob \"$MODULE_HASH\")"
+dfx canister call SwapFactory getInstallerModuleHash
+dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})" 
 
 dfx canister call base_index addClient "(principal \"$swapFactoryId\")"
 
