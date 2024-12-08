@@ -2,13 +2,10 @@ import Array "mo:base/Array";
 import Text "mo:base/Text";
 import Error "mo:base/Error";
 import Bool "mo:base/Bool";
-import Blob "mo:base/Blob";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
 import Result "mo:base/Result";
 import Types "./Types";
-import IC0Utils "mo:commons/utils/IC0Utils";
-import Prim "mo:⛔";
 
 shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, governanceCid : Principal) = this {
 
@@ -184,6 +181,12 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         if (not (await _checkPool(poolCid))) {
             return #Err(Principal.toText(poolCid) # " doesn't exist.");
         };
+        // Check for anonymous principals
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) {
+                return #Err("Anonymous principals cannot be pool admins");
+            };
+        };
         return #Ok(debug_show (poolCid) # ", " # debug_show (admins));
     };
 
@@ -218,6 +221,12 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
 
     public shared ({ caller }) func batchSetPoolAdminsValidate(poolCids : [Principal], admins : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
+        // Check for anonymous principals
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) {
+                return #Err("Anonymous principals cannot be pool admins");
+            };
+        };
         switch (await _checkPools(poolCids)) {
             case (#ok(_)) {
                 return #Ok(debug_show (poolCids) # ", " # debug_show (admins));

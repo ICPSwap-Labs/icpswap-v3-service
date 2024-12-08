@@ -2172,6 +2172,7 @@ shared (initMsg) actor class SwapPool(
         assert(Prim.isController(caller));
     };
     private func _checkAdminPermission(caller: Principal) {
+        assert(not Principal.isAnonymous(caller));
         assert(CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller));
     };
     private func _hasPermission(msg: Types.SwapPoolMsg, caller: Principal): Bool {
