@@ -138,6 +138,9 @@ MODULE_HASH=$(dfx canister call SwapPoolInstaller getCanisterStatus | sed -n 's/
 dfx canister call SwapFactory setInstallerModuleHash "(blob \"$MODULE_HASH\")"
 dfx canister call SwapFactory getInstallerModuleHash
 dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})" 
+dfx canister call SwapFactory removePoolInstaller "(principal \"$(dfx canister id SwapPoolInstaller)\")" 
+dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})" 
+# dfx canister call SwapFactory getPoolInstallers
 
 dfx canister call base_index addClient "(principal \"$swapFactoryId\")"
 
