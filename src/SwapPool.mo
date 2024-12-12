@@ -46,6 +46,7 @@ import CollectionUtils "mo:commons/utils/CollectionUtils";
 import Bool "mo:base/Bool";
 import Prim "mo:⛔";
 import Hash "mo:base/Hash";
+import Job "./components/Job";
 
 shared (initMsg) actor class SwapPool(
     token0 : Types.Token,
@@ -74,7 +75,7 @@ shared (initMsg) actor class SwapPool(
         _maxLiquidityPerTick := Tick.tickSpacingToMaxLiquidityPerTick(SafeInt.Int24(tickSpacing));
         _inited := true;
         _canisterId := ?Principal.fromActor(this);
-        await _syncTokenFee();
+        await _syncTokenFeeJob();
     };
 
     private var _canisterId : ?Principal = null;
@@ -136,11 +137,7 @@ shared (initMsg) actor class SwapPool(
     private let _trustAct = actor (Principal.toText(trustedCanisterManagerCid)) : actor { isCanisterTrusted : shared query (Principal) -> async Bool; };
     private let NANOSECONDS_PER_SECOND : Nat = 1_000_000_000;
     private let SECOND_PER_DAY : Nat = 86400;
-    private func _syncRecord() : async () { await _swapRecordService.syncRecord(); };
-    let _syncRecordPerMinute = Timer.recurringTimer<system>(#seconds(60), _syncRecord);
-
-    private func _syncTokenFee() : async () { _token0Fee := ?(await _token0Act.fee()); _token1Fee := ?(await _token1Act.fee()); };
-    let _syncTokenFeePerHour = Timer.recurringTimer<system>(#seconds(3600), _syncTokenFee);
+    
 
     // --------------------------- limit order ------------------------------------
     private stable var _isLimitOrderAvailable = false;
@@ -333,20 +330,7 @@ shared (initMsg) actor class SwapPool(
     private stable var _claimLog : [Text] = [];
     private var _claimLogBuffer : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
     public query func getClaimLog() : async [Text] { return Buffer.toArray(_claimLogBuffer); };
-    private func _claimSwapFeeRepurchase() : async () {
-        let balance0 = _tokenAmountService.getSwapFee0Repurchase();
-        let balance1 = _tokenAmountService.getSwapFee1Repurchase();
-        if (balance0 > 0 or balance1 > 0) {
-            _claimLogBuffer.add("{\"amount0\": \"" # debug_show(balance0) # "\", \"amount1\": \"" # debug_show(balance1) # "\", \"timestamp\": \"" # debug_show(BlockTimestamp.blockTimestamp()) # "\"}");
-            ignore _tokenHolderService.deposit2(feeReceiverCid, _token0, balance0, _token1, balance1);
-            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
-            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
-            _tokenAmountService.setSwapFee0Repurchase(0);
-            _tokenAmountService.setSwapFee1Repurchase(0);
-        };
-    };
-    let _claimSwapFeeRepurchasePerWeek = Timer.recurringTimer<system>(#seconds(604800), _claimSwapFeeRepurchase);
-
+    
     private func _checkAmount(amountDesired : Nat, operator : Principal, token : Types.Token) : Bool {
         var balance = _tokenHolderService.getBalance(operator, token);
         if (amountDesired > balance) { return false };
@@ -413,7 +397,7 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    private func _decreaseLiquidity(owner : Principal, loArgs : Types.DecreaseLimitOrderArgs, args : Types.DecreaseLiquidityArgs) : Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {        
+    private func _decreaseLiquidity(owner : Principal, loArgs : Types.DecreaseLimitOrderArgs, args : Types.DecreaseLiquidityArgs) : async* Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {        
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         var liquidityDelta = TextUtils.toNat(args.liquidity);
         if (Nat.equal(liquidityDelta, 0)) { return #err(#InternalError("Illegal liquidity delta")); };
@@ -445,6 +429,7 @@ shared (initMsg) actor class SwapPool(
                 true
             );
             ignore _tokenHolderService.deposit2(owner, _token0, collectResult.amount0, _token1, collectResult.amount1);
+            _jobService.onActivity<system>();
         };
         return #ok({
             amount0 = collectResult.amount0;
@@ -1306,7 +1291,7 @@ shared (initMsg) actor class SwapPool(
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
             _pushSwapInfoCache(#addLiquidity, Principal.toText(msg.caller), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), addResult.liquidityDelta, addResult.amount0, addResult.amount1, true);
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
-
+            _jobService.onActivity<system>();
             return #ok(positionId);
         } catch (e) {
             _rollback("mint failed: " # Error.message(e));
@@ -1441,6 +1426,9 @@ shared (initMsg) actor class SwapPool(
             _pushSwapInfoCache(#increaseLiquidity, Principal.toText(msg.caller), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), addResult.liquidityDelta, addResult.amount0, addResult.amount1, true);
 
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
+            ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () {
+                _jobService.onActivity<system>();
+            });
         } catch (e) {
             _rollback("increase liquidity failed: " # Error.message(e));
         };
@@ -1454,8 +1442,9 @@ shared (initMsg) actor class SwapPool(
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
-
-        return _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
+        // let result = _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
+        // return result;
+        return await* _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
     };
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
@@ -1490,7 +1479,7 @@ shared (initMsg) actor class SwapPool(
         } catch (e) {
             _rollback("claim failed: " # Error.message(e));
         };
-
+        _jobService.onActivity<system>();
         return #ok({
             amount0 = collectResult.amount0;
             amount1 = collectResult.amount1;
@@ -1544,7 +1533,7 @@ shared (initMsg) actor class SwapPool(
 
         // set a one-time timer to remove limit order automatically
         ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
-        
+        _jobService.onActivity<system>();
         return #ok(swapAmount);
     };
 
@@ -1582,6 +1571,7 @@ shared (initMsg) actor class SwapPool(
 
                     _positionTickService.deleteAllowancedUserPosition(positionId);
                     _pushSwapInfoCache(#transferPosition(positionId), Principal.toText(from), Principal.toText(to), Principal.toText(to), 0, 0, 0, true);
+                    _jobService.onActivity<system>();
                     return #ok(true);
                 } else {
                     throw Error.reject("transfer position failed: the sender doesn't own the position");
@@ -2254,17 +2244,42 @@ shared (initMsg) actor class SwapPool(
         return ICRC21.icrc21_canister_call_consent_message(request);
     };
 
+    private func _syncRecordsJob() : async () { await _swapRecordService.syncRecord(); };
+
+    private func _syncTokenFeeJob() : async () { _token0Fee := ?(await _token0Act.fee()); _token1Fee := ?(await _token1Act.fee()); };
+    
+    private func _claimSwapFeeRepurchaseJob() : async () {
+        let balance0 = _tokenAmountService.getSwapFee0Repurchase();
+        let balance1 = _tokenAmountService.getSwapFee1Repurchase();
+        if (balance0 > 0 or balance1 > 0) {
+            _claimLogBuffer.add("{\"amount0\": \"" # debug_show(balance0) # "\", \"amount1\": \"" # debug_show(balance1) # "\", \"timestamp\": \"" # debug_show(BlockTimestamp.blockTimestamp()) # "\"}");
+            ignore _tokenHolderService.deposit2(feeReceiverCid, _token0, balance0, _token1, balance1);
+            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
+            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
+            _tokenAmountService.setSwapFee0Repurchase(0);
+            _tokenAmountService.setSwapFee1Repurchase(0);
+        };
+    };
+    
     // jobs...
     // Clear transfer logs older than 60 days every 12 hours.
-    let _clearExpiredTransferLogsJob = Timer.recurringTimer<system>(#seconds(43200), func (): async () {
+    private func _clearExpiredTransferLogsJob(): async () {
         let today: Nat = Int.abs(Time.now()) / NANOSECONDS_PER_SECOND / SECOND_PER_DAY;
         for ((index, log) in _transferLog.entries()) {
             if (Nat.sub(today, log.daysFrom19700101) > 60) {
                 _postTransferComplete(index);
             };
         };
-    });
-
+    };
+    let _jobService: Job.JobService = Job.JobService();
+    public shared func stopJobs(names: [Text]) : async () {
+        _jobService.stopJobs(names);
+    };
+    public shared func restartJobs(names: [Text]) : async () {
+        _jobService.restartJobs<system>(names);
+    };
+    
+    
     system func preupgrade() {
         _userPositionsEntries := Iter.toArray(_positionTickService.getUserPositions().entries());
         _positionsEntries := Iter.toArray(_positionTickService.getPositions().entries());
@@ -2295,6 +2310,11 @@ shared (initMsg) actor class SwapPool(
         _transferLogArray := [];
         _lowerLimitOrderEntries := [];
         _upperLimitOrderEntries := [];
+
+        _jobService.createJob<system>("SyncTrxsJob", 60, _syncRecordsJob);
+        _jobService.createJob<system>("SyncTokenFeeJob", 3600, _syncTokenFeeJob);
+        _jobService.createJob<system>("WithdrawFeeJob", 3600 * 24 * 7, _claimSwapFeeRepurchaseJob);
+        _jobService.createJob<system>("ClearExpiredTransferLogJob", 3600 * 24 * 7, _clearExpiredTransferLogsJob);
     };
     
     system func inspect({

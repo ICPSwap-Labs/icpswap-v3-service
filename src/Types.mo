@@ -431,6 +431,8 @@ module {
         #getAdmins : () -> ();
         #getMistransferBalance : () -> Token;
         #withdrawMistransferBalance : () -> Token;
+        #stopJobs : () -> [Text];
+        #restartJobs : () -> [Text];
         // --------  Admin permission required.  ---------
         #depositAllAndMint : () -> DepositAndMintArgs;
         #setAvailable : () -> Bool;
