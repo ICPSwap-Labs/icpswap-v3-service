@@ -2283,6 +2283,10 @@ shared (initMsg) actor class SwapPool(
     public query func getJobs() : async [Job.JobInfo] {
         return _jobService.getJobs();
     };
+    public shared({caller}) func activeJobs() : async () {
+        _checkAdminPermission(caller);
+        _jobService.active();
+    };
     _jobService.createJob<system>("SyncTrxsJob", 60, _syncRecordsJob);
     _jobService.createJob<system>("SyncTokenFeeJob", 3600, _syncTokenFeeJob);
     _jobService.createJob<system>("WithdrawFeeJob", 3600 * 24 * 7, _claimSwapFeeRepurchaseJob);

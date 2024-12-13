@@ -28,8 +28,7 @@ module Jobs {
     
     public class JobService() {
 
-        // private let LEVEL_DOWNGRADE_THRESHOLD = 24 * 3600 * 1000000000;
-        private let LEVEL_DOWNGRADE_THRESHOLD = 5 * 60 * 1000000000;
+        private let LEVEL_DOWNGRADE_THRESHOLD = 24 * 3600 * 1000000000;
 
         let _jobs: HashMap.HashMap<Text, Job> = HashMap.HashMap<Text, Job>(4, Text.equal, Text.hash);
         var _lastActivity: Time.Time = 0; 
@@ -43,6 +42,10 @@ module Jobs {
                     lastRun = job.lastRun;
                 }
             }));
+        };
+        public func active() {
+            _lastActivity := Time.now();
+            _level := #Active;
         };
         public func createJob<system>(name: Text, interval: Nat, job: () -> async ()) {
             Debug.print("Creating job: " # name);
@@ -127,11 +130,22 @@ module Jobs {
             };
         };
         public func restartJobs<system>(names: [Text]) {
+            if (_level == #Inactive) {
+                Debug.print("Cannot restart jobs in Inactive state");
+                return;
+            };
+            
+            if ((Time.now() - _lastActivity) > LEVEL_DOWNGRADE_THRESHOLD) {
+                Debug.print("Cannot restart jobs due to inactivity");
+                return;
+            };
+
             let arr: [Text] = if (names.size() == 0) {
                 Iter.toArray(_jobs.keys())
             } else {
                 names;
             };
+            
             for (name in arr.vals()) {
                 _startJob<system>(name);
             };
