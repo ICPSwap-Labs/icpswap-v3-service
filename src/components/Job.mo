@@ -5,13 +5,19 @@ import Iter "mo:base/Iter";
 import Text "mo:base/Text";
 import Option "mo:base/Option";
 import Debug "mo:base/Debug";
+import Nat "mo:base/Nat";
 
 module Jobs {
-    public type Interval = Nat;
     public type Job = {
         name : Text;
-        interval : Interval;
+        interval : Nat;
         job : () -> async ();
+        timerId : ?Nat;
+        lastRun : Time.Time;
+    };
+    public type JobInfo = {
+        name : Text;
+        interval : Nat;
         timerId : ?Nat;
         lastRun : Time.Time;
     };
@@ -22,15 +28,24 @@ module Jobs {
     
     public class JobService() {
 
-        private let LEVEL_DOWNGRADE_THRESHOLD = 24 * 3600 * 1000000000;
+        // private let LEVEL_DOWNGRADE_THRESHOLD = 24 * 3600 * 1000000000;
+        private let LEVEL_DOWNGRADE_THRESHOLD = 5 * 60 * 1000000000;
 
         let _jobs: HashMap.HashMap<Text, Job> = HashMap.HashMap<Text, Job>(4, Text.equal, Text.hash);
         var _lastActivity: Time.Time = 0; 
-        var _level: Level = #Inactive;
-        private func _getInterval(interval: Interval): Nat {
-            return interval;
+        var _level: Level = #Active;
+        public func getJobs(): [JobInfo] {
+            return Iter.toArray(Iter.map<(Text, Job), JobInfo>(_jobs.entries(), func((name, job)): JobInfo {
+                {
+                    name = job.name;
+                    interval = job.interval;
+                    timerId = job.timerId;
+                    lastRun = job.lastRun;
+                }
+            }));
         };
-        public func createJob<system>(name: Text, interval: Interval, job: () -> async ()) {
+        public func createJob<system>(name: Text, interval: Nat, job: () -> async ()) {
+            Debug.print("Creating job: " # name);
             let wrapped = func() : async() {
                 Debug.print("Running job: " # name);
                 await job();
@@ -49,7 +64,7 @@ module Jobs {
                 if ((Time.now() - _lastActivity) > LEVEL_DOWNGRADE_THRESHOLD) {
                     Debug.print("Downgrading level...");
                     _level := #Inactive;
-                    restartJobs<system>([]);
+                    stopJobs([]);
                 };
             };
             let id = Option.make(Timer.recurringTimer<system>(#seconds(interval), wrapped));
@@ -62,12 +77,14 @@ module Jobs {
             });
         };
         private func _stopJob(name: Text) {
+            Debug.print("Stopping job: " # name);
             switch (_jobs.get(name)) {
                 case (null) {  };
                 case (?job) {
                     switch (job.timerId) {
                         case (null) {  };
                         case (?timerId) {
+                            Debug.print("Stopping job: " # name # " with timerId: " # Nat.toText(timerId));
                             Timer.cancelTimer(timerId);
                             _jobs.put(name, {
                                 name = job.name;

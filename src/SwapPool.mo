@@ -2272,13 +2272,21 @@ shared (initMsg) actor class SwapPool(
         };
     };
     let _jobService: Job.JobService = Job.JobService();
-    public shared func stopJobs(names: [Text]) : async () {
+    public shared({caller}) func stopJobs(names: [Text]) : async () {
+        _checkAdminPermission(caller);
         _jobService.stopJobs(names);
     };
-    public shared func restartJobs(names: [Text]) : async () {
+    public shared({caller}) func restartJobs(names: [Text]) : async () {
+        _checkAdminPermission(caller);
         _jobService.restartJobs<system>(names);
     };
-    
+    public query func getJobs() : async [Job.JobInfo] {
+        return _jobService.getJobs();
+    };
+    _jobService.createJob<system>("SyncTrxsJob", 60, _syncRecordsJob);
+    _jobService.createJob<system>("SyncTokenFeeJob", 3600, _syncTokenFeeJob);
+    _jobService.createJob<system>("WithdrawFeeJob", 3600 * 24 * 7, _claimSwapFeeRepurchaseJob);
+    _jobService.createJob<system>("ClearExpiredTransferLogJob", 3600 * 24 * 7, _clearExpiredTransferLogsJob);
     
     system func preupgrade() {
         _userPositionsEntries := Iter.toArray(_positionTickService.getUserPositions().entries());
@@ -2311,10 +2319,7 @@ shared (initMsg) actor class SwapPool(
         _lowerLimitOrderEntries := [];
         _upperLimitOrderEntries := [];
 
-        _jobService.createJob<system>("SyncTrxsJob", 60, _syncRecordsJob);
-        _jobService.createJob<system>("SyncTokenFeeJob", 3600, _syncTokenFeeJob);
-        _jobService.createJob<system>("WithdrawFeeJob", 3600 * 24 * 7, _claimSwapFeeRepurchaseJob);
-        _jobService.createJob<system>("ClearExpiredTransferLogJob", 3600 * 24 * 7, _clearExpiredTransferLogsJob);
+        
     };
     
     system func inspect({
