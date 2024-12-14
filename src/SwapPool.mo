@@ -2280,7 +2280,7 @@ shared (initMsg) actor class SwapPool(
         _checkAdminPermission(caller);
         _jobService.restartJobs<system>(names);
     };
-    public query func getJobs() : async [Job.JobInfo] {
+    public query func getJobs() : async { level: Job.Level; jobs: [Job.JobInfo] } {
         return _jobService.getJobs();
     };
     public shared({caller}) func activeJobs() : async () {
