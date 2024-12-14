@@ -33,15 +33,18 @@ module Jobs {
         let _jobs: HashMap.HashMap<Text, Job> = HashMap.HashMap<Text, Job>(4, Text.equal, Text.hash);
         var _lastActivity: Time.Time = 0; 
         var _level: Level = #Active;
-        public func getJobs(): [JobInfo] {
-            return Iter.toArray(Iter.map<(Text, Job), JobInfo>(_jobs.entries(), func((name, job)): JobInfo {
-                {
-                    name = job.name;
-                    interval = job.interval;
-                    timerId = job.timerId;
-                    lastRun = job.lastRun;
-                }
-            }));
+        public func getJobs(): { level : Level; jobs : [JobInfo]} {
+            return {
+                level = _level;
+                jobs = Iter.toArray(Iter.map<(Text, Job), JobInfo>(_jobs.entries(), func((name, job)): JobInfo {
+                    {
+                        name = job.name;
+                        interval = job.interval;
+                        timerId = job.timerId;
+                       lastRun = job.lastRun;
+                    }
+                }));
+            };
         };
         public func active() {
             _lastActivity := Time.now();
