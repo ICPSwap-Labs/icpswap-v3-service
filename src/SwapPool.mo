@@ -195,7 +195,7 @@ shared (initMsg) actor class SwapPool(
         switch (_popLimitOrderStack()) {
             case (?(key, value)) {
                 var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
-                ignore _decreaseLiquidity(
+                ignore await* _decreaseLiquidity(
                     value.owner, 
                     { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; tickLimit = key.tickLimit; }, 
                     { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); });
