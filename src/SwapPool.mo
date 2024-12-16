@@ -2324,8 +2324,6 @@ shared (initMsg) actor class SwapPool(
         _transferLogArray := [];
         _lowerLimitOrderEntries := [];
         _upperLimitOrderEntries := [];
-
-        
     };
     
     system func inspect({
