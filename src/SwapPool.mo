@@ -417,17 +417,19 @@ shared (initMsg) actor class SwapPool(
         _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
         _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
-            _pushSwapInfoCache(
-                if (not loArgs.isLimitOrder) { #decreaseLiquidity; } 
-                else { #limitOrder({ positionId = args.positionId; tickLimit = loArgs.tickLimit; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }); }, 
-                Principal.toText(Principal.fromActor(this)), 
-                Principal.toText(owner), 
-                Principal.toText(owner), 
-                liquidityDelta, 
-                collectResult.amount0, 
-                collectResult.amount1, 
-                true
-            );
+            _pushSwapInfoCache(#decreaseLiquidity, Principal.toText(Principal.fromActor(this)), Principal.toText(owner), Principal.toText(owner), liquidityDelta, collectResult.amount0, collectResult.amount1, true);
+            if (loArgs.isLimitOrder) {
+                _pushSwapInfoCache(
+                    #limitOrder({ positionId = args.positionId; tickLimit = loArgs.tickLimit; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }), 
+                    Principal.toText(Principal.fromActor(this)), 
+                    Principal.toText(owner), 
+                    Principal.toText(owner), 
+                    liquidityDelta, 
+                    collectResult.amount0, 
+                    collectResult.amount1, 
+                    true
+                );
+            };
             ignore _tokenHolderService.deposit2(owner, _token0, collectResult.amount0, _token1, collectResult.amount1);
             _jobService.onActivity<system>();
         };
