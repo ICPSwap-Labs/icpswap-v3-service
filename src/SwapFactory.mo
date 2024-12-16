@@ -798,10 +798,64 @@ shared (initMsg) actor class SwapFactory(
             }; 
             case (_) {
                 if (null != _setNextUpgradeTask()) { ignore Timer.setTimer<system>(#seconds (0), _execUpgrade); };
-            };  
+            };
         };
     };
     // --------------------------------------------------------------------------------------------
+
+    private stable var _installerModuleHash : ?Blob = null;
+    public shared ({ caller}) func setInstallerModuleHash(moduleHash : Blob) : async () {
+        _checkPermission(caller);
+        _installerModuleHash := ?moduleHash;
+    };
+    public query func getInstallerModuleHash() : async ?Blob { _installerModuleHash; };
+
+    private func _validateInstaller(installer: Types.PoolInstaller) : async { #Ok : Text; #Err : Text; } {
+        let status = await IC0Utils.canister_status(installer.canisterId);
+        let controllers = status.settings.controllers;
+        let moduleHash = status.module_hash;
+        // Check controllers
+        if (controllers.size() != 2 or (
+            switch(governanceCid) {
+                case (?gCid) {
+                    let hasGovAndFactory = Array.sort(controllers, Principal.compare) == Array.sort([gCid, Principal.fromActor(this)], Principal.compare);
+                    not hasGovAndFactory
+                };
+                case (null) { true }; // If no governanceCid, condition fails
+            }
+        )) {
+            return #Err("Installer " # Principal.toText(installer.canisterId) # " must have exactly two controllers: governanceCid and factoryCid");
+        };
+
+        // Check moduleHash
+        switch (_installerModuleHash) {
+            case (?expectedHash) {
+                switch (moduleHash) {
+                    case (?actualHash) {
+                        if (not Blob.equal(actualHash, expectedHash)) {
+                            Debug.print("Expected: " # debug_show(expectedHash));
+                            Debug.print("Actual: " # debug_show(actualHash));
+                            return #Err("Installer " # Principal.toText(installer.canisterId) # " has incorrect module hash");
+                        };
+                    };
+                    case (null) { return #Err("Installer " # Principal.toText(installer.canisterId) # " has no module hash"); };
+                };
+            };
+            case (null) { return #Err("No installer module hash has been set"); };
+        };
+        
+        return #Ok("Valid installer");
+    };
+    public shared ({ caller }) func addPoolInstallersValidate(installers : [Types.PoolInstaller]) : async { #Ok : Text; #Err : Text; } {
+        _checkPermission(caller);
+        for (installer in installers.vals()) {
+            switch (await _validateInstaller(installer)) {
+                case (#Err(msg)) { return #Err(msg); };
+                case (_) {};
+            };
+        };
+        return #Ok(debug_show (installers));
+    };
     
     private stable var _poolInstallers : [Types.PoolInstaller] = [];
     private type Installer = {
@@ -852,7 +906,10 @@ shared (initMsg) actor class SwapFactory(
         _checkPermission(caller);
         let buffer: Buffer.Buffer<Types.PoolInstaller> = Buffer.Buffer<Types.PoolInstaller>(0);
         for (installer in installers.vals()) {
-            buffer.add(installer);
+            switch(await _validateInstaller(installer)) {
+                case (#Ok(_)) { buffer.add(installer); }; 
+                case (#Err(err)) { throw Error.reject(err); };
+            };
         };
         _poolInstallers := Array.sort<Types.PoolInstaller>(Buffer.toArray(buffer), func(a: Types.PoolInstaller, b: Types.PoolInstaller) : Order.Order {
             if (a.weight > b.weight) { #less }

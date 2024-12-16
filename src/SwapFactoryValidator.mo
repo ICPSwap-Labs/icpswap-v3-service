@@ -2,28 +2,16 @@ import Array "mo:base/Array";
 import Text "mo:base/Text";
 import Error "mo:base/Error";
 import Bool "mo:base/Bool";
-import Blob "mo:base/Blob";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
 import Result "mo:base/Result";
 import Types "./Types";
-import IC0Utils "mo:commons/utils/IC0Utils";
-import Prim "mo:⛔";
 
 shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, governanceCid : Principal) = this {
 
     public type Result = { #Ok : Text; #Err : Text; };
 
     private var _factoryAct = actor (Principal.toText(factoryCid)) : Types.SwapFactoryActor;
-
-    private stable var _installerModuleHash : ?Blob = null;
-    public shared ({ caller}) func setInstallerModuleHash(moduleHash : ?Blob) : async () {
-        assert(Prim.isController(caller) or Principal.equal(caller, governanceCid));
-        _installerModuleHash := moduleHash;
-    };
-    public query func getInstallerModuleHash() : async ?Blob {
-        _installerModuleHash;
-    };
 
     public shared ({ caller }) func clearRemovedPoolValidate(canisterId : Principal) : async Result {
         assert (Principal.equal(caller, governanceCid));
@@ -193,6 +181,12 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         if (not (await _checkPool(poolCid))) {
             return #Err(Principal.toText(poolCid) # " doesn't exist.");
         };
+        // Check for anonymous principals
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) {
+                return #Err("Anonymous principals cannot be pool admins");
+            };
+        };
         return #Ok(debug_show (poolCid) # ", " # debug_show (admins));
     };
 
@@ -227,6 +221,12 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
 
     public shared ({ caller }) func batchSetPoolAdminsValidate(poolCids : [Principal], admins : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
+        // Check for anonymous principals
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) {
+                return #Err("Anonymous principals cannot be pool admins");
+            };
+        };
         switch (await _checkPools(poolCids)) {
             case (#ok(_)) {
                 return #Ok(debug_show (poolCids) # ", " # debug_show (admins));
@@ -256,57 +256,6 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
             case (#ok(_)) { return #Ok(debug_show (args)); };
             case (#err(msg)) { return #Err(debug_show (msg)); };
         };
-    };
-    
-    public shared ({ caller }) func addPoolInstallersValidate(installers : [Types.PoolInstaller]) : async Result {
-        assert (Principal.equal(caller, governanceCid));
-        for (installer in installers.vals()) {
-            let status = await IC0Utils.canister_status(installer.canisterId);
-            let controllers = status.settings.controllers;
-            let moduleHash = status.module_hash;
-            // Check if controllers array has exactly one element and it's governanceCid
-            if (controllers.size() != 1 or (not Principal.equal(controllers[0], governanceCid))) {
-                return #Err("Installer " # Principal.toText(installer.canisterId) # " must have exactly one controller: governanceCid");
-            };
-            // Check if moduleHash matches _installerModuleHash and is not null
-            switch (_installerModuleHash) {
-                case (?expectedHash) {
-                    switch (moduleHash) {
-                        case (?actualHash) {
-                            if (not Blob.equal(actualHash, expectedHash)) {
-                                return #Err("Installer " # Principal.toText(installer.canisterId) # " has incorrect module hash");
-                            };
-                        };
-                        case (null) { return #Err("Installer " # Principal.toText(installer.canisterId) # " has no module hash"); };
-                    };
-                };
-                case (null) { return #Err("No installer module hash has been set"); };
-            };
-        };
-        return #Ok(debug_show (installers));
-    };
-
-    public shared ({ caller }) func removePoolInstallersValidate(installers : [Principal]) : async Result {
-        assert (Principal.equal(caller, governanceCid));
-        // Get current pool installers from factory
-        let currentInstallers = await _factoryAct.getPoolInstallers();
-        if (currentInstallers.size() == 0) { return #Err("No installers exist in factory"); };
-        // Check each installer to be removed exists in current installers
-        for (installer in installers.vals()) {
-            var found = false;
-            label checkInstaller {
-                for (currentInstaller in currentInstallers.vals()) {
-                    if (Principal.equal(installer, currentInstaller.canisterId)) {
-                        found := true;
-                        break checkInstaller;
-                    };
-                };
-                if (not found) {
-                    return #Err("Installer " # Principal.toText(installer) # " does not exist in factory installers");
-                };
-            };
-        };
-        return #Ok(debug_show (installers));
     };
 
     public query func getInitArgs() : async Result.Result<{    
