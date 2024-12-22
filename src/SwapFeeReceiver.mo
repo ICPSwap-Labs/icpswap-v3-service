@@ -35,6 +35,11 @@ shared (initMsg) actor class SwapFeeReceiver(
     private stable var _canisterId : ?Principal = null;
     private stable var _ICPFee : Nat = 0;
     private stable var _ICSFee : Nat = 0;
+    private stable var _icpPoolClaimInterval : Nat = 2592000; // Default 30 days in seconds
+    private stable var _noIcpPoolClaimInterval : Nat = 15552000; // Default 180 days in seconds
+    private stable var _autoSwapToIcsEnabled : Bool = false;
+    private stable var _autoBurnIcsEnabled : Bool = false;
+
     private stable var _tokenSet = TrieSet.empty<(Types.Token, Bool)>();
     private var _poolMap: HashMap.HashMap<Principal, Types.ClaimedPoolData> = HashMap.HashMap<Principal, Types.ClaimedPoolData>(100, Principal.equal, Principal.hash);
     // sync flag
@@ -190,19 +195,29 @@ shared (initMsg) actor class SwapFeeReceiver(
         isSyncing : Bool; 
         lastSyncTime : Nat; 
         lastNoICPPoolClaimTime : Nat;
-        swapProgress:Text; 
+        swapProgress : Text;
+        claimProgress : Text; 
     }, Types.Error> {
-        var count = 0;
-        var total = 0;
+        var swapCount = 0;
+        var swapTotal = 0;
         for ((token, swapped) in TrieSet.toArray(_tokenSet).vals()) {
-            if (swapped) { count := count + 1; };
-            total := total + 1;
+            if (swapped) { swapCount := swapCount + 1; };
+            swapTotal := swapTotal + 1;
         };
+
+        var claimCount = 0;
+        var claimTotal = 0;
+        for ((_, data) in _poolMap.entries()) {
+            if (data.claimed) { claimCount := claimCount + 1; };
+            claimTotal := claimTotal + 1;
+        };
+
         return #ok({ 
             isSyncing = _isSyncing; 
             lastSyncTime = _lastSyncTime; 
             lastNoICPPoolClaimTime = _lastNoICPPoolClaimTime;
-            swapProgress = debug_show(count) # "/" # debug_show(total); 
+            swapProgress = debug_show(swapCount) # "/" # debug_show(swapTotal);
+            claimProgress = debug_show(claimCount) # "/" # debug_show(claimTotal);
         });
     };
 
@@ -365,7 +380,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                     };
                 };
                 case (#Err(msg)) { 
-                    _addTokenSwapLog(token, 0, 0, debug_show(msg), "transfer", ?poolId); 
+                    _addTokenSwapLog(token, 0, 0, debug_show(msg), "transfer", ?poolData.canisterId );
                 };
             };
         } catch (e) {
@@ -470,7 +485,10 @@ shared (initMsg) actor class SwapFeeReceiver(
             switch (await _factoryAct.getPool({ token0 = ICP; token1 = ICS; fee = 3000; })) {
                 case (#ok(poolData)) { 
                     await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee); 
-                    ignore Timer.setTimer<system>(#nanoseconds (1), _burnICS);
+                    // Only schedule burn if enabled
+                    if (_autoBurnIcsEnabled) {
+                        ignore Timer.setTimer<system>(#nanoseconds (1), _burnICS);
+                    };
                     return; 
                 };
                 case (#err(msg)) { 
@@ -603,7 +621,11 @@ shared (initMsg) actor class SwapFeeReceiver(
                 };
             };
             _isSyncing := false;
-            ignore Timer.setTimer<system>(#nanoseconds (1), _swapICPToICS);
+
+            // Only proceed with auto-swap if enabled
+            if (_autoSwapToIcsEnabled) {    
+                ignore Timer.setTimer<system>(#nanoseconds (1), _swapICPToICS);
+            };
         } catch (e) {
             _addTokenSwapLog(
                 { address = ""; standard = ""; },
@@ -624,13 +646,12 @@ shared (initMsg) actor class SwapFeeReceiver(
         try {
             var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
             let currentTime = BlockTimestamp.blockTimestamp();
-            let sixMonthsInSeconds : Nat = 15552000;
             
             label claimLoop for ((cid, data) in _poolMap.entries()) {
                 if (not data.claimed) {
                     let hasICP = Functions.tokenEqual(data.token0, ICP) or Functions.tokenEqual(data.token1, ICP);
-                    // Skip non-ICP pools if less than 6 months since last claim
-                    if (not hasICP and currentTime < (sixMonthsInSeconds + _lastNoICPPoolClaimTime)) {
+                    // Skip non-ICP pools if less than configured interval since last claim
+                    if (not hasICP and currentTime < (_noIcpPoolClaimInterval + _lastNoICPPoolClaimTime)) {
                         continue claimLoop;
                     };
                     if (not hasICP) { _hasClaimedNoICPPool := true; };
@@ -697,7 +718,47 @@ shared (initMsg) actor class SwapFeeReceiver(
     };
 
     // Keep the monthly recurring timer for ICP pools
-    let _claimSwapFeeRepurchasePerMonth = Timer.recurringTimer<system>(#seconds(2592000), _autoSyncPools);
+    var _claimSwapFeeRepurchasePerMonth = Timer.recurringTimer<system>(#seconds(_icpPoolClaimInterval), _autoSyncPools);
+
+    public shared ({ caller }) func setIcpPoolClaimInterval(interval: Nat) : async Result.Result<(), Types.Error> {
+        _checkPermission(caller);
+        _icpPoolClaimInterval := interval;
+        Timer.cancelTimer(_claimSwapFeeRepurchasePerMonth);
+        _claimSwapFeeRepurchasePerMonth := Timer.recurringTimer<system>(#seconds(_icpPoolClaimInterval), _autoSyncPools);
+        return #ok();
+    };
+
+    public shared ({ caller }) func setNoIcpPoolClaimInterval(interval: Nat) : async Result.Result<(), Types.Error> {
+        _checkPermission(caller);
+        _noIcpPoolClaimInterval := interval;
+        return #ok();
+    };
+
+    public shared ({ caller }) func setAutoSwapToIcsEnabled(enabled: Bool) : async Result.Result<(), Types.Error> {
+        _checkPermission(caller);
+        _autoSwapToIcsEnabled := enabled;
+        return #ok();
+    };
+
+    public shared ({ caller }) func setAutoBurnIcsEnabled(enabled: Bool) : async Result.Result<(), Types.Error> {
+        _checkPermission(caller);
+        _autoBurnIcsEnabled := enabled;
+        return #ok();
+    };
+
+    public query func getConfig() : async Result.Result<{
+        icpPoolClaimInterval: Nat;
+        noIcpPoolClaimInterval: Nat;
+        autoSwapToIcsEnabled: Bool;
+        autoBurnEnabled: Bool;
+    }, Types.Error> {
+        return #ok({
+            icpPoolClaimInterval = _icpPoolClaimInterval;
+            noIcpPoolClaimInterval = _noIcpPoolClaimInterval;
+            autoSwapToIcsEnabled = _autoSwapToIcsEnabled;
+            autoBurnEnabled = _autoBurnIcsEnabled;
+        });
+    };
     // --------------------------- Version Control ------------------------------------
     private var _version : Text = "3.5.0";
     public query func getVersion() : async Text { _version };
@@ -727,15 +788,19 @@ shared (initMsg) actor class SwapFeeReceiver(
     }) : Bool {
         return switch (msg) {
             // Controller
-            case (#burnICS _)            { Prim.isController(caller) };
-            case (#claim _)              { Prim.isController(caller) };
-            case (#setFees _)            { Prim.isController(caller) };
-            case (#setCanisterId _)      { Prim.isController(caller) };
-            case (#startAutoSyncPools _) { Prim.isController(caller) };
-            case (#swapICPToICS _)       { Prim.isController(caller) };
-            case (#swapToICP _)          { Prim.isController(caller) };
-            case (#transfer _)           { Prim.isController(caller) };
-            case (#transferAll _)        { Prim.isController(caller) };
+            case (#burnICS _)                   { Prim.isController(caller) };
+            case (#claim _)                     { Prim.isController(caller) };
+            case (#setFees _)                   { Prim.isController(caller) };
+            case (#setCanisterId _)             { Prim.isController(caller) };
+            case (#setIcpPoolClaimInterval _)   { Prim.isController(caller) };
+            case (#setNoIcpPoolClaimInterval _) { Prim.isController(caller) };
+            case (#setAutoSwapToIcsEnabled _)   { Prim.isController(caller) };
+            case (#setAutoBurnIcsEnabled _)     { Prim.isController(caller) };
+            case (#startAutoSyncPools _)        { Prim.isController(caller) };
+            case (#swapICPToICS _)              { Prim.isController(caller) };
+            case (#swapToICP _)                 { Prim.isController(caller) };
+            case (#transfer _)                  { Prim.isController(caller) };
+            case (#transferAll _)               { Prim.isController(caller) };
             // Anyone
             case (_) { true };
         };
