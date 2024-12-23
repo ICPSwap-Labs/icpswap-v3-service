@@ -3,6 +3,7 @@ import Iter "mo:base/Iter";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
+import Cycles "mo:base/ExperimentalCycles";
 import Prim "mo:⛔";
 import Types "./Types";
 
@@ -211,6 +212,13 @@ shared (initMsg) actor class SwapDataBackup(
         _checkPermission(caller);
         _poolBackupMap := HashMap.HashMap<Principal, PoolBackupData>(0, Principal.equal, Principal.hash);
         #ok();
+    };
+
+    public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
+        return #ok({
+            balance = Cycles.balance();
+            available = Cycles.available();
+        });
     };
         
     // public shared (msg) func recoverPool() : async Result.Result<Types.PoolData, Types.Error> {
