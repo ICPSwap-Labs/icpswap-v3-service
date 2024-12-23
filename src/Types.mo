@@ -505,6 +505,7 @@ module {
         #claim : () -> (Principal, Token, Nat);
         #getBaseBalances : () -> ();
         #getCanisterId : () -> ();
+        #getConfig : () -> ();
         #getCycleInfo : () -> ();
         #getFees : () -> ();
         #getInitArgs : () -> ();
@@ -515,8 +516,12 @@ module {
         #getTokenSwapLog : () -> ();
         #getTokens : () -> ();
         #getVersion : () -> ();
+        #setAutoBurnIcsEnabled : () -> Bool;
+        #setAutoSwapToIcsEnabled : () -> Bool;
         #setCanisterId : () -> ();
         #setFees : () -> ();
+        #setIcpPoolClaimInterval : () -> Nat;
+        #setNoIcpPoolClaimInterval : () -> Nat;
         #startAutoSyncPools : () -> ();
         #swapICPToICS : () -> ();
         #swapToICP : () -> Token;
