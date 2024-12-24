@@ -492,9 +492,10 @@ module {
         #removePoolControllers : () -> (Principal, [Principal]);
         #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
         #removePoolInstaller : () -> Principal;
-        #removePoolInstallersValidate : () -> [Principal];
+        #removePoolInstallerValidate : () -> Principal;
         #retryAllFailedUpgrades : () -> ();
         #setInstallerModuleHash : () -> Blob;
+        #setInstallerModuleHashValidate : () -> Blob;
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;

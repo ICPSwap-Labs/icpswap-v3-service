@@ -144,6 +144,14 @@ shared (initMsg) actor class SwapPool(
     public shared (msg) func setLimitOrderAvailable(available : Bool) : async () {
         assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
+        // If turning off limit orders and they were previously enabled
+        if (not available and _isLimitOrderAvailable) {
+            // Clear the limit order stack
+            _limitOrderStack := List.nil<(Types.LimitOrderKey, Types.LimitOrderValue)>();
+            // Clear both RB trees
+            _lowerLimitOrders := RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
+            _upperLimitOrders := RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
+        };
         _isLimitOrderAvailable := available;
     };
     public query func getLimitOrderAvailabilityState() : async Result.Result<Bool, Types.Error> { #ok(_isLimitOrderAvailable); };
@@ -2186,7 +2194,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.5.0";
+    private var _version : Text = "3.5.1";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
