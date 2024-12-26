@@ -354,84 +354,35 @@ function test_limit_order()
     depost $token1 1667302813453000
     #tickLower tickUpper amount0Desired amount0Min amount1Desired amount1Min ### liquidity tickCurrent sqrtRatioX96
 
-    # for ((batch = 0; batch < 100; batch++)); do
-    echo "==> add upper limit order 2"
-    mintAndAddLimitOrder 24900 36060 100000000 92884678893 1667302813 1573153132015 36060
-    # done
+    for ((batch = 0; batch < 50; batch++)); do
+      echo "==> add upper limit order $batch"
+      mintAndAddLimitOrder 24900 36060 100000000 92884678893 1667302813 1573153132015 36060
+    done
 
     wait
 
-    echo
-    echo "==> step 3 mint"
-    depost $token0 100000000000
-    depost $token1 1667302813453
-    #tickLower tickUpper amount0Desired amount0Min amount1Desired amount1Min ### liquidity tickCurrent sqrtRatioX96
-    mint -23040 0 100000000000 92884678893 1667302813453 1573153132015 529634421680 24850 274450166607934908532224538203
-    
-    echo "==> add lower limit order 3"
-    dfx canister call $poolId addLimitOrder "(record { positionId = 3 :nat; tickLimit = -23040 :int; })"
-    #  dfx canister call $poolId addLimitOrder "(record { positionId = 102 :nat; tickLimit = -23040 :int; })"
-
-    withdrawAll
-
-    sleep 120
-
-    echo
-    echo "==> step 4 swap"
-    #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
-    swap $token0 500000000000 500000000000 0 529634421680 14808 166123716848874888729218662825 999999800000000000 999999056851511853
-
-    dfx canister call $poolId metadata
-
-    withdrawToken1 1422005536592
-
-    # sleep 60
+    sleep 60
 
     withdrawAll
 
     echo
-    echo "==> step 5 swap"
-    #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
-    swap $token0 5000000000000 5000000000000 0 529634421680 18116 195996761539654227777570705349 999999838499469043 999998856551511853
-
-    dfx canister call $poolId metadata
-    
-    withdrawToken0 607314445237
-
-    # sleep 10
-
-    echo
-    echo "==> step 6 swap"
-    #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
-    swap $token0 2000000000000 2000000000000 0 529634421680 14808 166123716848874888729218662825 999999800000000000 999999056851511853
-
-    withdrawToken1 5267674963018
-
-    dfx canister call $poolId metadata
-
-    echo
-    echo "==> step 7 mint"
-    depost $token0 100000000000
-    depost $token1 1667302813453
-    #tickLower tickUpper amount0Desired amount0Min amount1Desired amount1Min ### liquidity tickCurrent sqrtRatioX96
-    mint -23040 60 100000000000 92884678893 1667302813453 1573153132015 529634421680 24850 274450166607934908532224538203
-    
-    withdrawAll
-
-    echo
-    echo "==> step 8 swap"
+    echo "==> step 3 swap"
     #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
     swap $token1 5000000000000 5000000000000 0 529634421680 18116 195996761539654227777570705349 999999838499469043 999998856551511853
 
     dfx canister call $poolId metadata
     
-    withdrawToken0 1092496885749
-    
-    echo
-    echo "==> step 9 decrease"
-    #positionId liquidity amount0Min amount1Min ###  liquidity tickCurrent sqrtRatioX96
-    decrease 1 529634421680 292494852582912 329709405464581002 5935257942037 72181 2925487520681317622364346051650
+    withdrawAll
 
+    echo
+    echo "==> step 4 swap"
+    #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
+    swap $token0 1200000000000 500000000000 0 529634421680 14808 166123716848874888729218662825 999999800000000000 999999056851511853
+
+    dfx canister call $poolId metadata
+
+    withdrawAll
+    
 };
 
 test_limit_order

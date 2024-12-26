@@ -147,7 +147,7 @@ shared (initMsg) actor class SwapPool(
         // If turning off limit orders and they were previously enabled
         if (not available and _isLimitOrderAvailable) {
             // Clear the limit order stack
-            _limitOrderStack := List.nil<(Types.LimitOrderKey, Types.LimitOrderValue)>();
+            _limitOrderStack := List.nil<(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)>();
             // Clear both RB trees
             _lowerLimitOrders := RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
             _upperLimitOrders := RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
@@ -156,10 +156,10 @@ shared (initMsg) actor class SwapPool(
     };
     public query func getLimitOrderAvailabilityState() : async Result.Result<Bool, Types.Error> { #ok(_isLimitOrderAvailable); };
 
-    private stable var _limitOrderStack : List.List<(Types.LimitOrderKey, Types.LimitOrderValue)> = List.nil<(Types.LimitOrderKey, Types.LimitOrderValue)>();
-    private func _pushLimitOrderStack(limitOrder : (Types.LimitOrderKey, Types.LimitOrderValue)) : () { _limitOrderStack := ?(limitOrder, _limitOrderStack); };
-    private func _popLimitOrderStack() : ?(Types.LimitOrderKey, Types.LimitOrderValue) { switch _limitOrderStack { case null { null }; case (?(h, t)) { _limitOrderStack := t; ?h }; }; };
-    public query func getLimitOrderStack() : async Result.Result<[(Types.LimitOrderKey, Types.LimitOrderValue)], Types.Error> { return #ok(List.toArray(_limitOrderStack)); };
+    private stable var _limitOrderStack : List.List<(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)> = List.nil<(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)>();
+    private func _pushLimitOrderStack(limitOrder : (Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)) : () { _limitOrderStack := ?(limitOrder, _limitOrderStack); };
+    private func _popLimitOrderStack() : ?(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue) { switch _limitOrderStack { case null { null }; case (?(h, t)) { _limitOrderStack := t; ?h }; }; };
+    public query func getLimitOrderStack() : async Result.Result<[(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)], Types.Error> { return #ok(List.toArray(_limitOrderStack)); };
 
     private func _limitOrderKeyCompare(x : Types.LimitOrderKey, y : Types.LimitOrderKey) : { #less; #equal; #greater } {
         if (x.tickLimit < y.tickLimit) { #less } 
@@ -179,7 +179,7 @@ shared (initMsg) actor class SwapPool(
             for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
                 if (_tick <= key.tickLimit) {
                     _lowerLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
-                    _pushLimitOrderStack((key, value));
+                    _pushLimitOrderStack((#Lower, key, value));
                     ignore Timer.setTimer<system>(#nanoseconds (0), _autoDecrease);
                     ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
                     return;
@@ -191,7 +191,7 @@ shared (initMsg) actor class SwapPool(
             for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
                 if (_tick >= key.tickLimit) {
                     _upperLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
-                    _pushLimitOrderStack((key, value));
+                    _pushLimitOrderStack((#Upper, key, value));
                     ignore Timer.setTimer<system>(#nanoseconds (0), _autoDecrease);
                     ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
                     return;
@@ -201,8 +201,23 @@ shared (initMsg) actor class SwapPool(
     };
     private func _autoDecrease() : async () {
         switch (_popLimitOrderStack()) {
-            case (?(key, value)) {
+            case (?(limitOrderType, key, value)) {
+                // Debug.print("positionId: " # debug_show (value.userPositionId) # ", tickLimit: " # debug_show (key.tickLimit) # ", _tick: " # debug_show (_tick));
                 var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
+                switch (limitOrderType) {
+                    case (#Lower) {
+                        if (_tick > key.tickLimit) {
+                            _lowerLimitOrders.put(key, value);
+                            return;
+                        };
+                    };
+                    case (#Upper) {
+                        if (_tick < key.tickLimit) {
+                            _upperLimitOrders.put(key, value);
+                            return; 
+                        };
+                    };
+                };
                 ignore await* _decreaseLiquidity(
                     value.owner, 
                     { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; tickLimit = key.tickLimit; }, 

@@ -310,6 +310,10 @@ module {
         daysFrom19700101 : Nat;
         timestamp : Nat;
     };
+    public type LimitOrderType = {
+        #Lower;
+        #Upper;
+    };
     public type LimitOrderKey = {
         timestamp : Nat;
         tickLimit : Int;
