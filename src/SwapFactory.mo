@@ -61,7 +61,7 @@ shared (initMsg) actor class SwapFactory(
     /**
         make sure the version is not the same as the previous one and same as the new version of SwapPool
     **/
-    private var _nextPoolVersion : Text = "3.5.0";
+    private var _nextPoolVersion : Text = "3.5.1";
     // upgrade task
     private stable var _backupAct = actor (Principal.toText(backupCid)) : Types.SwapDataBackupActor;
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
@@ -365,6 +365,9 @@ shared (initMsg) actor class SwapFactory(
         if (Array.size(args.poolIds) > 100) { 
             return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 100")); 
         };
+        // clear the upgrade task history
+        _poolUpgradeTaskHis := [];
+        _poolUpgradeTaskHisMap := HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
         for (poolId in args.poolIds.vals()) {
             label poolLoop {
                 for ((poolKey, pooldata) in _poolDataService.getPools().entries()) {
@@ -856,6 +859,23 @@ shared (initMsg) actor class SwapFactory(
         };
         return #Ok(debug_show (installers));
     };
+    public shared ({ caller }) func removePoolInstallerValidate(canisterId : Principal) : async { #Ok : Text; #Err : Text; } {
+        _checkPermission(caller);
+        for (installer in _poolInstallers.vals()) {
+            if (Principal.equal(installer.canisterId, canisterId)) {
+                return #Ok(debug_show (canisterId));
+            };
+        };
+        return #Err("Pool installer " # Principal.toText(canisterId) # " not found");
+    };
+    public shared ({ caller }) func setInstallerModuleHashValidate(moduleHash : Blob) : async { #Ok : Text; #Err : Text; } {
+        _checkPermission(caller);
+        // Validate moduleHash is not empty
+        if (Blob.toArray(moduleHash).size() == 0) { return #Err("Module hash cannot be empty"); };
+        // Validate moduleHash size (should be 32 bytes for SHA-256)
+        if (Blob.toArray(moduleHash).size() != 32) { return #Err("Invalid module hash size. Expected 32 bytes"); };
+        return #Ok(debug_show(moduleHash));
+    };
     
     private stable var _poolInstallers : [Types.PoolInstaller] = [];
     private type Installer = {
@@ -924,7 +944,7 @@ shared (initMsg) actor class SwapFactory(
     public query func getPoolInstallers() : async [Types.PoolInstaller] { _poolInstallers };
     
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.5.0";
+    private var _version : Text = "3.5.1";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {

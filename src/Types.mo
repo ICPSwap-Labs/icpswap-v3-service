@@ -310,6 +310,10 @@ module {
         daysFrom19700101 : Nat;
         timestamp : Nat;
     };
+    public type LimitOrderType = {
+        #Lower;
+        #Upper;
+    };
     public type LimitOrderKey = {
         timestamp : Nat;
         tickLimit : Int;
@@ -492,9 +496,10 @@ module {
         #removePoolControllers : () -> (Principal, [Principal]);
         #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
         #removePoolInstaller : () -> Principal;
-        #removePoolInstallersValidate : () -> [Principal];
+        #removePoolInstallerValidate : () -> Principal;
         #retryAllFailedUpgrades : () -> ();
         #setInstallerModuleHash : () -> Blob;
+        #setInstallerModuleHashValidate : () -> Blob;
         #setPoolAdmins : () -> (Principal, [Principal]);
         #setPoolAvailable : () -> (Principal, Bool);
         #setUpgradePoolList : () -> UpgradePoolArgs;
