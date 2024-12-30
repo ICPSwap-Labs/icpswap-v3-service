@@ -365,6 +365,9 @@ shared (initMsg) actor class SwapFactory(
         if (Array.size(args.poolIds) > 100) { 
             return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 100")); 
         };
+        // clear the upgrade task history
+        _poolUpgradeTaskHis := [];
+        _poolUpgradeTaskHisMap := HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
         for (poolId in args.poolIds.vals()) {
             label poolLoop {
                 for ((poolKey, pooldata) in _poolDataService.getPools().entries()) {
