@@ -927,8 +927,8 @@ shared (initMsg) actor class SwapPool(
                 };
             });
         };
-        if (not Nat.equal(fee, args.fee)) {
-            return #err(#InternalError("Wrong fee cache, please try later"));
+        if (not Nat.equal(fee, args.fee)) { 
+            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
         };
         if (Text.notEqual(token.standard, "ICP") and Text.notEqual(token.standard, "ICRC1") and Text.notEqual(token.standard, "ICRC2") and Text.notEqual(token.standard, "ICRC3")) {
             return #err(#InternalError("Illegal token standard: " # debug_show (token.standard)));
@@ -993,8 +993,8 @@ shared (initMsg) actor class SwapPool(
                 };
             });
         };
-        if (not Nat.equal(fee, args.fee)) {
-            return #err(#InternalError("Wrong fee cache, please try later"));
+        if (not Nat.equal(fee, args.fee)) { 
+            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
         };
         var canisterId = Principal.fromActor(this);
         if (Principal.equal(caller, canisterId)) {
@@ -1036,7 +1036,9 @@ shared (initMsg) actor class SwapPool(
         } else {
             (_token1, _token1Act, switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; }; });
         };
-        if (not Nat.equal(fee, args.fee)) { return #err(#InternalError("Wrong fee cache, please try later")); };
+        if (not Nat.equal(fee, args.fee)) { 
+            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
+        };
         var canisterId = Principal.fromActor(this);
         var balance : Nat = _tokenHolderService.getBalance(caller, token);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };
@@ -1077,7 +1079,9 @@ shared (initMsg) actor class SwapPool(
         } else {
             (_token1, _token1Act, switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; }; });
         };
-        if (not Nat.equal(fee, args.fee)) { return #err(#InternalError("Wrong fee cache, please try later")); };
+        if (not Nat.equal(fee, args.fee)) { 
+            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
+        };
         var canisterId = Principal.fromActor(this);
         var balance : Nat = _tokenHolderService.getBalance(caller, token);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };
