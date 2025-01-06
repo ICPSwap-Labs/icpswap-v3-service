@@ -15,7 +15,8 @@ module {
             "http://localhost:3001",
             "http://localhost:3002",
             "https://nfid.one",
-            "https://dev.nfid.one"
+            "https://dev.nfid.one",
+            "https://app.icpswap.com"
         ]};
     };
     public func icrc10_supported_standards() : [{ url : Text; name : Text }] {
