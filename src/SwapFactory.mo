@@ -61,7 +61,7 @@ shared (initMsg) actor class SwapFactory(
     /**
         make sure the version is not the same as the previous one and same as the new version of SwapPool
     **/
-    private var _nextPoolVersion : Text = "3.5.1";
+    private var _nextPoolVersion : Text = "3.5.2";
     // upgrade task
     private stable var _backupAct = actor (Principal.toText(backupCid)) : Types.SwapDataBackupActor;
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
@@ -944,7 +944,7 @@ shared (initMsg) actor class SwapFactory(
     public query func getPoolInstallers() : async [Types.PoolInstaller] { _poolInstallers };
     
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.5.1";
+    private var _version : Text = "3.5.2";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {
