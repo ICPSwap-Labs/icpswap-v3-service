@@ -1423,6 +1423,10 @@ shared (initMsg) actor class SwapPool(
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
+        // Check if position already has an active order
+        if (_hasActiveLimitOrder(args.positionId)) {
+            return #err(#InternalError("Active limit order can not be increased"));
+        };
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
         var amount1Desired = SafeUint.Uint256(TextUtils.toNat(args.amount1Desired));
         if (Nat.equal(amount0Desired.val(), 0) and Nat.equal(amount1Desired.val(), 0)) { return #err(#InternalError("Amount desired can't be both 0")); };
