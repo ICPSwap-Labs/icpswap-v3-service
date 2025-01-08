@@ -452,9 +452,9 @@ shared (initMsg) actor class SwapPool(
             case (#ok(result)) { result };
             case (#err(code)) { Prim.trap("Decrease liquidity failed: _collect " # debug_show (code)); };
         };
+        if (not loArgs.isLimitOrder) { _deleteLimitOrderByPositionId(args.positionId); };
         if (liquidityDelta == userPositionInfo.liquidity) {
             _positionTickService.deletePositionForUser(PrincipalUtils.toAddress(owner), args.positionId);
-            if (not loArgs.isLimitOrder) { _deleteLimitOrderByPositionId(args.positionId); };
         };
         _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
         _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
