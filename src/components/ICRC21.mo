@@ -6,19 +6,20 @@ import Principal "mo:base/Principal";
 import ICRCTypes "../ICRCTypes";
 import Types "../Types";
 module {
-    public func icrc28_trusted_origins() : ICRCTypes.Icrc28TrustedOriginsResponse {
-        return {trusted_origins = [
-            "https://standards.identitykit.xyz",
-            "https://dev.standards.identitykit.xyz",
-            "https://demo.identitykit.xyz",
-            "https://dev.demo.identitykit.xyz",
-            "http://localhost:3001",
-            "http://localhost:3002",
-            "https://nfid.one",
-            "https://dev.nfid.one",
-            "https://app.icpswap.com"
-        ]};
-    };
+    // public func icrc28_trusted_origins() : ICRCTypes.Icrc28TrustedOriginsResponse {
+    //     return {trusted_origins = [
+    //         "https://standards.identitykit.xyz",
+    //         "https://dev.standards.identitykit.xyz",
+    //         "https://demo.identitykit.xyz",
+    //         "https://dev.demo.identitykit.xyz",
+    //         "http://localhost:3001",
+    //         "http://localhost:3002",
+    //         "https://nfid.one",
+    //         "https://dev.nfid.one",
+    //         "https://app.icpswap.com",
+    //         "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io"
+    //     ]};
+    // };
     public func icrc10_supported_standards() : [{ url : Text; name : Text }] {
         return [
           { url = "https://github.com/dfinity/ICRC/blob/main/ICRCs/ICRC-10/ICRC-10.md"; name = "ICRC-10" },
