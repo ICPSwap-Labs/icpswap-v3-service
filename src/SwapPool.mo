@@ -237,6 +237,24 @@ shared (initMsg) actor class SwapPool(
         };
         return false;
     };
+    private func _deleteLimitOrderByPositionId(userPositionId: Nat) : () {
+        // Check and delete from upper limit orders
+        var upperOrdersToKeep = RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
+        for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+            if (value.userPositionId != userPositionId) {
+                upperOrdersToKeep.put(key, value);
+            };
+        };
+        _upperLimitOrders := upperOrdersToKeep;
+        // Check and delete from lower limit orders
+        var lowerOrdersToKeep = RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
+        for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #fwd)) {
+            if (value.userPositionId != userPositionId) {
+                lowerOrdersToKeep.put(key, value);
+            };
+        };
+        _lowerLimitOrders := lowerOrdersToKeep;
+    };
     public query func getLimitOrders() : async Result.Result<{
         lowerLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)];
         upperLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)];
@@ -436,6 +454,7 @@ shared (initMsg) actor class SwapPool(
         };
         if (liquidityDelta == userPositionInfo.liquidity) {
             _positionTickService.deletePositionForUser(PrincipalUtils.toAddress(owner), args.positionId);
+            if (not loArgs.isLimitOrder) { _deleteLimitOrderByPositionId(args.positionId); };
         };
         _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
         _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
@@ -1471,8 +1490,6 @@ shared (initMsg) actor class SwapPool(
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
-        // let result = _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
-        // return result;
         return await* _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
     };
 
@@ -2263,11 +2280,30 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
+    // --------------------------- ICRC28 ------------------------------------
+    private stable var _icrc28_trusted_origins : [Text] = [
+        "https://standards.identitykit.xyz",
+        "https://dev.standards.identitykit.xyz",
+        "https://demo.identitykit.xyz",
+        "https://dev.demo.identitykit.xyz",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "https://nfid.one",
+        "https://dev.nfid.one",
+        "https://app.icpswap.com",
+        "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io"
+    ];
+    public shared(msg) func setIcrc28TrustedOrigins(origins: [Text]) : async Result.Result<Bool, ()> {
+        assert(_isAvailable(msg.caller));
+        _checkAdminPermission(msg.caller);
+        _icrc28_trusted_origins := origins;
+        return #ok(true);
+    };
     public func icrc28_trusted_origins() : async ICRCTypes.Icrc28TrustedOriginsResponse {
-        return ICRC21.icrc28_trusted_origins();
+        return {trusted_origins = _icrc28_trusted_origins};
     };
     public query func icrc10_supported_standards() : async [{ url : Text; name : Text }] {
-        ICRC21.icrc10_supported_standards();
+        return ICRC21.icrc10_supported_standards();
     };
     public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
         return ICRC21.icrc21_canister_call_consent_message(request);

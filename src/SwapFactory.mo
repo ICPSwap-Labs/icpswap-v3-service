@@ -153,78 +153,6 @@ shared (initMsg) actor class SwapFactory(
         };
     };
 
-    public shared (msg) func upgradePoolTokenStandard(poolCid : Principal, tokenCid : Principal) : async Result.Result<Text, Types.Error> {
-        _checkPermission(msg.caller);
-        var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
-        switch (await poolAct.metadata()) {
-            case (#ok(metadata)) {
-                let token = if (Text.equal(Principal.toText(tokenCid), metadata.token0.address)) { 
-                    metadata.token0
-                } else if (Text.equal(Principal.toText(tokenCid), metadata.token1.address)) {
-                    metadata.token1
-                } else { 
-                    return #err(#InternalError("Token not found in pool"));
-                };
-                let tokenAct = actor (token.address) : actor {
-                    icrc1_supported_standards : query () -> async [{ url : Text; name : Text; }];
-                };
-                try {
-                    var supportStandards = await tokenAct.icrc1_supported_standards();
-                    var isSupportedICRC2 = false;
-                    for (supportStandard in supportStandards.vals()) {
-                        if (Text.equal("ICRC-2", supportStandard.name)) { isSupportedICRC2 := true; };
-                    };
-                    let poolKey : Text = PoolUtils.getPoolKey(metadata.token0, metadata.token1, metadata.fee);
-                    if (isSupportedICRC2) {
-                        await poolAct.upgradeTokenStandard(tokenCid);
-                        switch (await poolAct.metadata()) {
-                            case (#ok(verifiedMetadata)) {
-                                let verifiedToken = if (Text.equal(Principal.toText(tokenCid), verifiedMetadata.token0.address)) { 
-                                    verifiedMetadata.token0
-                                } else {
-                                    verifiedMetadata.token1
-                                };
-                                if (Text.equal("ICRC2", verifiedToken.standard)) {
-                                    let poolData = switch (_poolDataService.getPools().get(poolKey)) {
-                                        case (?poolData) { poolData }; case (_) { return #err(#InternalError("Get pool data failed")); };
-                                    };
-                                    _poolDataService.putPool(
-                                        poolKey,
-                                        {
-                                            key = poolData.key;
-                                            token0 = {
-                                                address = poolData.token0.address;
-                                                standard = if (Text.equal(Principal.toText(tokenCid), poolData.token0.address)) { "ICRC2" } else { poolData.token0.standard };
-                                            };
-                                            token1 = {
-                                                address = poolData.token1.address;
-                                                standard = if (Text.equal(Principal.toText(tokenCid), poolData.token1.address)) { "ICRC2" } else { poolData.token1.standard };
-                                            };
-                                            fee = poolData.fee;
-                                            tickSpacing = poolData.tickSpacing;
-                                            canisterId = poolData.canisterId;
-                                        },
-                                    );
-                                } else {
-                                    return #err(#InternalError("Check upgrading failed"));
-                                };
-                            };
-                            case (#err(code)) { return #err(#InternalError("Verify pool metadata failed: " # debug_show (code))); };
-                        };
-                    } else {
-                        return #err(#InternalError("Check icrc1_supported_standards failed"));
-                    };
-                } catch (e) {
-                    return #err(#InternalError("Get icrc1_supported_standards failed: " # Error.message(e)));
-                };
-                return #ok("Change standard successfully.");
-            };
-            case (#err(code)) {
-                return #err(#InternalError("Get pool metadata failed: " # debug_show (code)));
-            };
-        };
-    };
-
     /// get pool by token addresses and fee.
     public query func getPool(args : Types.GetPoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
         let poolKey : Text = PoolUtils.getPoolKey(args.token0, args.token1, args.fee);
@@ -300,14 +228,30 @@ shared (initMsg) actor class SwapFactory(
         _nextPoolVersion;
     };
 
-    public func icrc28_trusted_origins() : async ICRCTypes.Icrc28TrustedOriginsResponse {
-        return ICRC21.icrc28_trusted_origins();
+    // --------------------------- ICRC28 ------------------------------------
+    private stable var _icrc28_trusted_origins : [Text] = [
+        "https://standards.identitykit.xyz",
+        "https://dev.standards.identitykit.xyz",
+        "https://demo.identitykit.xyz",
+        "https://dev.demo.identitykit.xyz",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "https://nfid.one",
+        "https://dev.nfid.one",
+        "https://app.icpswap.com",
+        "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io"
+    ];
+    public shared(msg) func setIcrc28TrustedOrigins(origins: [Text]) : async Result.Result<Bool, Types.Error> {
+        _checkPermission(msg.caller);
+        _icrc28_trusted_origins := origins;
+        return #ok(true);
     };
-
+    public func icrc28_trusted_origins() : async ICRCTypes.Icrc28TrustedOriginsResponse {
+        return {trusted_origins = _icrc28_trusted_origins};
+    };
     public query func icrc10_supported_standards() : async [{ url : Text; name : Text }] {
         ICRC21.icrc10_supported_standards();
     };
-    
     public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
         return ICRC21.icrc21_canister_call_consent_message(request);
     };
@@ -319,7 +263,138 @@ shared (initMsg) actor class SwapFactory(
         });
     };
 
-    // ---------------        Governance Functions              ----------------------
+    // ---------------        Factory Admin Functions              ----------------------
+    
+    public shared (msg) func upgradePoolTokenStandard(poolCid : Principal, tokenCid : Principal) : async Result.Result<Text, Types.Error> {
+        _checkAdminPermission(msg.caller);
+        var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
+        switch (await poolAct.metadata()) {
+            case (#ok(metadata)) {
+                let token = if (Text.equal(Principal.toText(tokenCid), metadata.token0.address)) { 
+                    metadata.token0
+                } else if (Text.equal(Principal.toText(tokenCid), metadata.token1.address)) {
+                    metadata.token1
+                } else { 
+                    return #err(#InternalError("Token not found in pool"));
+                };
+                let tokenAct = actor (token.address) : actor {
+                    icrc1_supported_standards : query () -> async [{ url : Text; name : Text; }];
+                };
+                try {
+                    var supportStandards = await tokenAct.icrc1_supported_standards();
+                    var isSupportedICRC2 = false;
+                    for (supportStandard in supportStandards.vals()) {
+                        if (Text.equal("ICRC-2", supportStandard.name)) { isSupportedICRC2 := true; };
+                    };
+                    let poolKey : Text = PoolUtils.getPoolKey(metadata.token0, metadata.token1, metadata.fee);
+                    if (isSupportedICRC2) {
+                        await poolAct.upgradeTokenStandard(tokenCid);
+                        switch (await poolAct.metadata()) {
+                            case (#ok(verifiedMetadata)) {
+                                let verifiedToken = if (Text.equal(Principal.toText(tokenCid), verifiedMetadata.token0.address)) { 
+                                    verifiedMetadata.token0
+                                } else {
+                                    verifiedMetadata.token1
+                                };
+                                if (Text.equal("ICRC2", verifiedToken.standard)) {
+                                    let poolData = switch (_poolDataService.getPools().get(poolKey)) {
+                                        case (?poolData) { poolData }; case (_) { return #err(#InternalError("Get pool data failed")); };
+                                    };
+                                    _poolDataService.putPool(
+                                        poolKey,
+                                        {
+                                            key = poolData.key;
+                                            token0 = {
+                                                address = poolData.token0.address;
+                                                standard = if (Text.equal(Principal.toText(tokenCid), poolData.token0.address)) { "ICRC2" } else { poolData.token0.standard };
+                                            };
+                                            token1 = {
+                                                address = poolData.token1.address;
+                                                standard = if (Text.equal(Principal.toText(tokenCid), poolData.token1.address)) { "ICRC2" } else { poolData.token1.standard };
+                                            };
+                                            fee = poolData.fee;
+                                            tickSpacing = poolData.tickSpacing;
+                                            canisterId = poolData.canisterId;
+                                        },
+                                    );
+                                } else {
+                                    return #err(#InternalError("Check upgrading failed"));
+                                };
+                            };
+                            case (#err(code)) { return #err(#InternalError("Verify pool metadata failed: " # debug_show (code))); };
+                        };
+                    } else {
+                        return #err(#InternalError("Check icrc1_supported_standards failed"));
+                    };
+                } catch (e) {
+                    return #err(#InternalError("Get icrc1_supported_standards failed: " # Error.message(e)));
+                };
+                return #ok("Change standard successfully.");
+            };
+            case (#err(code)) {
+                return #err(#InternalError("Get pool metadata failed: " # debug_show (code)));
+            };
+        };
+    };
+
+    public shared(msg) func retryAllFailedUpgrades() : async Result.Result<(), Types.Error> {
+        _checkAdminPermission(msg.caller);
+        // Check if there are any pending upgrades
+        if (List.size(_pendingUpgradePoolList) > 0) { 
+            return #err(#InternalError("Cannot retry failed upgrades while there are pending upgrades")); 
+        };
+        // Check if there's a current upgrade task running
+        switch(_currentUpgradeTask) {
+            case (?_) { return #err(#InternalError("Cannot retry failed upgrades while there is an upgrade in progress")); };
+            case (null) {};
+        };
+        // Move all failed tasks to pending list
+        var failedList = _upgradeFailedPoolList;
+        _upgradeFailedPoolList := List.nil<Types.FailedPoolInfo>();
+        // Add each failed task to pending list
+        label addTasks while (not List.isNil(failedList)) {
+            let (failedInfoOpt, remainingList) = List.pop(failedList);
+            failedList := remainingList;
+            switch(failedInfoOpt) {
+                case (?failedInfo) { _pendingUpgradePoolList := List.push(failedInfo.task, _pendingUpgradePoolList); };
+                case (null) {};
+            };
+        };
+        // If we added any tasks, start the upgrade process
+        if (not List.isNil(_pendingUpgradePoolList)) {
+            ignore Timer.setTimer<system>(#seconds (0), _execUpgrade);
+        };
+        #ok();
+    };
+
+    public shared (msg) func clearPoolUpgradeTaskHis() : async () {
+        _checkAdminPermission(msg.caller);
+        _poolUpgradeTaskHis := [];
+        _poolUpgradeTaskHisMap := HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
+    };
+
+    public shared (msg) func clearUpgradeFailedPoolList() : async () {
+        _checkAdminPermission(msg.caller);
+        _upgradeFailedPoolList := List.nil<Types.FailedPoolInfo>();
+    };
+
+    public shared (msg) func batchSetPoolIcrc28TrustedOrigins(poolCids : [Principal], origins : [Text]) : async Result.Result<(), Types.Error> {
+        _checkAdminPermission(msg.caller);
+        for (poolCid in poolCids.vals()) {
+            var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
+            try {
+                switch(await poolAct.setIcrc28TrustedOrigins(origins)) {
+                    case (#ok(_)) { };
+                    case (#err(e)) { return #err(#InternalError("Failed to set ICRC28 trusted origins for " # Principal.toText(poolCid) # ": " # debug_show(e))); };
+                };
+            } catch (e) {
+                return #err(#InternalError("Failed to set ICRC28 trusted origins for " # Principal.toText(poolCid) # ": " # Error.message(e)));
+            };
+        };
+        return #ok();
+    };
+
+    // ---------------       Factory Governance Functions              ----------------------
 
     public shared (msg) func removePool(args : Types.GetPoolArgs) : async Text {
         _checkPermission(msg.caller);
@@ -393,36 +468,6 @@ shared (initMsg) actor class SwapFactory(
         return #ok();
     };
 
-    public shared(msg) func retryAllFailedUpgrades() : async Result.Result<(), Types.Error> {
-        _checkPermission(msg.caller);
-        // Check if there are any pending upgrades
-        if (List.size(_pendingUpgradePoolList) > 0) { 
-            return #err(#InternalError("Cannot retry failed upgrades while there are pending upgrades")); 
-        };
-        // Check if there's a current upgrade task running
-        switch(_currentUpgradeTask) {
-            case (?_) { return #err(#InternalError("Cannot retry failed upgrades while there is an upgrade in progress")); };
-            case (null) {};
-        };
-        // Move all failed tasks to pending list
-        var failedList = _upgradeFailedPoolList;
-        _upgradeFailedPoolList := List.nil<Types.FailedPoolInfo>();
-        // Add each failed task to pending list
-        label addTasks while (not List.isNil(failedList)) {
-            let (failedInfoOpt, remainingList) = List.pop(failedList);
-            failedList := remainingList;
-            switch(failedInfoOpt) {
-                case (?failedInfo) { _pendingUpgradePoolList := List.push(failedInfo.task, _pendingUpgradePoolList); };
-                case (null) {};
-            };
-        };
-        // If we added any tasks, start the upgrade process
-        if (not List.isNil(_pendingUpgradePoolList)) {
-            ignore Timer.setTimer<system>(#seconds (0), _execUpgrade);
-        };
-        #ok();
-    };
-
     public shared (msg) func clearRemovedPool(canisterId : Principal) : async Text {
         _checkPermission(msg.caller);
         await _addPoolControllers(canisterId, [feeReceiverCid]);
@@ -435,28 +480,18 @@ shared (initMsg) actor class SwapFactory(
         for (poolCid in poolCids.vals()) { ignore _poolDataService.deletePool(Principal.toText(poolCid)); };
     };
 
-    public shared (msg) func clearPoolUpgradeTaskHis() : async () {
-        _checkPermission(msg.caller);
-        _poolUpgradeTaskHis := [];
-        _poolUpgradeTaskHisMap := HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
-    };
-
-    public shared (msg) func clearUpgradeFailedPoolList() : async () {
-        _checkPermission(msg.caller);
-        _upgradeFailedPoolList := List.nil<Types.FailedPoolInfo>();
-    };
-
-    // ---------------        Pools Governance Functions        ----------------------
-    public shared (msg) func removePoolErrorTransferLog(poolCid : Principal, id : Nat, rollback : Bool) : async Result.Result<(), Types.Error> {
-        _checkPermission(msg.caller);
-        var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
-        try {
-            await poolAct.removeErrorTransferLog(id, rollback);
-            return #ok(());
-        } catch (e) {
-            return #err(#InternalError("Remove withdraw error log failed: " # Error.message(e)));
-        }
-    };
+    // ---------------        Pool Governance Functions        ----------------------
+    
+    // public shared (msg) func removePoolErrorTransferLog(poolCid : Principal, id : Nat, rollback : Bool) : async Result.Result<(), Types.Error> {
+    //     _checkPermission(msg.caller);
+    //     var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
+    //     try {
+    //         await poolAct.removeErrorTransferLog(id, rollback);
+    //         return #ok(());
+    //     } catch (e) {
+    //         return #err(#InternalError("Remove withdraw error log failed: " # Error.message(e)));
+    //     }
+    // };
 
     public shared (msg) func setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
         _checkPermission(msg.caller);
@@ -586,14 +621,6 @@ shared (initMsg) actor class SwapFactory(
         } catch (e) {
             throw Error.reject("Failed to get version: " # Error.message(e));
         };
-    };
-
-    private func _checkPermission(caller : Principal) {
-        assert(_hasPermission(caller));
-    };
-
-    private func _hasPermission(caller: Principal): Bool {
-        return Prim.isController(caller) or (switch (governanceCid) {case (?cid) { Principal.equal(caller, cid) }; case (_) { false };});
     };
 
     private func _validatePasscode(principal: Principal, args: Types.CreatePoolArgs): Bool {
@@ -804,7 +831,8 @@ shared (initMsg) actor class SwapFactory(
             };
         };
     };
-    // --------------------------------------------------------------------------------------------
+
+    // --------------------------------        Pool Installer Functions        ---------------------------------------
 
     private stable var _installerModuleHash : ?Blob = null;
     public shared ({ caller}) func setInstallerModuleHash(moduleHash : Blob) : async () {
@@ -943,6 +971,27 @@ shared (initMsg) actor class SwapFactory(
     };
     public query func getPoolInstallers() : async [Types.PoolInstaller] { _poolInstallers };
     
+    // --------------------------- ACL ------------------------------------
+
+    private stable var _admins : [Principal] = [];
+    public shared (msg) func setAdmins(admins : [Principal]) : async () {
+        _checkPermission(msg.caller);
+        _admins := admins;
+    };
+    public query func getAdmins(): async [Principal] {
+        return _admins;
+    };
+    private func _checkAdminPermission(caller: Principal) {
+        assert(not Principal.isAnonymous(caller));
+        assert(CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller));
+    };
+    private func _checkPermission(caller : Principal) {
+        assert(_hasPermission(caller));
+    };
+    private func _hasPermission(caller: Principal): Bool {
+        return Prim.isController(caller) or (switch (governanceCid) {case (?cid) { Principal.equal(caller, cid) }; case (_) { false };});
+    };
+
     // --------------------------- Version Control      -------------------------------
     private var _version : Text = "3.5.2";
     public query func getVersion() : async Text { _version };
@@ -968,23 +1017,33 @@ shared (initMsg) actor class SwapFactory(
         return switch (msg) {
             // Controller   
             case (#clearRemovedPool _)                   { _hasPermission(caller) };
-            case (#clearPoolUpgradeTaskHis _)            { _hasPermission(caller) };
-            case (#clearUpgradeFailedPoolList _)         { _hasPermission(caller) };
             case (#removePool _)                         { _hasPermission(caller) };
-            case (#removePoolErrorTransferLog _)         { _hasPermission(caller) };
-            case (#upgradePoolTokenStandard _)           { _hasPermission(caller) };
+            // case (#removePoolErrorTransferLog _)         { _hasPermission(caller) };
             case (#addPoolControllers _)                 { _hasPermission(caller) };
             case (#removePoolControllers _)              { _hasPermission(caller) };
-            case (#retryAllFailedUpgrades _)             { _hasPermission(caller) };
             case (#setPoolAdmins _)                      { _hasPermission(caller) };
             case (#setPoolAvailable _)                   { _hasPermission(caller) };
             case (#setUpgradePoolList _)                 { _hasPermission(caller) };
+            case (#setAdmins _)                          { _hasPermission(caller) };
+            case (#setIcrc28TrustedOrigins _)            { _hasPermission(caller) };
             case (#batchAddPoolControllers _)            { _hasPermission(caller) };
             case (#batchRemovePoolControllers _)         { _hasPermission(caller) };
             case (#batchSetPoolAdmins _)                 { _hasPermission(caller) };
             case (#batchRemovePools _)                   { _hasPermission(caller) };
+            case (#batchClearRemovedPool _)              { _hasPermission(caller) };
+            case (#batchSetPoolAvailable _)              { _hasPermission(caller) };
+            case (#batchSetPoolLimitOrderAvailable _)    { _hasPermission(caller) };
+            case (#setInstallerModuleHash _)             { _hasPermission(caller) };
+            case (#addPoolInstallers _)                  { _hasPermission(caller) };
+            case (#removePoolInstaller _)                { _hasPermission(caller) };
+            // Admin
+            case (#upgradePoolTokenStandard _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
+            case (#retryAllFailedUpgrades _)             { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
+            case (#clearPoolUpgradeTaskHis _)            { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
+            case (#clearUpgradeFailedPoolList _)         { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
+            case (#batchSetPoolIcrc28TrustedOrigins _)   { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             // Anyone
-            case (_)                                   { true };
+            case (_)                                     { true };
         };
     };
 
