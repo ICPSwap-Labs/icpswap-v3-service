@@ -454,6 +454,7 @@ module {
         #icrc10_supported_standards : () -> ();
         #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
         #icrc28_trusted_origins : () -> ();
+        #setIcrc28TrustedOrigins : () -> [Text];
     };
     public type SwapFactoryMsg = {
         #addPasscode : () -> (Principal, Passcode);
@@ -466,12 +467,14 @@ module {
         #batchRemovePools : () -> [Principal];
         #batchSetPoolAdmins : () -> ([Principal], [Principal]);
         #batchSetPoolAvailable : () -> ([Principal], Bool);
+        #batchSetPoolIcrc28TrustedOrigins : () -> ([Principal], [Text]);
         #batchSetPoolLimitOrderAvailable : () -> ([Principal], Bool);
         #clearPoolUpgradeTaskHis : () -> ();
         #clearRemovedPool : () -> Principal;
         #clearUpgradeFailedPoolList : () -> ();
         #createPool : () -> CreatePoolArgs;
         #deletePasscode : () -> (Principal, Passcode);
+        #getAdmins : () -> ();
         #getCurrentUpgradeTask : () -> ();
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();
@@ -494,10 +497,12 @@ module {
         #icrc28_trusted_origins : () -> ();
         #removePool : () -> GetPoolArgs;
         #removePoolControllers : () -> (Principal, [Principal]);
-        #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
+        // #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
         #removePoolInstaller : () -> Principal;
         #removePoolInstallerValidate : () -> Principal;
         #retryAllFailedUpgrades : () -> ();
+        #setAdmins : () -> [Principal];
+        #setIcrc28TrustedOrigins : () -> [Text];
         #setInstallerModuleHash : () -> Blob;
         #setInstallerModuleHashValidate : () -> Blob;
         #setPoolAdmins : () -> (Principal, [Principal]);
@@ -565,7 +570,7 @@ module {
         getTickBitmaps : query () -> async Result.Result<[(Int, Nat)], Error>;
         getFeeGrowthGlobal : query () -> async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Error>;
         getInitArgs : query () -> async Result.Result<{ token0 : Token; token1 : Token; infoCid : Principal; feeReceiverCid : Principal; trustedCanisterManagerCid : Principal; }, Error>;
-
+        setIcrc28TrustedOrigins : shared ([Text]) -> async Result.Result<Bool, ()>;
         // --- recover ---
         recoverUserPositions : shared ([UserPositionInfoWithId]) -> async ();
         recoverPositions : shared ([PositionInfoWithId]) -> async ();
