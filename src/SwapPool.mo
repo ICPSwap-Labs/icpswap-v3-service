@@ -140,7 +140,7 @@ shared (initMsg) actor class SwapPool(
     
 
     // --------------------------- limit order ------------------------------------
-    private stable var _isLimitOrderAvailable = true;
+    private stable var _isLimitOrderAvailable = false;
     public shared (msg) func setLimitOrderAvailable(available : Bool) : async () {
         assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
