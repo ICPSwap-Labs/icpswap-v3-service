@@ -1595,6 +1595,10 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func transferPosition(from : Principal, to : Principal, positionId : Nat) : async Result.Result<Bool, Types.Error> {
         assert(_isAvailable(msg.caller));
+        // Check if position already has an active order
+        if (_hasActiveLimitOrder(positionId)) {
+            return #err(#InternalError("Active limit order can not be transferred"));
+        };
         var sender = PrincipalUtils.toAddress(msg.caller);
         var spender = _positionTickService.getAllowancedUserPosition(positionId);
         if ((not Text.equal(sender, spender)) and (not Principal.equal(msg.caller, from))) {
