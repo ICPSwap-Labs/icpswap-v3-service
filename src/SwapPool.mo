@@ -1385,36 +1385,25 @@ shared (initMsg) actor class SwapPool(
     public shared (msg) func removeLimitOrder(positionId : Nat) : async Result.Result<Bool, Types.Error> {
         assert(_isAvailable(msg.caller) and _isLimitOrderAvailable);
         if (Principal.isAnonymous(msg.caller)) return #err(#InternalError("Illegal anonymous call"));
-        // Check if position exists
-        let userPosition = _positionTickService.getUserPosition(positionId);
-        if (userPosition.liquidity > 0) {
-            // Position exists, verify caller is owner
-            if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), positionId)) {
-                return #err(#InternalError("Caller is not owner"));
-            };
+        if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), positionId)) {
+            return #err(#InternalError("Caller is not owner"));
         };
         // Try to remove from both upper and lower order lists
-        var removed = false;
-        label search {
-            // Check upper limit orders
-            for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
-                if (value.userPositionId == positionId) {
-                    _upperLimitOrders.delete(key);
-                    removed := true;
-                    break search;
-                };
-            };
-            // Check lower limit orders 
-            for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #fwd)) {
-                if (value.userPositionId == positionId) {
-                    _lowerLimitOrders.delete(key);
-                    removed := true;
-                    break search;
-                };
+        // Check upper limit orders
+        for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+            if (value.userPositionId == positionId) {
+                _upperLimitOrders.delete(key);
+                return #ok(true);
             };
         };
-        if (not removed) { return #err(#InternalError("Limit order not found")); };
-        return #ok(true);
+        // Check lower limit orders 
+        for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #fwd)) {
+            if (value.userPositionId == positionId) {
+                _lowerLimitOrders.delete(key);
+                return #ok(true);
+            };
+        };
+        return #err(#InternalError("Limit order not found"));
     };
 
     public shared (msg) func increaseLiquidity(args : Types.IncreaseLiquidityArgs) : async Result.Result<Nat, Types.Error> {
