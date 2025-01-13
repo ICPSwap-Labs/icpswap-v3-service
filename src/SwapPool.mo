@@ -140,7 +140,7 @@ shared (initMsg) actor class SwapPool(
     
 
     // --------------------------- limit order ------------------------------------
-    private stable var _isLimitOrderAvailable = false;
+    private stable var _isLimitOrderAvailable = true;
     public shared (msg) func setLimitOrderAvailable(available : Bool) : async () {
         assert(_isAvailable(msg.caller));
         _checkAdminPermission(msg.caller);
@@ -2227,7 +2227,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.5.6";
+    private var _version : Text = "3.5.7";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
