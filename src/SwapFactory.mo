@@ -976,6 +976,11 @@ shared (initMsg) actor class SwapFactory(
     private stable var _admins : [Principal] = [];
     public shared (msg) func setAdmins(admins : [Principal]) : async () {
         _checkPermission(msg.caller);
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) {
+                throw Error.reject("Anonymous principals cannot be pool admins");
+            };
+        };
         _admins := admins;
     };
     public query func getAdmins(): async [Principal] {
@@ -983,7 +988,7 @@ shared (initMsg) actor class SwapFactory(
     };
     private func _checkAdminPermission(caller: Principal) {
         assert(not Principal.isAnonymous(caller));
-        assert(CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller));
+        assert(CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller));
     };
     private func _checkPermission(caller : Principal) {
         assert(_hasPermission(caller));
@@ -993,7 +998,7 @@ shared (initMsg) actor class SwapFactory(
     };
 
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.5.7";
+    private var _version : Text = "3.5.8";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {
@@ -1037,11 +1042,11 @@ shared (initMsg) actor class SwapFactory(
             case (#addPoolInstallers _)                  { _hasPermission(caller) };
             case (#removePoolInstaller _)                { _hasPermission(caller) };
             // Admin
-            case (#upgradePoolTokenStandard _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
-            case (#retryAllFailedUpgrades _)             { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
-            case (#clearPoolUpgradeTaskHis _)            { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
-            case (#clearUpgradeFailedPoolList _)         { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
-            case (#batchSetPoolIcrc28TrustedOrigins _)   { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
+            case (#upgradePoolTokenStandard _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
+            case (#retryAllFailedUpgrades _)             { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
+            case (#clearPoolUpgradeTaskHis _)            { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
+            case (#clearUpgradeFailedPoolList _)         { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
+            case (#batchSetPoolIcrc28TrustedOrigins _)   { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
             // Anyone
             case (_)                                     { true };
         };
