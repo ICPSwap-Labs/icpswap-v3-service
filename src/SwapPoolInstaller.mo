@@ -15,19 +15,28 @@ actor class SwapPoolInstaller(
         #Unauthorized;
     };
     private stable var _initCycles : Nat = 1860000000000;
+    private stable var _initTopUpCycles : Nat = 500000000000;
     private func _hasPermission(caller: Principal): Bool {
         return Prim.isController(caller) or Principal.equal(caller, factoryId) or Principal.equal(caller, governanceId);
     };
 
-    public func install(token0: Types.Token, token1: Types.Token, infoCid: Principal, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal) : async Principal {
-        Cycles.add<system>(_initCycles);
-        let act = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
-        let canisterId = Principal.fromActor(act);
-        await IC0Utils.update_settings_add_controller(canisterId, [factoryId]);
+    public shared ({ caller }) func install(
+        token0: Types.Token, 
+        token1: Types.Token, 
+        infoCid: Principal, 
+        feeReceiverCid: Principal, 
+        trustedCanisterManagerCid: Principal
+    ) : async Principal {
+        assert (_hasPermission(caller));
+        let createCanisterResult = await IC0Utils.create_canister(null, null, _initCycles);
+        let canisterId = createCanisterResult.canister_id;
+        await IC0Utils.deposit_cycles(canisterId, _initTopUpCycles);
+        let _ = await (system SwapPool.SwapPool)(#install canisterId)(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+        await IC0Utils.update_settings_add_controller(canisterId, [factoryId, governanceId]);
         return canisterId;
     };
 
-    public shared func getCanisterStatus() : async { controllers: [Principal]; moduleHash: ?Blob } {
+    public shared func getStatus() : async { controllers: [Principal]; moduleHash: ?Blob } {
         let status = await IC0Utils.canister_status(Principal.fromActor(this));
         let controllers = status.settings.controllers;
         let moduleHash = status.module_hash;
@@ -37,12 +46,23 @@ actor class SwapPoolInstaller(
         };
     };
 
+    public query func getInitArgs() : async Result.Result<{ factoryId: Principal; governanceId: Principal; }, Types.Error> {
+        return #ok({
+            factoryId = factoryId;
+            governanceId = governanceId;
+        });
+    };
+
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
         return #ok({
             balance = Cycles.balance();
             available = Cycles.available();
         });
     };
+    
+    // --------------------------- Version Control      -------------------------------
+    private var _version : Text = "3.5.8";
+    public query func getVersion() : async Text { _version };
     
     system func preupgrade() {
     };
