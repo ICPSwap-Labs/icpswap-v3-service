@@ -134,7 +134,7 @@ dfx deploy SwapPoolInstaller --argument="(principal \"$(dfx canister id SwapFact
 dfx canister update-settings SwapPoolInstaller --add-controller "$swapFactoryId"
 dfx canister update-settings SwapPoolInstaller --remove-controller "$MINTER_WALLET"
 # dfx canister status SwapPoolInstaller
-MODULE_HASH=$(dfx canister call SwapPoolInstaller getCanisterStatus | sed -n 's/.*moduleHash = opt blob "\(.*\)".*/\1/p')
+MODULE_HASH=$(dfx canister call SwapPoolInstaller getStatus | sed -n 's/.*moduleHash = opt blob "\(.*\)".*/\1/p')
 dfx canister call SwapFactory setInstallerModuleHash "(blob \"$MODULE_HASH\")"
 dfx canister call SwapFactory getInstallerModuleHash
 dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})" 

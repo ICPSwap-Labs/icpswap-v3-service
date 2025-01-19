@@ -251,7 +251,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     public shared ({ caller }) func setUpgradePoolListValidate(args : Types.UpgradePoolArgs) : async Result {
         assert (Principal.equal(caller, governanceCid));
         // set a limit on the number of upgrade tasks
-        if (Array.size(args.poolIds) > 100) { return #Err("The number of canisters to be upgraded cannot be set to more than 100"); };
+        if (Array.size(args.poolIds) > 500) { return #Err("The number of canisters to be upgraded cannot be set to more than 500"); };
         // check task map is empty
         switch (await _factoryAct.getPendingUpgradePoolList()) {
             case (#ok(list)) {
