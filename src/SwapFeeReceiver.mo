@@ -31,10 +31,13 @@ shared (initMsg) actor class SwapFeeReceiver(
     governanceCid : Principal,
 ) = this {
 
+    private var _deploymentTime : Nat = BlockTimestamp.blockTimestamp();
+
     // --------------------------- Auto Claim ------------------------------------
     private stable var _canisterId : ?Principal = null;
     private stable var _ICPFee : Nat = 0;
     private stable var _ICSFee : Nat = 0;
+    private stable var _lastSyncTime : Nat = 0;
     private stable var _icpPoolClaimInterval : Nat = 2592000; // Default 30 days in seconds
     private stable var _noIcpPoolClaimInterval : Nat = 15552000; // Default 180 days in seconds
     private stable var _autoSwapToIcsEnabled : Bool = false;
@@ -44,8 +47,7 @@ shared (initMsg) actor class SwapFeeReceiver(
     private var _poolMap: HashMap.HashMap<Principal, Types.ClaimedPoolData> = HashMap.HashMap<Principal, Types.ClaimedPoolData>(100, Principal.equal, Principal.hash);
     // sync flag
     private stable var _isSyncing : Bool = false;
-    // last sync time
-    private stable var _lastSyncTime : Nat = 0;
+
     // claim log
     private var _tokenClaimLog : Buffer.Buffer<Types.ReceiverClaimLog> = Buffer.Buffer<Types.ReceiverClaimLog>(0);
     private stable var _tokenClaimLogArray : [Types.ReceiverClaimLog] = [];
@@ -695,10 +697,17 @@ shared (initMsg) actor class SwapFeeReceiver(
     private func _autoSyncPools() : async () {
         try {
             if (_isSyncing) { return; };
+            
+            // Check if enough time has passed since last sync based on _icpPoolClaimInterval
+            let currentTime = BlockTimestamp.blockTimestamp();
+            if (currentTime < (_lastSyncTime + _icpPoolClaimInterval)) {
+                return;
+            };
+            
             if (await _syncPools()) {
                 if (_isSyncing) { return; };
                 _isSyncing := true;
-                _lastSyncTime := BlockTimestamp.blockTimestamp();
+                _lastSyncTime := currentTime;
                 ignore Timer.setTimer<system>(#nanoseconds (0), _autoClaim); 
             };
         } catch (e) {
@@ -717,14 +726,9 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    // Keep the monthly recurring timer for ICP pools
-    var _claimSwapFeeRepurchasePerMonth = Timer.recurringTimer<system>(#seconds(_icpPoolClaimInterval), _autoSyncPools);
-
     public shared ({ caller }) func setIcpPoolClaimInterval(interval: Nat) : async Result.Result<(), Types.Error> {
         _checkPermission(caller);
         _icpPoolClaimInterval := interval;
-        Timer.cancelTimer(_claimSwapFeeRepurchasePerMonth);
-        _claimSwapFeeRepurchasePerMonth := Timer.recurringTimer<system>(#seconds(_icpPoolClaimInterval), _autoSyncPools);
         return #ok();
     };
 
@@ -749,16 +753,21 @@ shared (initMsg) actor class SwapFeeReceiver(
     public query func getConfig() : async Result.Result<{
         icpPoolClaimInterval: Nat;
         noIcpPoolClaimInterval: Nat;
+        deploymentTime: Nat;
         autoSwapToIcsEnabled: Bool;
         autoBurnEnabled: Bool;
     }, Types.Error> {
         return #ok({
             icpPoolClaimInterval = _icpPoolClaimInterval;
             noIcpPoolClaimInterval = _noIcpPoolClaimInterval;
+            deploymentTime = _deploymentTime;
             autoSwapToIcsEnabled = _autoSwapToIcsEnabled;
             autoBurnEnabled = _autoBurnIcsEnabled;
         });
     };
+
+    private var _claimSwapFeeRepurchaseDaily = Timer.recurringTimer<system>(#seconds(86400), _autoSyncPools); // 24 hours
+
     // --------------------------- Version Control ------------------------------------
     private var _version : Text = "3.5.0";
     public query func getVersion() : async Text { _version };
