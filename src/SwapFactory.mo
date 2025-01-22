@@ -437,8 +437,8 @@ shared (initMsg) actor class SwapFactory(
             return #err(#InternalError("Please wait until the upgrade task list is empty")); 
         };
         // set a limit on the number of upgrade tasks
-        if (Array.size(args.poolIds) > 100) { 
-            return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 100")); 
+        if (Array.size(args.poolIds) > 500) { 
+            return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 500")); 
         };
         // clear the upgrade task history
         _poolUpgradeTaskHis := [];
