@@ -617,7 +617,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     private func _send(caller: Principal, trxIndex: Nat, amountOut : Nat, args: Types.DepositFromAndSwapArgs): async Result.Result<Nat, Types.Error> {
-        // TODO check if amountOut is greater than tokenOutFee
+        if (amountOut <= args.tokenOutFee) { return #err(#InternalError("Amount out is less than token out fee")); };
         let amount = amountOut - args.tokenOutFee;
         let token = if (args.zeroForOne) { _token1 } else { _token0 };
         let tokenAct = if (args.zeroForOne) { _token1Act } else { _token0Act };
@@ -1395,18 +1395,28 @@ shared (initMsg) actor class SwapPool(
     public shared({ caller }) func depositFromAndSwap(args: Types.DepositFromAndSwapArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(caller));
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
-        // TODO fee checking should be done in depositAndSwap
-        // TODO check if balance is not enough
+        let (fee0, fee1) = (
+            switch _token0Fee { case (?f) { f }; case (null) { var f = await _token0Act.fee(); _token0Fee := ?(f); f; }; },
+            switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; }; }
+        );
+        let (feeIn, feeOut) = if (args.zeroForOne) { (fee0, fee1) } else { (fee1, fee0) };  
+        if (not Nat.equal(feeIn, args.tokenInFee)) { 
+            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(feeIn) # ", received: " # debug_show(args.tokenInFee) # "), please try later")); 
+        };
+        if (not Nat.equal(feeOut, args.tokenOutFee)) { 
+            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(feeOut) # ", received: " # debug_show(args.tokenOutFee) # "), please try later")); 
+        };
+        // TODO if check balance
         let trx = 0;
         // _startTransaction(caller, args);
         switch(await _depositFrom(caller, trx, args)) {
-            case (#ok(amount)) {
+            case (#ok(_)) {
                 let swapArgs = {
                     amountIn = args.amountIn;
                     amountOutMinimum = args.amountOutMinimum;
                     zeroForOne = args.zeroForOne;
                 };
-                // TODO call _preswap to check slippage. If slippage is over range, refund the token
+                // call _preswap to check slippage. If slippage is over range, refund the token
                 if (TextUtils.toInt(args.amountOutMinimum) > 0) {
                     var preCheckAmount = switch (_preSwapForAll(swapArgs, caller)) {
                         case (#ok(result)) { result };
@@ -2296,6 +2306,9 @@ shared (initMsg) actor class SwapPool(
     public shared (msg) func setAdmins(admins : [Principal]) : async () {
         assert(_isAvailable(msg.caller));
         _checkControllerPermission(msg.caller);
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) { throw Error.reject("Anonymous principals cannot be pool admins"); };
+        };
         _admins := admins;
     };
     public query func getAdmins(): async [Principal] {
