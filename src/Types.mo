@@ -380,6 +380,13 @@ module {
         subnetType: Text;
         weight : Nat;
     };
+    public type DepositFromAndSwapArgs = {
+        zeroForOne : Bool;
+        tokenInFee: Nat;
+        tokenOutFee: Nat;
+        amountIn : Text;
+        amountOutMinimum : Text;
+    };
     public type SwapPoolMsg = {
         #addLimitOrder : () -> LimitOrderArgs;
         #allTokenBalance : () -> (Nat, Nat);
@@ -390,6 +397,7 @@ module {
         #decreaseLiquidity : () -> DecreaseLiquidityArgs;
         #deposit : () -> DepositArgs;
         #depositFrom : () -> DepositArgs;
+        #depositFromAndSwap : () -> DepositFromAndSwapArgs;
         #getAvailabilityState : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
