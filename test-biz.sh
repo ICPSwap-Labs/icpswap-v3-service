@@ -320,6 +320,44 @@ function swap() #depostToken depostAmount amountIn amountOutMinimum ### liquidit
     fi
 }
 
+function oneStepSwap() #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96  token0BalanceAmount token1BalanceAmount zeroForOne
+{
+    echo "=== swap... ==="
+    if [[ "$1" =~ "$token0" ]]; then
+        result=`dfx canister call $poolId depositFromAndSwap "(record { zeroForOne = true; amountIn = \"$3\"; amountOutMinimum = \"$4\"; tokenInFee = $TRANS_FEE: nat; tokenOutFee = $TRANS_FEE: nat; })"`
+    else
+        result=`dfx canister call $poolId depositFromAndSwap "(record { zeroForOne = false; amountIn = \"$3\"; amountOutMinimum = \"$4\"; tokenInFee = $TRANS_FEE: nat; tokenOutFee = $TRANS_FEE: nat; })"`
+    fi
+    echo "swap result: $result"
+
+    result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
+    echo "unused balance result: $result"
+
+    withdrawAmount0=$(echo "$result" | sed -n 's/.*balance0 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
+    withdrawAmount1=$(echo "$result" | sed -n 's/.*balance1 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
+    echo "withdraw amount0: $withdrawAmount0"
+    echo "withdraw amount1: $withdrawAmount1"
+
+    result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
+    echo "token0 withdraw result: $result"
+    result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
+    echo "token1 withdraw result: $result"
+    
+    token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
+    echo "token0 $MINTER_PRINCIPAL balance: $token0BalanceResult"
+    token1BalanceResult="$(balanceOf $token1 $MINTER_PRINCIPAL null)"
+    echo "token1 $MINTER_PRINCIPAL balance: $token1BalanceResult"
+    info=`dfx canister call $poolId metadata`
+    info=${info//"_"/""}
+    token0BalanceResult=${token0BalanceResult//"_"/""}
+    token1BalanceResult=${token1BalanceResult//"_"/""}
+    if [[ "$info" =~ "$5" ]] && [[ "$info" =~ "$6" ]] && [[ "$info" =~ "$7" ]] && [[ "$token0BalanceResult" =~ "$8" ]] && [[ "$token1BalanceResult" =~ "$9" ]]; then
+      echo "\033[32m swap success. \033[0m"
+    else
+      echo "\033[31m swap fail. $info \n expected $5 $6 $7 $8 $9\033[0m"
+    fi
+}
+
 function checkBalance(){
     token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
     echo "token0 $MINTER_PRINCIPAL balance: $token0BalanceResult"
@@ -481,6 +519,7 @@ function testMintSwap()
     echo "==> step 2 swap"
     #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
     swap $token0 100000000000 100000000000 658322113914 529634421680 14808 166123716848874888729218662825 999999800000000000 999999056851511853
+    # oneStepSwap $token0 100000000000 100000000000 658322113914 529634421680 14808 166123716848874888729218662825 999999800000000000 999999056851511853
 
     echo "==> step 3 swap"
     #depostToken depostAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
