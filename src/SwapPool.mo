@@ -578,6 +578,84 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
+    private func _depositFrom(caller: Principal, trxIndex: Nat, args: Types.DepositFromAndSwapArgs): async Result.Result<Nat, Types.Error> {
+        let token = if (args.zeroForOne) { _token0 } else { _token1 };
+        let tokenAct = if (args.zeroForOne) { _token0Act } else { _token1Act };
+        // var trx = _transactionMap.get(trxIndex).get();
+        // trx.deposit := { status = #Processing };
+        // _transactionMap.put(trx.index, trx);
+        try {
+            switch (await tokenAct.transferFrom({ 
+                from = { owner = caller; subaccount = null }; 
+                to = { owner = Principal.fromActor(this); subaccount = null }; 
+                amount = TextUtils.toNat(args.amountIn);
+                fee = ?args.tokenInFee; 
+                memo = Option.make(PoolUtils.natToBlob(trxIndex)); 
+                created_at_time = null 
+            })) {
+                case (#Ok(index)) {
+                    ignore _tokenHolderService.deposit(caller, token, TextUtils.toNat(args.amountIn));
+                    // var _trx = _transactionMap.get(trxIndex).get();
+                    // _trx.deposit := { status = #Ok(index) };
+                    // _transactionMap.put(trx.index, trx);
+                    return #ok(TextUtils.toNat(args.amountIn));
+                };
+                case (#Err(msg)) {
+                    // var _trx = _transactionMap.get(trxIndex).get();
+                    // _trx.deposit := { status = #Err(msg) };
+                    // _transactionMap.put(trx.index, trx);
+                    return #err(#InternalError(debug_show (msg)));
+                };
+            };
+        } catch (e) {
+            let msg: Text = debug_show (Error.message(e));
+            // var _trx = _transactionMap.get(trxIndex).get();
+            // _trx.deposit := #Err(debug_show (msg));
+            // _transactionMap.put(trx.index, trx);
+            return #err(#InternalError(msg));
+        };
+    };
+
+    private func _send(caller: Principal, trxIndex: Nat, amountOut : Nat, args: Types.DepositFromAndSwapArgs): async Result.Result<Nat, Types.Error> {
+        // TODO check if amountOut is greater than tokenOutFee
+        let amount = amountOut - args.tokenOutFee;
+        let token = if (args.zeroForOne) { _token1 } else { _token0 };
+        let tokenAct = if (args.zeroForOne) { _token1Act } else { _token0Act };
+        // var trx = _transactionMap.get(trxIndex).get();
+        // trx.withdraw := { status = #Processing };
+        // _transactionMap.put(trx.index, trx);
+        try {
+            switch (await tokenAct.transfer({ 
+                from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; 
+                to = { owner = caller; subaccount = null }; 
+                amount = amount; 
+                fee = ?args.tokenOutFee; 
+                memo = Option.make(PoolUtils.natToBlob(trxIndex));  
+                created_at_time = null 
+            })) {
+                case (#Ok(_)) {
+                    ignore _tokenHolderService.withdraw(caller, token, amountOut);
+                    // var _trx = _transactionMap.get(trxIndex).get();
+                    // _trx.withdraw := { status = #Ok(index) };
+                    // _transactionMap.put(trx.index, trx);
+                    return #ok(amount);
+                };
+                case (#Err(msg)) {
+                    // var _trx = _transactionMap.get(trxIndex).get();
+                    // _trx.withdraw := #Err(debug_show (msg));
+                    // _transactionMap.put(trx.index, trx);
+                    return #err(#InternalError(debug_show (msg)));
+                };
+            };
+        } catch (e) {
+            let msg: Text = debug_show (Error.message(e));
+            // var _trx = _transactionMap.get(trxIndex).get();
+            // _trx.withdraw := #Err(debug_show (msg));
+            // _transactionMap.put(trx.index, trx);
+            return #err(#InternalError(msg));
+        };
+    };
+
     private func _preSwap(args : Types.SwapArgs, operator : Principal) : Result.Result<Nat, Types.Error> {
         var swapResult = switch (_computeSwap(args, operator, false)) {
             case (#ok(result)) { result };
@@ -622,10 +700,10 @@ shared (initMsg) actor class SwapPool(
 
     private func _computeSwap(args : Types.SwapArgs, operator : Principal, effective : Bool) : Result.Result<{ amount0 : Int; amount1 : Int }, Text> {
         var amountIn = TextUtils.toInt(args.amountIn);
-        if (amountIn <= 0) { return #err("illegal amountIn") };
+        if (amountIn <= 0) { return #err("Illegal amountIn") };
         if (effective) {
             if (not _checkAmount(IntUtils.toNat(amountIn, 256), operator, if (args.zeroForOne) { _token0 } else { _token1 })) {
-                return #err("illegal deposit balance in pool");
+                return #err("Illegal deposit balance in pool");
             };
         };
         var sqrtPriceLimitX96 = if (args.zeroForOne) {
@@ -807,6 +885,47 @@ shared (initMsg) actor class SwapPool(
                 }
             }
         );
+    };
+
+    private func _executeSwap(args: Types.SwapArgs, caller: Principal, swapResult: { amount0: Int; amount1: Int }) : Nat {
+        var swapAmount = 0;
+        if (args.zeroForOne and swapResult.amount1 < 0) {
+            swapAmount := IntUtils.toNat(-(swapResult.amount1), 256);
+            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(IntUtils.toNat(swapResult.amount0, 256))).val());
+            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(swapAmount)).val());
+            _pushSwapInfoCache(#swap, Principal.toText(caller), Principal.toText(Principal.fromActor(this)), Principal.toText(caller), 0, SafeUint.Uint256(IntUtils.toNat(swapResult.amount0, 256)).val(), SafeUint.Uint256(swapAmount).val(), args.zeroForOne);
+
+            ignore _tokenHolderService.swap(caller, _token0, IntUtils.toNat(swapResult.amount0, 256), _token1, swapAmount);
+        };
+        if ((not args.zeroForOne) and swapResult.amount0 < 0) {
+            swapAmount := IntUtils.toNat(-(swapResult.amount0), 256);
+            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(swapAmount)).val());
+            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(IntUtils.toNat(swapResult.amount1, 256))).val());
+            _pushSwapInfoCache(#swap, Principal.toText(caller), Principal.toText(Principal.fromActor(this)), Principal.toText(caller), 0, SafeUint.Uint256(IntUtils.toNat(swapResult.amount1, 256)).val(), SafeUint.Uint256(swapAmount).val(), args.zeroForOne);
+
+            ignore _tokenHolderService.swap(caller, _token1, IntUtils.toNat(swapResult.amount1, 256), _token0, swapAmount);
+        };
+        return swapAmount;
+    };
+
+    private func _swap(args: Types.SwapArgs, caller: Principal) : async Result.Result<Nat, Types.Error> {
+        var swapAmount = 0;
+        try {
+            var swapResult = switch (_computeSwap(args, caller, true)) {
+                case (#ok(result)) { result };
+                case (#err(code)) { throw Error.reject("swap " # debug_show (code)); };
+            };
+            swapAmount := _executeSwap(args, caller, swapResult);
+
+            // set a one-time timer to remove limit order automatically  
+            ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
+            _jobService.onActivity<system>();
+        
+            #ok(swapAmount)
+        } catch (e) {
+            _rollback("swap failed: " # Error.message(e));
+            #err(#InternalError("Swap failed: " # Error.message(e)))
+        };
     };
 
     private func _refreshIncome(positionId : Nat) : Result.Result<{ tokensOwed0 : Nat; tokensOwed1 : Nat }, Text> {
@@ -994,31 +1113,15 @@ shared (initMsg) actor class SwapPool(
             return #err(#UnsupportedToken(args.token));
         };
         let (token, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
-            (_token0, _token0Act, switch _token0Fee { 
-                case (?f) { f }; 
-                case (null) {
-                    var f = await _token0Act.fee();
-                    _token0Fee := ?(f);
-                    f;
-                };
-            });
+            (_token0, _token0Act, switch _token0Fee { case (?f) { f }; case (null) { var f = await _token0Act.fee(); _token0Fee := ?(f); f; }; });
         } else {
-            (_token1, _token1Act, switch _token1Fee { 
-                case (?f) { f }; 
-                case (null) {
-                    var f = await _token1Act.fee();
-                    _token1Fee := ?(f);
-                    f;
-                };
-            });
+            (_token1, _token1Act, switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; }; });
         };
         if (not Nat.equal(fee, args.fee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
         };
         var canisterId = Principal.fromActor(this);
-        if (Principal.equal(caller, canisterId)) {
-            return #err(#InternalError("Caller and canister id can't be the same"));
-        };
+        if (Principal.equal(caller, canisterId)) { return #err(#InternalError("Caller and canister id can't be the same")); };
         let preTransIndex: Nat = _preTransfer(caller, caller, null, canisterId, null, "deposit", token, args.amount, args.fee);
         try {
             switch (await tokenAct.transferFrom({ 
@@ -1289,6 +1392,62 @@ shared (initMsg) actor class SwapPool(
         return #ok(positionId);
     };
 
+    public shared({ caller }) func depositFromAndSwap(args: Types.DepositFromAndSwapArgs) : async Result.Result<Nat, Types.Error> {
+        assert(_isAvailable(caller));
+        if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
+        // TODO fee checking should be done in depositAndSwap
+        // TODO check if balance is not enough
+        let trx = 0;
+        // _startTransaction(caller, args);
+        switch(await _depositFrom(caller, trx, args)) {
+            case (#ok(amount)) {
+                let swapArgs = {
+                    amountIn = args.amountIn;
+                    amountOutMinimum = args.amountOutMinimum;
+                    zeroForOne = args.zeroForOne;
+                };
+                // TODO call _preswap to check slippage. If slippage is over range, refund the token
+                if (TextUtils.toInt(args.amountOutMinimum) > 0) {
+                    var preCheckAmount = switch (_preSwapForAll(swapArgs, caller)) {
+                        case (#ok(result)) { result };
+                        case (#err(code)) {
+                            // await _refund();
+                            return #err(#InternalError("Slippage check failed: " # debug_show (code)));
+                        };
+                    };
+                    if (preCheckAmount < TextUtils.toInt(args.amountOutMinimum)) {
+                        // await _refund();
+                        return #err(#InternalError("Slippage is over range, please withdraw your unused token"));
+                    };
+                };
+                switch(await _swap(swapArgs, caller)) {
+                    case (#ok(amount)) {
+                        switch(await _send(caller, trx, amount, args)) {
+                            case (#ok(amount)) {
+                                return #ok(amount);
+                            };
+                            case (#err(e)) {
+                                // _updateTransaction();
+                                return #err(e);
+                            };
+                        };
+                    };
+                    case (#err(e)) {
+                        // _updateTransaction();
+                        // await _refund();
+                        return #err(e);
+                    };
+                };
+
+            };
+            case (#err(e)) {
+                // TODO 0 update transaction
+                // _updateTransaction();
+                return #err(e);
+            };
+        };
+    };
+
     public shared (msg) func mint(args : Types.MintArgs) : async Result.Result<Nat, Types.Error> {
         assert(_isAvailable(msg.caller));
         if (Principal.isAnonymous(msg.caller)) return #err(#InternalError("Illegal anonymous call"));
@@ -1531,46 +1690,22 @@ shared (initMsg) actor class SwapPool(
         if (TextUtils.toInt(args.amountOutMinimum) > 0) {
             var preCheckAmount = switch (_preSwap(args, msg.caller)) {
                 case (#ok(result)) { result };
-                case (#err(code)) {
-                    return #err(#InternalError("Slippage check failed: " # debug_show (code)));
-                };
+                case (#err(code)) { return #err(#InternalError("Slippage check failed: " # debug_show (code))); };
             };
-            if (preCheckAmount < TextUtils.toInt(args.amountOutMinimum)) {
-                return #err(#InternalError("Slippage is over range, please withdraw your unused token"));
-            };
+            if (preCheckAmount < TextUtils.toInt(args.amountOutMinimum)) { return #err(#InternalError("Slippage is over range, please withdraw your unused token")); };
         };
 
         var swapAmount = 0;
         try {
             var swapResult = switch (_computeSwap(args, msg.caller, true)) {
-                case (#ok(result)) { result };
-                case (#err(code)) {
-                    throw Error.reject("swap " # debug_show (code));
-                };
+                case (#ok(result)) { result }; case (#err(code)) { throw Error.reject("swap " # debug_show (code)); };
             };
-            var amount0 = swapResult.amount0;
-            var amount1 = swapResult.amount1;
-            if (args.zeroForOne and amount1 < 0) {
-                swapAmount := IntUtils.toNat(-(amount1), 256);
-                _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(IntUtils.toNat(amount0, 256))).val());
-                _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(swapAmount)).val());
-                _pushSwapInfoCache(#swap, Principal.toText(msg.caller), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), 0, SafeUint.Uint256(IntUtils.toNat(amount0, 256)).val(), SafeUint.Uint256(swapAmount).val(), args.zeroForOne);
-
-                ignore _tokenHolderService.swap(msg.caller, _token0, IntUtils.toNat(amount0, 256), _token1, swapAmount);
-            };
-            if ((not args.zeroForOne) and amount0 < 0) {
-                swapAmount := IntUtils.toNat(-(amount0), 256);
-                _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(swapAmount)).val());
-                _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(IntUtils.toNat(amount1, 256))).val());
-                _pushSwapInfoCache(#swap, Principal.toText(msg.caller), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), 0, SafeUint.Uint256(IntUtils.toNat(amount1, 256)).val(), SafeUint.Uint256(swapAmount).val(), args.zeroForOne);
-
-                ignore _tokenHolderService.swap(msg.caller, _token1, IntUtils.toNat(amount1, 256), _token0, swapAmount);
-            };
+            swapAmount := _executeSwap(args, msg.caller, swapResult);
         } catch (e) {
             _rollback("swap failed: " # Error.message(e));
         };
 
-        // set a one-time timer to remove limit order automatically
+        // set a one-time timer to remove limit order automatically  
         ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
         _jobService.onActivity<system>();
         return #ok(swapAmount);
