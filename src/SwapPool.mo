@@ -46,6 +46,7 @@ import CollectionUtils "mo:commons/utils/CollectionUtils";
 import Bool "mo:base/Bool";
 import Prim "mo:⛔";
 import Hash "mo:base/Hash";
+import SwapTransaction "./components/SwapTransaction";
 import Job "./components/Job";
 
 shared (initMsg) actor class SwapPool(
@@ -55,6 +56,7 @@ shared (initMsg) actor class SwapPool(
     feeReceiverCid : Principal,
     trustedCanisterManagerCid : Principal,
 ) = this {
+    private type SwapTransaction = SwapTransaction.SwapTransaction;
     private stable var _inited : Bool = false;
     public shared ({ caller }) func init (
         fee : Nat,
@@ -318,6 +320,9 @@ shared (initMsg) actor class SwapPool(
 
     private stable var _transferLogArray : [(Nat, Types.TransferLog)] = [];
     private stable var _transferIndex: Nat = 0;
+    private stable var _swapTransactionIndex: Nat = 0;
+    private stable var _swapTransactionArray : [(Nat, SwapTransaction)] = [];
+    private var _trxService: SwapTransaction.Service = SwapTransaction.Service(_swapTransactionIndex, _swapTransactionArray);
     private var _transferLog: HashMap.HashMap<Nat, Types.TransferLog> = HashMap.fromIter<Nat, Types.TransferLog>(_transferLogArray.vals(), 0, Nat.equal, Hash.hash);
     private func _preTransfer(owner: Principal, from: Principal, fromSubaccount: ?Blob, to: Principal, toSubaccount: ?Blob, action: Text, token: Types.Token, amount: Nat, fee: Nat): Nat {
         let time: Nat = Int.abs(Time.now());
@@ -581,38 +586,45 @@ shared (initMsg) actor class SwapPool(
     private func _depositFrom(caller: Principal, trxIndex: Nat, args: Types.DepositFromAndSwapArgs): async Result.Result<Nat, Types.Error> {
         let token = if (args.zeroForOne) { _token0 } else { _token1 };
         let tokenAct = if (args.zeroForOne) { _token0Act } else { _token1Act };
-        // var trx = _transactionMap.get(trxIndex).get();
-        // trx.deposit := { status = #Processing };
-        // _transactionMap.put(trx.index, trx);
-        try {
-            switch (await tokenAct.transferFrom({ 
-                from = { owner = caller; subaccount = null }; 
-                to = { owner = Principal.fromActor(this); subaccount = null }; 
-                amount = TextUtils.toNat(args.amountIn);
-                fee = ?args.tokenInFee; 
-                memo = Option.make(PoolUtils.natToBlob(trxIndex)); 
-                created_at_time = null 
-            })) {
-                case (#Ok(index)) {
-                    ignore _tokenHolderService.deposit(caller, token, TextUtils.toNat(args.amountIn));
+        switch (await _trxService.startDeposit(trxIndex, { owner = caller; subaccount = null }, { owner = Principal.fromActor(this); subaccount = null }, TextUtils.toNat(args.amountIn), ?args.tokenInFee)) {
+            case (#ok()) {
+                try {
+                    switch (await tokenAct.transferFrom({ 
+                        from = { owner = caller; subaccount = null }; 
+                        to = { owner = Principal.fromActor(this); subaccount = null }; 
+                        amount = TextUtils.toNat(args.amountIn);
+                        fee = ?args.tokenInFee; 
+                        memo = Option.make(PoolUtils.natToBlob(trxIndex)); 
+                        created_at_time = null 
+                    })) {
+                        case (#Ok(index)) {
+                            ignore _tokenHolderService.deposit(caller, token, TextUtils.toNat(args.amountIn));
+                            // var _trx = _transactionMap.get(trxIndex).get();
+                            // _trx.deposit := { status = #Ok(index) };
+                            // _transactionMap.put(trx.index, trx);
+                            _trxService.depositSuccess(trxIndex, index);
+                            return #ok(TextUtils.toNat(args.amountIn));
+                        };
+                        case (#Err(msg)) {
+                            // var _trx = _transactionMap.get(trxIndex).get();
+                            // _trx.deposit := { status = #Err(msg) };
+                            // _transactionMap.put(trx.index, trx);
+                            _trxService.depositError(trxIndex, msg);
+                            return #err(#InternalError(debug_show (msg)));
+                        };
+                    };
+                } catch (e) {
+                    let msg: Text = debug_show (Error.message(e));
                     // var _trx = _transactionMap.get(trxIndex).get();
-                    // _trx.deposit := { status = #Ok(index) };
+                    // _trx.deposit := #Err(debug_show (msg));
                     // _transactionMap.put(trx.index, trx);
-                    return #ok(TextUtils.toNat(args.amountIn));
-                };
-                case (#Err(msg)) {
-                    // var _trx = _transactionMap.get(trxIndex).get();
-                    // _trx.deposit := { status = #Err(msg) };
-                    // _transactionMap.put(trx.index, trx);
-                    return #err(#InternalError(debug_show (msg)));
+                    _trxService.depositError(trxIndex, msg);
+                    return #err(#InternalError(msg));
                 };
             };
-        } catch (e) {
-            let msg: Text = debug_show (Error.message(e));
-            // var _trx = _transactionMap.get(trxIndex).get();
-            // _trx.deposit := #Err(debug_show (msg));
-            // _transactionMap.put(trx.index, trx);
-            return #err(#InternalError(msg));
+            case (#err(msg)) {
+                return #err(#InternalError(msg));
+            };
         };
     };
 
@@ -1399,7 +1411,7 @@ shared (initMsg) actor class SwapPool(
             switch _token0Fee { case (?f) { f }; case (null) { var f = await _token0Act.fee(); _token0Fee := ?(f); f; }; },
             switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; }; }
         );
-        let (feeIn, feeOut) = if (args.zeroForOne) { (fee0, fee1) } else { (fee1, fee0) };  
+        let (tokenIn, feeIn, tokenOut, feeOut) = if (args.zeroForOne) { (token0, fee0, token1, fee1) } else { (token1, fee1, token0, fee0) };  
         if (not Nat.equal(feeIn, args.tokenInFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # debug_show(feeIn) # ", received: " # debug_show(args.tokenInFee) # "), please try later")); 
         };
@@ -1408,6 +1420,7 @@ shared (initMsg) actor class SwapPool(
         };
         // TODO if check balance
         let trx = 0;
+        let trxIndex = _trxService.create(caller, tokenIn, tokenOut, args.amountIn);
         // _startTransaction(caller, args);
         switch(await _depositFrom(caller, trx, args)) {
             case (#ok(_)) {
