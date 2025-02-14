@@ -410,6 +410,7 @@ module {
         #getPositions : () -> (Nat, Nat);
         #getSortedUserLimitOrders : () -> Principal;
         #getSwapRecordState : () -> ();
+        #getSwapTransactions : () -> ();
         #getTickBitmaps : () -> ();
         #getTickInfos : () -> (Nat, Nat);
         #getTicks : () -> (Nat, Nat);

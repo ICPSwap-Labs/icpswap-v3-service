@@ -56,7 +56,7 @@ shared (initMsg) actor class SwapPool(
     feeReceiverCid : Principal,
     trustedCanisterManagerCid : Principal,
 ) = this {
-    private type SwapTransaction = SwapTransaction.SwapTransaction;
+
     private stable var _inited : Bool = false;
     public shared ({ caller }) func init (
         fee : Nat,
@@ -114,6 +114,7 @@ shared (initMsg) actor class SwapPool(
         withdrawErrorLogIndex = 0;
         withdrawErrorLog = [];
     };
+
     /// pool invariant metadatas.
     private stable var _tick : Int = 0;
     private stable var _sqrtPriceX96 : Nat = 0;
@@ -318,11 +319,31 @@ shared (initMsg) actor class SwapPool(
         return #ok(sortedOrders);
     };
 
-    private stable var _transferLogArray : [(Nat, Types.TransferLog)] = [];
-    private stable var _transferIndex: Nat = 0;
     private stable var _swapTransactionIndex: Nat = 0;
-    private stable var _swapTransactionArray : [(Nat, SwapTransaction)] = [];
+    private stable var _swapTransactionArray : [(Nat, SwapTransaction.SwapTransaction)] = [];
     private var _trxService: SwapTransaction.Service = SwapTransaction.Service(_swapTransactionIndex, _swapTransactionArray);
+    public query func getSwapTransactions() : async [(Nat, SwapTransaction.ImmutableSwapTransaction)] {
+        var resultBuffer : Buffer.Buffer<(Nat, SwapTransaction.ImmutableSwapTransaction)> = Buffer.Buffer<(Nat, SwapTransaction.ImmutableSwapTransaction)>(0);
+        for ((index, trx) in Iter.toArray(_trxService.getTrxMap().entries()).vals()) {
+            let swapTransaction : SwapTransaction.ImmutableSwapTransaction = {
+                index = index;
+                account = trx.account;
+                zeroForOne = trx.zeroForOne;
+                amountIn = trx.amountIn;
+                amountOut = trx.amountOut;
+                status = trx.status;
+                deposit = trx.deposit;
+                withdraw = trx.withdraw;
+                refund = trx.refund;
+                swap = trx.swap;
+            };
+            resultBuffer.add((index, swapTransaction));
+        };
+        return Buffer.toArray(resultBuffer);
+    };
+
+    private stable var _transferIndex: Nat = 0;
+    private stable var _transferLogArray : [(Nat, Types.TransferLog)] = [];
     private var _transferLog: HashMap.HashMap<Nat, Types.TransferLog> = HashMap.fromIter<Nat, Types.TransferLog>(_transferLogArray.vals(), 0, Nat.equal, Hash.hash);
     private func _preTransfer(owner: Principal, from: Principal, fromSubaccount: ?Blob, to: Principal, toSubaccount: ?Blob, action: Text, token: Types.Token, amount: Nat, fee: Nat): Nat {
         let time: Nat = Int.abs(Time.now());
@@ -504,7 +525,7 @@ shared (initMsg) actor class SwapPool(
         ) {
             case (#ok(result)) { result };
             case (#err(code)) {
-                return #err("remove liquidity modify position failed: " # debug_show (code));
+                return #err("Remove liquidity modify position failed: " # debug_show (code));
             };
         };
         var amount0 = IntUtils.toNat(-data.amount0, 128);
@@ -586,7 +607,7 @@ shared (initMsg) actor class SwapPool(
     private func _depositFrom(caller: Principal, trxIndex: Nat, args: Types.DepositFromAndSwapArgs): async Result.Result<Nat, Types.Error> {
         let token = if (args.zeroForOne) { _token0 } else { _token1 };
         let tokenAct = if (args.zeroForOne) { _token0Act } else { _token1Act };
-        switch (await _trxService.startDeposit(trxIndex, { owner = caller; subaccount = null }, { owner = Principal.fromActor(this); subaccount = null }, TextUtils.toNat(args.amountIn), ?args.tokenInFee)) {
+        switch (_trxService.startDeposit(trxIndex, { owner = caller; subaccount = null }, { owner = Principal.fromActor(this); subaccount = null }, TextUtils.toNat(args.amountIn), ?args.tokenInFee)) {
             case (#ok()) {
                 try {
                     switch (await tokenAct.transferFrom({ 
@@ -599,72 +620,147 @@ shared (initMsg) actor class SwapPool(
                     })) {
                         case (#Ok(index)) {
                             ignore _tokenHolderService.deposit(caller, token, TextUtils.toNat(args.amountIn));
-                            // var _trx = _transactionMap.get(trxIndex).get();
-                            // _trx.deposit := { status = #Ok(index) };
-                            // _transactionMap.put(trx.index, trx);
-                            _trxService.depositSuccess(trxIndex, index);
+                            ignore _trxService.depositSuccess(trxIndex, index);
                             return #ok(TextUtils.toNat(args.amountIn));
                         };
                         case (#Err(msg)) {
-                            // var _trx = _transactionMap.get(trxIndex).get();
-                            // _trx.deposit := { status = #Err(msg) };
-                            // _transactionMap.put(trx.index, trx);
-                            _trxService.depositError(trxIndex, msg);
+                            ignore _trxService.depositError(trxIndex, debug_show (msg));
                             return #err(#InternalError(debug_show (msg)));
                         };
                     };
                 } catch (e) {
                     let msg: Text = debug_show (Error.message(e));
-                    // var _trx = _transactionMap.get(trxIndex).get();
-                    // _trx.deposit := #Err(debug_show (msg));
-                    // _transactionMap.put(trx.index, trx);
-                    _trxService.depositError(trxIndex, msg);
+                    ignore _trxService.depositError(trxIndex, msg);
                     return #err(#InternalError(msg));
                 };
             };
-            case (#err(msg)) {
-                return #err(#InternalError(msg));
+            case (#err(msg)) { return #err(#InternalError(msg)); };
+        };
+    };
+
+    private func _swap(caller: Principal, trxIndex: Nat, args: Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
+        var swapAmount = 0;
+        switch (_trxService.startSwap(trxIndex, TextUtils.toNat(args.amountIn))) {
+            case (#ok()) {
+                try {
+                    var swapResult = switch (_computeSwap(args, caller, true)) {
+                        case (#ok(result)) { result };
+                        case (#err(code)) { throw Error.reject(debug_show (code)); };
+                    };
+                    swapAmount := _executeSwap(args, caller, swapResult);                    
+                    ignore _trxService.swapSuccess(trxIndex, swapAmount);
+
+                    // set a one-time timer to remove limit order automatically
+                    ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
+                    _jobService.onActivity<system>();
+                } catch (e) {
+                    let msg = Error.message(e);
+                    ignore _trxService.swapError(trxIndex, msg);
+                    _rollback("Swap failed: " # msg);
+                };
+                return #ok(swapAmount)
+            };
+            case (#err(msg)) { 
+                return #err(#InternalError(msg)); 
             };
         };
     };
 
-    private func _send(caller: Principal, trxIndex: Nat, amountOut : Nat, args: Types.DepositFromAndSwapArgs): async Result.Result<Nat, Types.Error> {
-        if (amountOut <= args.tokenOutFee) { return #err(#InternalError("Amount out is less than token out fee")); };
-        let amount = amountOut - args.tokenOutFee;
+    private func _withdraw(caller: Principal, trxIndex: Nat, amountOut : Nat, args: Types.DepositFromAndSwapArgs): async Result.Result<Nat, Types.Error> {
+        var ignoreTransfer = false;
+        // Check if amount is greater than fee
+        if (amountOut <= args.tokenOutFee) { ignoreTransfer := true; };
         let token = if (args.zeroForOne) { _token1 } else { _token0 };
         let tokenAct = if (args.zeroForOne) { _token1Act } else { _token0Act };
-        // var trx = _transactionMap.get(trxIndex).get();
-        // trx.withdraw := { status = #Processing };
-        // _transactionMap.put(trx.index, trx);
-        try {
-            switch (await tokenAct.transfer({ 
-                from = { owner = Principal.fromActor(this); subaccount = null }; from_subaccount = null; 
-                to = { owner = caller; subaccount = null }; 
-                amount = amount; 
-                fee = ?args.tokenOutFee; 
-                memo = Option.make(PoolUtils.natToBlob(trxIndex));  
-                created_at_time = null 
-            })) {
-                case (#Ok(_)) {
-                    ignore _tokenHolderService.withdraw(caller, token, amountOut);
-                    // var _trx = _transactionMap.get(trxIndex).get();
-                    // _trx.withdraw := { status = #Ok(index) };
-                    // _transactionMap.put(trx.index, trx);
-                    return #ok(amount);
-                };
-                case (#Err(msg)) {
-                    // var _trx = _transactionMap.get(trxIndex).get();
-                    // _trx.withdraw := #Err(debug_show (msg));
-                    // _transactionMap.put(trx.index, trx);
-                    return #err(#InternalError(debug_show (msg)));
+        switch (_trxService.startWithdraw(trxIndex, { owner = Principal.fromActor(this); subaccount = null }, { owner = caller; subaccount = null }, amountOut, ?args.tokenOutFee)) {
+            case (#ok()) {
+                try {
+                    if (ignoreTransfer) {
+                        ignore _trxService.withdrawError(trxIndex, "Amount out is less than token out fee");
+                        return #err(#InternalError("Amount out is less than token out fee"));
+                    } else {
+                        let amount = amountOut - args.tokenOutFee;
+                        switch (await tokenAct.transfer({ 
+                            from = { owner = Principal.fromActor(this); subaccount = null }; 
+                            from_subaccount = null; 
+                            to = { owner = caller; subaccount = null }; 
+                            amount = amount; 
+                            fee = ?args.tokenOutFee; 
+                            memo = Option.make(PoolUtils.natToBlob(trxIndex));  
+                            created_at_time = null 
+                        })) {
+                            case (#Ok(_)) {
+                                ignore _tokenHolderService.withdraw(caller, token, amountOut);
+                                ignore _trxService.withdrawSuccess(trxIndex, amountOut);
+                                return #ok(amount);
+                            };
+                            case (#Err(msg)) {
+                                ignore _trxService.withdrawError(trxIndex, debug_show(msg));
+                                return #err(#InternalError(debug_show (msg)));
+                            };
+                        };
+                    };
+                } catch (e) {
+                    let msg: Text = debug_show (Error.message(e));
+                    ignore _trxService.withdrawError(trxIndex, msg);
+                    return #err(#InternalError(msg));
                 };
             };
-        } catch (e) {
-            let msg: Text = debug_show (Error.message(e));
-            // var _trx = _transactionMap.get(trxIndex).get();
-            // _trx.withdraw := #Err(debug_show (msg));
-            // _transactionMap.put(trx.index, trx);
-            return #err(#InternalError(msg));
+            case (#err(msg)) { return #err(#InternalError(msg)); };
+        };
+    };
+
+    private func _refund(caller: Principal, trxIndex: Nat) : async Result.Result<(), Types.Error> {
+        switch(_trxService.getTrx(trxIndex)) {
+            case (?trx) {
+                switch(trx.deposit) {
+                    case (?deposit) {
+                        let (token, tokenAct) = if (trx.zeroForOne) { (_token0, _token0Act) } else { (_token1, _token1Act) };
+                        let fee = switch (deposit.fee) { case (?fee) { fee }; case (_) { 0 }; };
+                        var ignoreTransfer = false;
+                        // Check if amount is greater than fee
+                        if (deposit.amount <= fee) { ignoreTransfer := true; };
+                        let transferAmount = deposit.amount - fee;
+                        switch (_trxService.startRefund(trxIndex, { owner = Principal.fromActor(this); subaccount = null }, deposit.to, transferAmount, deposit.fee)) {
+                            case (#ok()) {
+                                try {
+                                    if (ignoreTransfer) {
+                                        ignore _trxService.refundError(trxIndex, "Deposit amount is less than fee");
+                                        return #err(#InternalError("Deposit amount is less than fee"));
+                                    } else {
+                                        switch (await tokenAct.transfer({ 
+                                            from = { owner = Principal.fromActor(this); subaccount = null }; 
+                                            from_subaccount = null;
+                                            to = deposit.to; 
+                                            amount = transferAmount;
+                                            fee = deposit.fee; 
+                                            memo = Option.make(PoolUtils.natToBlob(trxIndex)); 
+                                            created_at_time = null 
+                                        })) {
+                                            case (#Ok(index)) {
+                                                ignore _tokenHolderService.withdraw(caller, token, deposit.amount);
+                                                ignore _trxService.refundSuccess(trxIndex, index);
+                                                return #ok();
+                                            };
+                                            case (#Err(msg)) {
+                                                ignore _trxService.refundError(trxIndex, debug_show(msg));
+                                                return #err(#InternalError(debug_show(msg)));
+                                            };
+                                        };
+                                    };
+                                } catch (e) {
+                                    let msg = Error.message(e);
+                                    ignore _trxService.refundError(trxIndex, msg);
+                                    return #err(#InternalError(msg));
+                                };
+                            };
+                            case (#err(msg)) { return #err(#InternalError(msg)); };
+                        };
+                    };
+                    case (_) { return #err(#InternalError("No deposit record found")); };
+                };
+            };
+            case (_) { return #err(#InternalError("Transaction not found")); };
         };
     };
 
@@ -918,26 +1014,6 @@ shared (initMsg) actor class SwapPool(
             ignore _tokenHolderService.swap(caller, _token1, IntUtils.toNat(swapResult.amount1, 256), _token0, swapAmount);
         };
         return swapAmount;
-    };
-
-    private func _swap(args: Types.SwapArgs, caller: Principal) : async Result.Result<Nat, Types.Error> {
-        var swapAmount = 0;
-        try {
-            var swapResult = switch (_computeSwap(args, caller, true)) {
-                case (#ok(result)) { result };
-                case (#err(code)) { throw Error.reject("swap " # debug_show (code)); };
-            };
-            swapAmount := _executeSwap(args, caller, swapResult);
-
-            // set a one-time timer to remove limit order automatically  
-            ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
-            _jobService.onActivity<system>();
-        
-            #ok(swapAmount)
-        } catch (e) {
-            _rollback("swap failed: " # Error.message(e));
-            #err(#InternalError("Swap failed: " # Error.message(e)))
-        };
     };
 
     private func _refreshIncome(positionId : Nat) : Result.Result<{ tokensOwed0 : Nat; tokensOwed1 : Nat }, Text> {
@@ -1411,63 +1487,50 @@ shared (initMsg) actor class SwapPool(
             switch _token0Fee { case (?f) { f }; case (null) { var f = await _token0Act.fee(); _token0Fee := ?(f); f; }; },
             switch _token1Fee { case (?f) { f }; case (null) { var f = await _token1Act.fee(); _token1Fee := ?(f); f; }; }
         );
-        let (tokenIn, feeIn, tokenOut, feeOut) = if (args.zeroForOne) { (token0, fee0, token1, fee1) } else { (token1, fee1, token0, fee0) };  
+        let (feeIn, feeOut) = if (args.zeroForOne) { (fee0, fee1) } else { (fee1, fee0) };  
         if (not Nat.equal(feeIn, args.tokenInFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # debug_show(feeIn) # ", received: " # debug_show(args.tokenInFee) # "), please try later")); 
         };
         if (not Nat.equal(feeOut, args.tokenOutFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # debug_show(feeOut) # ", received: " # debug_show(args.tokenOutFee) # "), please try later")); 
         };
-        // TODO if check balance
-        let trx = 0;
-        let trxIndex = _trxService.create(caller, tokenIn, tokenOut, args.amountIn);
-        // _startTransaction(caller, args);
-        switch(await _depositFrom(caller, trx, args)) {
+        let trxIndex = _trxService.create(caller, args.zeroForOne, args.amountIn);
+        switch(await _depositFrom(caller, trxIndex, args)) {
             case (#ok(_)) {
-                let swapArgs = {
-                    amountIn = args.amountIn;
-                    amountOutMinimum = args.amountOutMinimum;
-                    zeroForOne = args.zeroForOne;
-                };
-                // call _preswap to check slippage. If slippage is over range, refund the token
+                let swapArgs = { amountIn = args.amountIn; amountOutMinimum = args.amountOutMinimum; zeroForOne = args.zeroForOne; };
+                // If slippage is over range, refund the token
                 if (TextUtils.toInt(args.amountOutMinimum) > 0) {
                     var preCheckAmount = switch (_preSwapForAll(swapArgs, caller)) {
                         case (#ok(result)) { result };
                         case (#err(code)) {
-                            // await _refund();
-                            return #err(#InternalError("Slippage check failed: " # debug_show (code)));
+                            switch (await _refund(caller, trxIndex)) {
+                                case (#ok()) { return #err(#InternalError("Slippage check failed: " # debug_show (code))); };
+                                case (#err(e)) { return #err(e); };
+                            };
                         };
                     };
                     if (preCheckAmount < TextUtils.toInt(args.amountOutMinimum)) {
-                        // await _refund();
-                        return #err(#InternalError("Slippage is over range, please withdraw your unused token"));
+                        switch (await _refund(caller, trxIndex)) {
+                            case (#ok()) { return #err(#InternalError("Slippage is over range, please withdraw your unused token")); };
+                            case (#err(e)) { return #err(e); };
+                        };
                     };
                 };
-                switch(await _swap(swapArgs, caller)) {
+                switch(await _swap(caller, trxIndex, swapArgs)) {
                     case (#ok(amount)) {
-                        switch(await _send(caller, trx, amount, args)) {
-                            case (#ok(amount)) {
-                                return #ok(amount);
-                            };
-                            case (#err(e)) {
-                                // _updateTransaction();
-                                return #err(e);
-                            };
+                        switch(await _withdraw(caller, trxIndex, amount, args)) {
+                            case (#ok(amount)) { return #ok(amount); }; case (#err(e)) { return #err(e); };
                         };
                     };
                     case (#err(e)) {
-                        // _updateTransaction();
-                        // await _refund();
-                        return #err(e);
+                        switch (await _refund(caller, trxIndex)) {
+                            case (#ok()) { return #err(e); }; case (#err(e)) { return #err(e); };
+                        };
                     };
                 };
 
             };
-            case (#err(e)) {
-                // TODO 0 update transaction
-                // _updateTransaction();
-                return #err(e);
-            };
+            case (#err(e)) { return #err(e); };
         };
     };
 
@@ -2529,6 +2592,8 @@ shared (initMsg) actor class SwapPool(
         _transferLogArray := Iter.toArray(_transferLog.entries());
         _lowerLimitOrderEntries := Iter.toArray(_lowerLimitOrders.entries());
         _upperLimitOrderEntries := Iter.toArray(_upperLimitOrders.entries());
+        _swapTransactionArray := _trxService.getState().trxArray;
+        _swapTransactionIndex := _trxService.getState().index;
     };
 
     system func postupgrade() {
@@ -2545,6 +2610,8 @@ shared (initMsg) actor class SwapPool(
         _transferLogArray := [];
         _lowerLimitOrderEntries := [];
         _upperLimitOrderEntries := [];
+        _swapTransactionArray := [];
+        _swapTransactionIndex := 0;
     };
     
     system func inspect({
