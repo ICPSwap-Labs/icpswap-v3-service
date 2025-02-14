@@ -1500,7 +1500,8 @@ shared (initMsg) actor class SwapPool(
                 let swapArgs = { amountIn = args.amountIn; amountOutMinimum = args.amountOutMinimum; zeroForOne = args.zeroForOne; };
                 // If slippage is over range, refund the token
                 if (TextUtils.toInt(args.amountOutMinimum) > 0) {
-                    var preCheckAmount = switch (_preSwapForAll(swapArgs, caller)) {
+                    // var preCheckAmount = switch (_preSwapForAll(swapArgs, caller)) {
+                    var preCheckAmount = switch (_preSwap(swapArgs, caller)) {
                         case (#ok(result)) { result };
                         case (#err(code)) {
                             switch (await _refund(caller, trxIndex)) {

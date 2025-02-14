@@ -39,7 +39,6 @@ module {
         #Err: Text;
     };
     public type Swap = {
-        zeroForOne: Bool;
         tokenInAmount: Nat;
         tokenOutAmount: Nat;
     };
@@ -169,7 +168,6 @@ module {
                     switch (trx.swap) {
                         case (?swap) {
                             trx.swap := ?{
-                                zeroForOne = swap.zeroForOne;
                                 tokenInAmount = swap.tokenInAmount;
                                 tokenOutAmount = tokenOutAmount;
                             };
