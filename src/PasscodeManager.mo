@@ -346,7 +346,7 @@ actor class PasscodeManager(
         return Iter.toArray(_wallet.entries());
     };
 
-    public query func metadata() : async {
+    public query func getInitArgs() : async {
         tokenCid : Principal;
         factoryCid : Principal;
         passcodePrice : Nat;
