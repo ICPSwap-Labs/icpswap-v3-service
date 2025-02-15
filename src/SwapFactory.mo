@@ -70,6 +70,8 @@ shared (initMsg) actor class SwapFactory(
     // upgrade history
     private stable var _poolUpgradeTaskHis : [(Principal, [Types.PoolUpgradeTask])] = [];
     private var _poolUpgradeTaskHisMap : HashMap.HashMap<Principal, [Types.PoolUpgradeTask]> = HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
+    // create pool records
+    private stable var _createPoolRecords: List.List<Types.CreatePoolRecord> = List.nil<Types.CreatePoolRecord>();
 
     public shared (msg) func createPool(args : Types.CreatePoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
         if (not _validatePasscode(msg.caller, args)) { return #err(#InternalError("Please pay the fee for creating SwapPool.")); };
@@ -111,6 +113,10 @@ shared (initMsg) actor class SwapFactory(
                         canisterId = Principal.fromActor(pool);
                     } : Types.PoolData;
                     _poolDataService.putPool(poolKey, poolData);
+
+                    // Add creation record
+                    _addCreatePoolRecord(msg.caller, Principal.fromActor(pool));
+
                     poolData;
                 } catch (_e) {
                     throw Error.reject("create pool failed: " # Error.message(_e));
@@ -202,6 +208,16 @@ shared (initMsg) actor class SwapFactory(
             case (?passcodes) { return #ok(passcodes); };
             case (_) { return #ok([]); };
         };
+    };
+
+    public query func getCreatePoolRecords() : async [Types.CreatePoolRecord] {
+        return List.toArray(_createPoolRecords);
+    };
+
+    public query func getCreatePoolRecordsByCaller(caller: Principal) : async [Types.CreatePoolRecord] {
+        return List.toArray(List.filter(_createPoolRecords, func(record: Types.CreatePoolRecord) : Bool {
+            Principal.equal(record.caller, caller)
+        }));
     };
     
     public query func getPendingUpgradePoolList() : async Result.Result<[Types.PoolUpgradeTask], Types.Error> {
@@ -565,6 +581,14 @@ shared (initMsg) actor class SwapFactory(
 
     private func _unlock() {
         _lockState := { locked = false; time = 0};
+    };
+
+    private func _addCreatePoolRecord(caller: Principal, poolId: Principal) {
+        _createPoolRecords := List.push<Types.CreatePoolRecord>({
+            caller;
+            poolId;
+            timestamp = Time.now();
+        }, _createPoolRecords);
     };
 
     private func _setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
@@ -1051,5 +1075,4 @@ shared (initMsg) actor class SwapFactory(
             case (_)                                     { true };
         };
     };
-
 };
