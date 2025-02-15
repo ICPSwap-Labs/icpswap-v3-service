@@ -155,6 +155,11 @@ module {
         sqrtPriceX96 : Text;
         subnet : ?Text;
     };
+    public type CreatePoolRecord = {
+        caller: Principal;
+        poolId: Principal;
+        timestamp: Int;
+    };
     public type GetPoolArgs = {
         token0 : Token;
         token1 : Token;
@@ -228,10 +233,10 @@ module {
         subaccount : Blob;
     };
     public type TransactionType = {
-        #addLiquidity;
-        #increaseLiquidity;
-        #decreaseLiquidity;
-        #claim;
+        #addLiquidity : Nat;
+        #increaseLiquidity : Nat;
+        #decreaseLiquidity : Nat;
+        #claim : Nat;
         #swap;
         #transferPosition : Nat;
         #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
@@ -484,6 +489,8 @@ module {
         #createPool : () -> CreatePoolArgs;
         #deletePasscode : () -> (Principal, Passcode);
         #getAdmins : () -> ();
+        #getCreatePoolRecords : () -> ();
+        #getCreatePoolRecordsByCaller : () -> Principal;
         #getCurrentUpgradeTask : () -> ();
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();

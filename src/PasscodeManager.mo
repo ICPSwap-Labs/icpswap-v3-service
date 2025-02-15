@@ -56,7 +56,7 @@ actor class PasscodeManager(
     private stable var _transferIndex : Nat = 0;
 
     // Logging related code
-    private let MAX_LOGS = 1000;
+    private let MAX_LOGS = 5000;
     private stable var _logsArray : [LogEntry] = [];
     private var _logs : Buffer.Buffer<LogEntry> = Buffer.Buffer<LogEntry>(0);
     private func _addLog(caller : Principal, message : Text, amount : ?Nat) {
@@ -213,8 +213,20 @@ actor class PasscodeManager(
                         },
                     )
                 ) {
-                    case (#ok()) { return #ok("ok") };
-                    case (#err(msg)) {
+                    case (#ok()) {
+                        _addLog(
+                            caller,
+                            "FACTORY.addPasscode " # Principal.toText(sortedToken0) # " " # Principal.toText(sortedToken1) # " " # debug_show (fee) # " ok",
+                            ?passcodePrice,
+                        );
+                        return #ok("ok")
+                    };
+                    case (#err(msg)) {  
+                        _addLog(
+                            caller,
+                            "FACTORY.addPasscode error: " # debug_show (msg),
+                            ?passcodePrice,
+                        );
                         _walletDeposit(caller, passcodePrice);
                         return #err(#InternalError(debug_show (msg)));
                     };
@@ -245,10 +257,20 @@ actor class PasscodeManager(
             )
         ) {
             case (#ok()) {
+                _addLog(
+                    caller,
+                    "FACTORY.deletePasscode " # Principal.toText(token0) # " " # Principal.toText(token1) # " " # debug_show (fee) # " ok",
+                    ?passcodePrice,
+                );
                 _walletDeposit(caller, passcodePrice);
                 return #ok("ok");
             };
             case (#err(msg)) {
+                _addLog(
+                    caller,
+                    "FACTORY.deletePasscode error: " # debug_show (msg),
+                    ?passcodePrice,
+                );
                 return #err(#InternalError(debug_show (msg)));
             };
         };
