@@ -6,6 +6,7 @@ import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
 import Result "mo:base/Result";
 import Types "./Types";
+import Buffer "mo:base/Buffer";
 
 shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, governanceCid : Principal) = this {
 
@@ -203,7 +204,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
 
     public shared ({ caller }) func batchAddPoolControllersValidate(poolCids : [Principal], controllers : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
-        switch (await _checkPools(poolCids)) {
+        switch (await _checkAllPools(poolCids)) {
             case (#ok(_)) {
                 return #Ok(debug_show (poolCids) # ", " # debug_show (controllers));
             };
@@ -318,29 +319,55 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         };
     };
 
-    private func _checkPools(poolCids : [Principal]) : async Result.Result<Text, Text> {
-        switch (await _factoryAct.getPools()) {
-            case (#ok(pools)) {
-                for (it1 in poolCids.vals()) {
-                    var found = false;
-                    label l {
-                        for (it2 in pools.vals()) {
-                            if (Principal.equal(it1, it2.canisterId)) {
-                                found := true;
-                                break l;
-                            };
-                        };
-                    };
-                    if (not found) {
-                        return #err(Principal.toText(it1) # " doesn't exist.");
+    private func _checkPoolsHelper(poolCids: [Principal], pools: [Types.PoolData]) : Result.Result<Text, Text> {
+        for (it1 in poolCids.vals()) {
+            var found = false;
+            label l {
+                for (it2 in pools.vals()) {
+                    if (Principal.equal(it1, it2.canisterId)) {
+                        found := true;
+                        break l;
                     };
                 };
-                return #ok("");
             };
-            case (#err(msg)) {
-                return #err("Get pools failed: " # debug_show (msg));
-            };
+            if (not found) { return #err(Principal.toText(it1) # " doesn't exist."); };
         };
+        return #ok("");
+    };
+
+    private func _checkPools(poolCids : [Principal]) : async Result.Result<Text, Text> {
+        switch (await _factoryAct.getPools()) {
+            case (#ok(pools)) { _checkPoolsHelper(poolCids, pools); };
+            case (#err(msg)) { #err("Get pools failed: " # debug_show (msg)); };
+        };
+    };
+
+    private func _checkRemovedPools(poolCids : [Principal]) : async Result.Result<Text, Text> {
+        switch (await _factoryAct.getRemovedPools()) {
+            case (#ok(pools)) { _checkPoolsHelper(poolCids, pools); };
+            case (#err(msg)) { #err("Get removed pools failed: " # debug_show (msg)); };
+        };
+    };
+
+    private func _checkAllPools(poolCids : [Principal]) : async Result.Result<Text, Text> {
+        var poolDataBuffer : Buffer.Buffer<Types.PoolData> = Buffer.Buffer<Types.PoolData>(0);  
+        switch (await _factoryAct.getPools()) {
+            case (#ok(pools)) {
+                for (it in pools.vals()) {
+                    poolDataBuffer.add(it);
+                };
+            };
+            case (#err(msg)) { return #err("Get pools failed: " # debug_show (msg)); };
+        };
+        switch (await _factoryAct.getRemovedPools()) {
+            case (#ok(removedPools)) {
+                for (it in removedPools.vals()) {
+                    poolDataBuffer.add(it);
+                };
+            };
+            case (#err(msg)) { return #err("Get removed pools failed: " # debug_show (msg)); };
+        };
+        return _checkPoolsHelper(poolCids, Buffer.toArray(poolDataBuffer));
     };
 
 };
