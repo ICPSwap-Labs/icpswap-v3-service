@@ -233,10 +233,14 @@ module {
         subaccount : Blob;
     };
     public type TransactionType = {
-        #addLiquidity : Nat;
-        #increaseLiquidity : Nat;
-        #decreaseLiquidity : Nat;
-        #claim : Nat;
+        #addLiquidity;
+        #increaseLiquidity;
+        #decreaseLiquidity;
+        #claim;
+        #addPositionLiquidity : Nat;
+        #increasePositionLiquidity : Nat;
+        #decreasePositionLiquidity : Nat;
+        #claimPosition : Nat;
         #swap;
         #transferPosition : Nat;
         #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
