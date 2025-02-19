@@ -555,6 +555,7 @@ module {
         #startAutoSyncPools : () -> ();
         #swapICPToICS : () -> ();
         #swapToICP : () -> Token;
+        #swapWithoutDeposit : () -> (Principal, Bool, Text, Text);
         #transfer : () -> (Token, Principal, Nat);
         #transferAll : () -> (Token, Principal);
     };

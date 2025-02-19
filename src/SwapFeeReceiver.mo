@@ -170,13 +170,35 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     public shared ({ caller }) func swapICPToICS() : async Result.Result<(), Types.Error> {
         _checkPermission(caller);
-        ignore _swapICPToICS();
+        await _swapICPToICS();
         return #ok();
     };
 
     public shared ({ caller }) func burnICS() : async Result.Result<(), Types.Error> {
         _checkPermission(caller);
         return #ok(await _burnICS());
+    };
+
+    public shared ({ caller }) func swapWithoutDeposit(
+        pool : Principal,
+        zeroForOne : Bool,
+        amountIn : Text,
+        amountOutMinimum : Text
+    ) : async Result.Result<Nat, Types.Error> {
+        _checkPermission(caller);
+        try {
+            var poolAct = actor (Principal.toText(pool)) : Types.SwapPoolActor;
+            switch (await poolAct.swap({
+                zeroForOne = zeroForOne;
+                amountIn = amountIn;
+                amountOutMinimum = amountOutMinimum;
+            })) {
+                case (#ok(swappedAmount)) { return #ok(swappedAmount); };
+                case (#err(msg)) { return #err(#InternalError(debug_show(msg))); };
+            };
+        } catch (e) {
+            return #err(#InternalError("swapWithoutDeposit failed: " # Error.message(e)));
+        };
     };
 
     public shared func getBaseBalances() : async Result.Result<{ ICP:Nat; ICS:Nat; }, Types.Error> {
@@ -808,6 +830,7 @@ shared (initMsg) actor class SwapFeeReceiver(
             case (#startAutoSyncPools _)        { Prim.isController(caller) };
             case (#swapICPToICS _)              { Prim.isController(caller) };
             case (#swapToICP _)                 { Prim.isController(caller) };
+            case (#swapWithoutDeposit _)        { Prim.isController(caller) };
             case (#transfer _)                  { Prim.isController(caller) };
             case (#transferAll _)               { Prim.isController(caller) };
             // Anyone
