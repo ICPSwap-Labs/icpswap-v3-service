@@ -84,6 +84,17 @@ module {
             return { index = _index; trxArray = Iter.toArray(_trxMap.entries()); };
         };
 
+        public func setStatus(trxIndex: Nat, status: TransactionStatus) : Result.Result<(), Text> {
+            switch (_trxMap.get(trxIndex)) {
+                case (?trx) {
+                    trx.status := status;
+                    _trxMap.put(trxIndex, trx);
+                    return #ok();
+                };
+                case (_) { return #err("Transaction not found"); };
+            }
+        };
+
         public func create(account: Principal, zeroForOne: Bool, amountIn: Text): Nat {
             let trx: SwapTransaction = {
                 index = _index;
@@ -105,7 +116,6 @@ module {
         public func startDeposit(trxIndex: Nat, from: Account, to: Account, amount: Nat, fee: ?Nat) : Result.Result<(), Text> {
             switch (_trxMap.get(trxIndex)) {
                 case (?trx) {
-                    trx.status := #Processing;
                     trx.deposit := ?{ status = #Processing; amount = amount; fee = fee; from = from; to = to; };
                     _trxMap.put(trxIndex, trx);
                     return #ok();
@@ -135,7 +145,6 @@ module {
                 case (?trx) {
                     switch (trx.deposit) {
                         case (?deposit) {
-                            trx.status := #Error(#DepositError(error));
                             trx.deposit := ?{ status = #Err(error); amount = deposit.amount; fee = deposit.fee; from = deposit.from; to = deposit.to; };
                             _trxMap.put(trxIndex, trx);
                         };
@@ -185,7 +194,6 @@ module {
         public func swapError(trxIndex: Nat, error: Text) : Result.Result<(), Text> {
             switch (_trxMap.get(trxIndex)) {
                 case (?trx) {
-                    trx.status := #Error(#SwapError(error));
                     _trxMap.put(trxIndex, trx);
                     return #ok();
                 };
@@ -209,7 +217,6 @@ module {
                 case (?trx) {
                     switch (trx.withdraw) {
                         case (?withdraw) {
-                            trx.status := #Completed;
                             trx.withdraw := ?{ status = #Ok(index); amount = withdraw.amount; fee = withdraw.fee; from = withdraw.from; to = withdraw.to; };
                             _trxMap.put(trxIndex, trx);
                         };
@@ -226,7 +233,6 @@ module {
                 case (?trx) {
                     switch (trx.withdraw) {
                         case (?withdraw) {
-                            trx.status := #Error(#WithdrawError(error));
                             trx.withdraw := ?{ status = #Err(error); amount = withdraw.amount; fee = withdraw.fee; from = withdraw.from; to = withdraw.to; };
                             _trxMap.put(trxIndex, trx);
                         };

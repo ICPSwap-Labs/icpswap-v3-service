@@ -389,7 +389,7 @@ module {
         subnetType: Text;
         weight : Nat;
     };
-    public type DepositFromAndSwapArgs = {
+    public type DepositAndSwapArgs = {
         zeroForOne : Bool;
         tokenInFee: Nat;
         tokenOutFee: Nat;
@@ -405,8 +405,9 @@ module {
         #claim : () -> ClaimArgs;
         #decreaseLiquidity : () -> DecreaseLiquidityArgs;
         #deposit : () -> DepositArgs;
+        #depositAndSwap : () -> DepositAndSwapArgs;
         #depositFrom : () -> DepositArgs;
-        #depositFromAndSwap : () -> DepositFromAndSwapArgs;
+        #depositFromAndSwap : () -> DepositAndSwapArgs;
         #getAvailabilityState : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
