@@ -233,10 +233,14 @@ module {
         subaccount : Blob;
     };
     public type TransactionType = {
-        #addLiquidity : Nat;
-        #increaseLiquidity : Nat;
-        #decreaseLiquidity : Nat;
-        #claim : Nat;
+        #addLiquidity;
+        #increaseLiquidity;
+        #decreaseLiquidity;
+        #claim;
+        #addPositionLiquidity : Nat;
+        #increasePositionLiquidity : Nat;
+        #decreasePositionLiquidity : Nat;
+        #claimPosition : Nat;
         #swap;
         #transferPosition : Nat;
         #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
@@ -385,7 +389,7 @@ module {
         subnetType: Text;
         weight : Nat;
     };
-    public type DepositFromAndSwapArgs = {
+    public type DepositAndSwapArgs = {
         zeroForOne : Bool;
         tokenInFee: Nat;
         tokenOutFee: Nat;
@@ -401,8 +405,9 @@ module {
         #claim : () -> ClaimArgs;
         #decreaseLiquidity : () -> DecreaseLiquidityArgs;
         #deposit : () -> DepositArgs;
+        #depositAndSwap : () -> DepositAndSwapArgs;
         #depositFrom : () -> DepositArgs;
-        #depositFromAndSwap : () -> DepositFromAndSwapArgs;
+        #depositFromAndSwap : () -> DepositAndSwapArgs;
         #getAvailabilityState : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
@@ -551,6 +556,7 @@ module {
         #startAutoSyncPools : () -> ();
         #swapICPToICS : () -> ();
         #swapToICP : () -> Token;
+        #swapWithoutDeposit : () -> (Principal, Bool, Text, Text);
         #transfer : () -> (Token, Principal, Nat);
         #transferAll : () -> (Token, Principal);
     };
