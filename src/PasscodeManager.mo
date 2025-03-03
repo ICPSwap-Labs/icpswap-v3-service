@@ -58,7 +58,7 @@ actor class PasscodeManager(
     // Logging related code
     private let MAX_LOGS = 5000;
     private stable var _logsArray : [LogEntry] = [];
-    private var _logs : Buffer.Buffer<LogEntry> = Buffer.Buffer<LogEntry>(0);
+    private var _logs : Buffer.Buffer<LogEntry> = Buffer.fromArray<LogEntry>(_logsArray);
     private func _addLog(caller : Principal, message : Text, amount : ?Nat) {
         if (_logs.size() >= MAX_LOGS) {
             ignore _logs.remove(0); // Remove oldest log
