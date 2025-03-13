@@ -205,7 +205,26 @@ module {
                 });
             };
             case (_) {
-                Debug.print("==> -- completeSwap --" # debug_show(swap.status));
+                return #err("SwapStatusError");
+            };
+        };
+    };
+    public func successAndComplete(swap: Types.SwapInfo, amountOut: Nat): Result.Result<Types.SwapInfo, Text> {
+        switch (swap.status) {
+            case (#Created) {
+                return #ok({
+                    tokenIn = swap.tokenIn;
+                    tokenOut = swap.tokenOut;
+                    amountIn = swap.amountIn;
+                    amountOut = amountOut;
+                    deposit = swap.deposit;
+                    withdraw = swap.withdraw;
+                    refundToken0 = swap.refundToken0;
+                    refundToken1 = swap.refundToken1;
+                    status = #Completed;
+                });
+            };
+            case (_) {
                 return #err("SwapStatusError");
             };
         };

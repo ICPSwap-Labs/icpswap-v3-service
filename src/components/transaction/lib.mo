@@ -13,6 +13,10 @@ import Nat "mo:base/Nat";
 import Blob "mo:base/Blob";
 import Debug "mo:base/Debug";
 import PoolUtils "../../utils/PoolUtils";
+import Refund "Refund";
+import DecreaseLiquidity "./DecreaseLiquidity";
+import Claim "./Claim";
+import TransferPosition "./TransferPosition";
 
 module {
     public type Transaction = Types.Transaction;
@@ -34,6 +38,7 @@ module {
             action = action;
         };
     };
+    public type Fun = (action: Types.Action) -> Result.Result<Types.Action, Types.Error>;
     public class State(initialIndex: Nat, initialTransactions: [(Nat, Transaction)]) {
         public var index: Nat = initialIndex;
         public var transactions = HashMap.fromIter<Nat, Transaction>(initialTransactions.vals(), initialTransactions.size(), Nat.equal, _hash);
@@ -41,6 +46,35 @@ module {
             let id = index;
             index := index + 1;
             return id;
+        };
+
+        public func new(owner: Principal, canisterId: Principal, action: Types.Action) : Nat {
+            let txId = getTxId();
+            transactions.put(txId, {
+                id = txId;
+                timestamp = Time.now();
+                owner = owner;
+                canisterId = canisterId;
+                action = action;    
+            });
+            return txId;
+        };
+        public func get(txId: Nat) : ?Transaction {
+            return transactions.get(txId);
+        };
+        public func update(txId: Nat, fun: Fun) : Result.Result<(), Error> {
+            switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) {
+                    switch (fun(tx.action)) {
+                        case (#ok(newAction)) {
+                            transactions.put(txId, _copy(tx, newAction));
+                            return #ok();
+                        };
+                        case (#err(error)) { return #err(error) };
+                    };
+                };
+            };
         };
         public func startSwap(owner: Principal, canisterId: Principal, tokenIn: Principal, tokenOut: Principal, amountIn: Amount): Nat {
             let txId = getTxId();
@@ -52,6 +86,26 @@ module {
                 action = #Swap(Swap.start(tokenIn, tokenOut, amountIn));
             });
             return txId;
+        };
+        public func successAndCompleteSwap(txId: Nat, amountOut: Nat): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#Swap(swap)) {
+                    let newSwap = switch(Swap.successAndComplete(swap, amountOut)) {
+                        case (#ok(swap)) { swap };
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #Swap(newSwap));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };
+            };
         };
         public func startDepositForSwap(txId: Nat, token: Principal, from: Account, to: Account, amount: Nat, fee: Nat, memo: ?Blob): Result.Result<(), Error> {
             let tx = switch (transactions.get(txId)) {
@@ -430,7 +484,7 @@ module {
                 };
             };
         };
-        public func failRefundForSwap(txId: Nat, error: Text): Result.Result<(), Error> {
+        public func failRefund(txId: Nat, error: Text): Result.Result<(), Error> {
             let tx = switch (transactions.get(txId)) {
                 case null { return #err("TransactionNotFound") };
                 case (?tx) { tx };
@@ -477,14 +531,14 @@ module {
         public func getTransaction(txId: Nat): ?Transaction {
             return transactions.get(txId);
         };
-        public func startAddLiquidity(owner: Principal, canisterId: Principal, token0: Principal, token1: Principal, amount0: Nat, amount1: Nat): Nat {
+        public func startAddLiquidity(owner: Principal, canisterId: Principal, token0: Principal, token1: Principal): Nat {
             let txId = getTxId();
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
                 owner = owner;
                 canisterId = canisterId;
-                action = #AddLiquidity(AddLiquidity.start(token0, token1, amount0, amount1));
+                action = #AddLiquidity(AddLiquidity.start(token0, token1));
             });
             return txId;
         };
@@ -561,14 +615,14 @@ module {
                 };
             };
         };
-        public func completeMintLiquidity(txId: Nat): Result.Result<(), Error> {
+        public func completeAddLiquidity(txId: Nat, amount0: Nat, amount1: Nat): Result.Result<(), Error> {
             let tx = switch (transactions.get(txId)) {
                 case null { return #err("TransactionNotFound") };
                 case (?tx) { tx };
             };
             switch(tx.action) {
                 case (#AddLiquidity(info)) {
-                    let newAddLiquidity = switch(AddLiquidity.completeMintLiquidity(info)) {
+                    let newAddLiquidity = switch(AddLiquidity.complete(info, amount0, amount1)) {
                         case (#ok(addLiquidity)) { addLiquidity };
                         case (#err(error)) { return #err(error) };
                     };
@@ -581,14 +635,14 @@ module {
                 };
             };
         };
-        public func failMintLiquidity(txId: Nat, error: Text): Result.Result<(), Error> {
+        public func failAddLiquidity(txId: Nat, error: Text): Result.Result<(), Error> {
             let tx = switch (transactions.get(txId)) {
                 case null { return #err("TransactionNotFound") };
                 case (?tx) { tx };
             };
             switch(tx.action) {
                 case (#AddLiquidity(info)) {
-                    let newAddLiquidity = switch(AddLiquidity.failMintLiquidity(info, error)) {
+                    let newAddLiquidity = switch(AddLiquidity.fail(info, error)) {
                         case (#ok(addLiquidity)) { addLiquidity };
                         case (#err(error)) { return #err(error) };
                     };
@@ -601,5 +655,261 @@ module {
                 };
             };
         };
+
+        // Decrease Liquidity
+        public func startDecreaseLiquidity(owner: Principal, canisterId: Principal, positionId: Nat, token0: Principal, token1: Principal): Nat {
+            let txId = getTxId();
+            transactions.put(txId, {
+                id = txId;  
+                timestamp = Time.now();
+                owner = owner;
+                canisterId = canisterId;
+                action = #DecreaseLiquidity(DecreaseLiquidity.start(positionId, token0, token1));
+            });
+            return txId;
+        };
+        public func successDecreaseLiquidity(txId: Nat, amount0: Nat, amount1: Nat): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#DecreaseLiquidity(info)) {
+                    let newDecreaseLiquidity = switch(DecreaseLiquidity.success(info, amount0, amount1)) {
+                        case (#ok(decreaseLiquidity)) { decreaseLiquidity };
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #DecreaseLiquidity(newDecreaseLiquidity));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };
+            };
+        };
+        public func failDecreaseLiquidity(txId: Nat, error: Text): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#DecreaseLiquidity(info)) {
+                    let newDecreaseLiquidity = switch(DecreaseLiquidity.fail(info, error)) {
+                        case (#ok(decreaseLiquidity)) { decreaseLiquidity };
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #DecreaseLiquidity(newDecreaseLiquidity));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };
+            };
+        };
+        public func startWithdrawToken0ForDecreaseLiquidity(txId: Nat, token: Principal, from: Account, to: Account, amount: Nat, fee: Nat, memo: ?Blob): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#DecreaseLiquidity(info)) {
+                    let newDecreaseLiquidity = switch(DecreaseLiquidity.startWithdrawToken0(info, Withdraw.start(token, from, to, amount, fee, memo))) {
+                        case (#ok(decreaseLiquidity)) { decreaseLiquidity };    
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #DecreaseLiquidity(newDecreaseLiquidity));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };
+            };  
+        };
+        public func successAndCompleteDecreaseLiquidity(txId: Nat, amount0: Nat, amount1: Nat): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#DecreaseLiquidity(info)) {
+                    let newDecreaseLiquidity = switch(DecreaseLiquidity.successAndComplete(info, amount0, amount1)) {   
+                        case (#ok(decreaseLiquidity)) { decreaseLiquidity };
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #DecreaseLiquidity(newDecreaseLiquidity));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };
+            };
+        };
+        public func completeDecreaseLiquidity(txId: Nat): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#DecreaseLiquidity(info)) {
+                    let newDecreaseLiquidity = switch(DecreaseLiquidity.complete(info)) {
+                        case (#ok(decreaseLiquidity)) { decreaseLiquidity };
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #DecreaseLiquidity(newDecreaseLiquidity));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };
+            };  
+        };  
+        public func startClaim(owner: Principal, canisterId: Principal, positionId: Nat, token0: Principal, token1: Principal): Nat {
+            let txId = getTxId();
+            transactions.put(txId, {
+                id = txId;
+                timestamp = Time.now();
+                owner = owner;  
+                canisterId = canisterId;
+                action = #Claim(Claim.start(positionId, token0, token1));
+            });
+            return txId;
+        };
+        public func successClaim(txId: Nat, amount0: Nat, amount1: Nat): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#Claim(info)) {
+                    let newClaim = switch(Claim.success(info, amount0, amount1)) {
+                        case (#ok(claim)) { claim };
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #Claim(newClaim));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };
+            };
+        };    
+        public func successAndCompleteClaim(txId: Nat, amount0: Nat, amount1: Nat): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#Claim(info)) {
+                    let newClaim = switch(Claim.successAndComplete(info, amount0, amount1)) {
+                        case (#ok(claim)) { claim };
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #Claim(newClaim));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };  
+            };
+        };
+        public func completeClaim(txId: Nat): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#Claim(info)) {
+                    let newClaim = switch(Claim.complete(info)) {
+                        case (#ok(claim)) { claim };
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #Claim(newClaim));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };
+            };
+        };
+        public func failClaim(txId: Nat, error: Text): Result.Result<(), Error> {
+            let tx = switch (transactions.get(txId)) {
+                case null { return #err("TransactionNotFound") };
+                case (?tx) { tx };
+            };
+            switch(tx.action) {
+                case (#Claim(info)) {
+                    let newClaim = switch(Claim.fail(info, error)) {
+                        case (#ok(claim)) { claim };
+                        case (#err(error)) { return #err(error) };
+                    };
+                    let trx = _copy(tx, #Claim(newClaim));
+                    transactions.put(txId, trx);
+                    return #ok();
+                };
+                case(_) {
+                    return #err("InvalidTransaction");
+                };
+            };
+        };
+        public func completeTransferPosition(owner: Principal, canisterId: Principal, positionId: Nat, from: Account, to: Account): Nat {
+            let txId = getTxId();
+            transactions.put(txId, {
+                id = txId;
+                timestamp = Time.now();
+                owner = owner;
+                canisterId = canisterId; 
+                action = #TransferPosition(TransferPosition.complete(positionId, from, to));    
+            });
+            return txId;
+        };
+        // public func completeWithdrawToken0ForDecreaseLiquidity(txId: Nat): Result.Result<(), Error> {
+        //     let tx = switch (transactions.get(txId)) {
+        //         case null { return #err("TransactionNotFound") };
+        //         case (?tx) { tx };
+        //     };  
+        //     switch(tx.action) {
+        //         case (#DecreaseLiquidity(info)) {
+        //             let newDecreaseLiquidity = switch(DecreaseLiquidity.completeWithdrawToken0(info, Withdraw.start(token, from, to, amount, fee, memo))) {
+        //                 case (#ok(decreaseLiquidity)) { decreaseLiquidity };
+        //                 case (#err(error)) { return #err(error) };
+        //             };
+        //             let trx = _copy(tx, #DecreaseLiquidity(newDecreaseLiquidity));
+        //             transactions.put(txId, trx);
+        //             return #ok();
+        //         };
+        //         case(_) {
+        //             return #err("InvalidTransaction");
+        //         };
+        //     };  
+        // };
+        // public func failWithdrawToken0(txId: Nat, error: Text): Result.Result<(), Error> {
+        //     let tx = switch (transactions.get(txId)) {
+        //         case null { return #err("TransactionNotFound") };
+        //         case (?tx) { tx };
+        //     };
+        //     switch(tx.action) {
+        //         case (#DecreaseLiquidity(info)) {
+        //             let newDecreaseLiquidity = switch(DecreaseLiquidity.failWithdrawToken0(info, error)) {  
+        //                 case (#ok(decreaseLiquidity)) { decreaseLiquidity };
+        //                 case (#err(error)) { return #err(error) };
+        //             };
+        //             let trx = _copy(tx, #DecreaseLiquidity(newDecreaseLiquidity));
+        //             transactions.put(txId, trx);
+        //             return #ok();
+        //         };  
+        //         case(_) {
+        //             return #err("InvalidTransaction");
+        //         };
+        //     };
+        // };
+        
     };
 };

@@ -25,6 +25,9 @@ module {
         #Swap: SwapInfo;
         #Withdraw: WithdrawInfo;
         #AddLiquidity: AddLiquidityInfo;
+        #DecreaseLiquidity: DecreaseLiquidityInfo;
+        #Claim: ClaimInfo;
+        #TransferPosition: TransferPositionInfo;
     };
     public type Transfer = {
         token: Principal;
@@ -113,4 +116,48 @@ module {
         #Completed;
         #Failed: Error;
     };
+    public type DecreaseLiquidityInfo = {
+        token0: Principal;
+        token1: Principal;
+        amount0: Nat;
+        amount1: Nat;
+        positionId: Nat;
+        withdraw0: ?WithdrawInfo;
+        withdraw1: ?WithdrawInfo;
+        status: DecreaseLiquidityStatus;
+    };
+    public type DecreaseLiquidityStatus = {
+        #Created;
+        #DecreaseSuccess;
+        #Withdraw0Processing;
+        #Withdraw0Completed;
+        #Withdraw1Processing;
+        #Withdraw1Completed;
+        #Completed;
+        #Failed: Error;
+    };
+    public type ClaimInfo = {
+        positionId: Nat;
+        token0: Principal;
+        token1: Principal;
+        amount0: Nat;
+        amount1: Nat;
+        status: ClaimStatus;
+    };
+    public type ClaimStatus = {
+        #Created;
+        #Processing;
+        #Completed;
+        #Failed: Error;
+    };
+    public type TransferPositionInfo = {
+        positionId: Nat;
+        from: Account;
+        to: Account;
+        status: TransferPositionStatus;
+    };
+    public type TransferPositionStatus = {
+        #Completed;
+    };
+   
 }

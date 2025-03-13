@@ -438,6 +438,7 @@ module {
         #getUserPositionsByPrincipal : () -> Principal;
         #getUserUnusedBalance : () -> Principal;
         #getVersion : () -> ();
+        #getTransactions : () -> ();
         // #getWithdrawErrorLog : () -> ();
         #increaseLiquidity : () -> IncreaseLiquidityArgs;
         #metadata : () -> ();

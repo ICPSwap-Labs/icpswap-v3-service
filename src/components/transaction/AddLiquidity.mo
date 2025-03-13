@@ -2,12 +2,12 @@ import Types "./Types";
 import Result "mo:base/Result";
 
 module {
-    public func start(token0: Principal, token1: Principal, amount0: Nat, amount1: Nat) : Types.AddLiquidityInfo {
+    public func start(token0: Principal, token1: Principal) : Types.AddLiquidityInfo {
         return {
             token0 = token0;
             token1 = token1;
-            amount0 = amount0;
-            amount1 = amount1;
+            amount0 = 0;
+            amount1 = 0;
             deposit0 = null;
             deposit1 = null;
             positionId = 0;
@@ -110,14 +110,14 @@ module {
             };
         };
     };  
-    public func completeMintLiquidity(info: Types.AddLiquidityInfo) : Result.Result<Types.AddLiquidityInfo, Types.Error> {
+    public func complete(info: Types.AddLiquidityInfo, amount0: Nat, amount1: Nat) : Result.Result<Types.AddLiquidityInfo, Types.Error> {
         switch (info.status) {
             case (#LiquidityMinting) {
                 return #ok({
                     token0 = info.token0;   
                     token1 = info.token1;
-                    amount0 = info.amount0;
-                    amount1 = info.amount1;
+                    amount0 = amount0;
+                    amount1 = amount1;
                     deposit0 = info.deposit0;
                     deposit1 = info.deposit1;
                     positionId = info.positionId;
@@ -129,7 +129,7 @@ module {
             };
         };
     };
-    public func failMintLiquidity(info: Types.AddLiquidityInfo, error: Types.Error) : Result.Result<Types.AddLiquidityInfo, Types.Error> {
+    public func fail(info: Types.AddLiquidityInfo, error: Types.Error) : Result.Result<Types.AddLiquidityInfo, Types.Error> {
         switch (info.status) {
             case (#LiquidityMinting) {
                 return #ok({
