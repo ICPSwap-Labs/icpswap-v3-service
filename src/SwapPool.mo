@@ -13,15 +13,21 @@ import Option "mo:base/Option";
 import Error "mo:base/Error";
 import Time "mo:base/Time";
 import Timer "mo:base/Timer";
-import HashMap "mo:base/HashMap";
 import RBTree "mo:base/RBTree";
-import PoolUtils "./utils/PoolUtils";
-import AccountUtils "./utils/AccountUtils";
-import PositionTick "./components/PositionTick";
-import TokenHolder "./components/TokenHolder";
-import TokenAmount "./components/TokenAmount";
-import SwapRecord "./components/SwapRecord";
-import Types "./Types";
+import Bool "mo:base/Bool";
+import Prim "mo:⛔";
+
+import SafeUint "mo:commons/math/SafeUint";
+import SafeInt "mo:commons/math/SafeInt";
+import IntUtils "mo:commons/math/SafeInt/IntUtils";
+import TextUtils "mo:commons/utils/TextUtils";
+import ListUtils "mo:commons/utils/ListUtils";
+import PrincipalUtils "mo:commons/utils/PrincipalUtils";
+import CollectionUtils "mo:commons/utils/CollectionUtils";
+
+import TokenFactory "mo:token-adapter/TokenFactory";
+import TokenAdapterTypes "mo:token-adapter/Types";
+
 import LiquidityMath "./libraries/LiquidityMath";
 import LiquidityAmounts "./libraries/LiquidityAmounts";
 import TickMath "./libraries/TickMath";
@@ -32,24 +38,21 @@ import TickBitmap "./libraries/TickBitmap";
 import FullMath "./libraries/FullMath";
 import SwapMath "./libraries/SwapMath";
 import FixedPoint128 "./libraries/FixedPoint128";
-import ICRCTypes "./ICRCTypes";
+
+import PoolUtils "./utils/PoolUtils";
+import AccountUtils "./utils/AccountUtils";
+
+import PositionTick "./components/PositionTick";
+import TokenHolder "./components/TokenHolder";
+import TokenAmount "./components/TokenAmount";
+import SwapRecord "./components/SwapRecord";
 import ICRC21 "./components/ICRC21";
-import SafeUint "mo:commons/math/SafeUint";
-import SafeInt "mo:commons/math/SafeInt";
-import IntUtils "mo:commons/math/SafeInt/IntUtils";
-import TextUtils "mo:commons/utils/TextUtils";
-import PrincipalUtils "mo:commons/utils/PrincipalUtils";
-import TokenFactory "mo:token-adapter/TokenFactory";
-import TokenAdapterTypes "mo:token-adapter/Types";
-import ListUtils "mo:commons/utils/ListUtils";
-import CollectionUtils "mo:commons/utils/CollectionUtils";
-import Bool "mo:base/Bool";
-import Prim "mo:⛔";
-import Hash "mo:base/Hash";
-import SwapTransaction "./components/SwapTransaction";
 import Job "./components/Job";
 import Tx "./components/transaction";
-import Withdraw "components/transaction/Withdraw";
+
+import Types "./Types";
+import ICRCTypes "./ICRCTypes";
+
 
 shared (initMsg) actor class SwapPool(
     token0 : Types.Token,
@@ -82,7 +85,8 @@ shared (initMsg) actor class SwapPool(
         await _syncTokenFeeJob();
     };
 
-    private var _canisterId : ?Principal = null;
+    private stable var _canisterId : ?Principal = null;
+
     private stable var _admins : [Principal] = [];
     private stable var _available : Bool = true;
     private stable var _whiteList : [Principal] = [];
@@ -95,19 +99,13 @@ shared (initMsg) actor class SwapPool(
 
     private stable var _token0Fee : ?Nat = null;
     private stable var _token1Fee : ?Nat = null;
+    private stable var _token0Principal : ?Principal = null;
+    private stable var _token1Principal : ?Principal = null;
 
     private stable var _positionLimit : Nat = 10000;
 
-    private stable var _recordState : SwapRecord.State = {
-        records = [];
-        retryCount = 0;
-        errors = [];
-    };
-    private stable var _tokenHolderState : TokenHolder.State = {
-        token0 = _token0;
-        token1 = _token1;
-        balances = [];
-    };
+    private stable var _recordState : SwapRecord.State = { records = []; retryCount = 0; errors = []; };
+    private stable var _tokenHolderState : TokenHolder.State = { token0 = _token0; token1 = _token1; balances = []; };
     private stable var _tokenAmountState : TokenAmount.State = {
         tokenAmount0 = 0;
         tokenAmount1 = 0;
@@ -145,20 +143,6 @@ shared (initMsg) actor class SwapPool(
     private var _token0Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token0.address, _token0.standard);
     private var _token1Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token1.address, _token1.standard);
     private let _trustAct = actor (Principal.toText(trustedCanisterManagerCid)) : actor { isCanisterTrusted : shared query (Principal) -> async Bool; };
-    private let NANOSECONDS_PER_SECOND : Nat = 1_000_000_000;
-    private let SECOND_PER_DAY : Nat = 86400;
-    
-
-    private func _getCanisterId() : Principal {
-        switch (_canisterId) {
-            case (?canisterId) { canisterId };
-            case (null) { 
-                let cid = Principal.fromActor(this);
-                _canisterId := ?cid;
-                cid;
-            };
-        };
-    };
 
     // --------------------------- limit order ------------------------------------
     private stable var _isLimitOrderAvailable = true;
@@ -305,7 +289,6 @@ shared (initMsg) actor class SwapPool(
             upperLimitOrdersIds = Buffer.toArray(upperLimitOrderIds);
         });
     };
-
     public query func getSortedUserLimitOrders(user : Principal) : async Result.Result<[{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }], Types.Error> {
         var allLimitOrders : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }>(0);
         for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
@@ -336,12 +319,6 @@ shared (initMsg) actor class SwapPool(
         return #ok(sortedOrders);
     };
 
-    
-    
-    private stable var _claimLog : [Text] = [];
-    private var _claimLogBuffer : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
-    public query func getClaimLog() : async [Text] { return Buffer.toArray(_claimLogBuffer); };
-
     private func _assertAccessible(caller : Principal) {
         assert(_isAvailable(caller) and (not Principal.isAnonymous(caller)));
     };
@@ -360,6 +337,27 @@ shared (initMsg) actor class SwapPool(
     private func _checkUserPositionLimit() : Bool {
         if (_positionTickService.getUserPositions().size() >= _positionLimit) { return false; };
         return true;
+    };
+
+    private func _getCanisterId() : Principal {
+        switch (_canisterId) {
+            case (?canisterId) { canisterId };
+            case (null) { let cid = Principal.fromActor(this); _canisterId := ?cid; cid; };
+        };
+    };
+
+    private func _getToken0Principal() : Principal {
+        switch (_token0Principal) {
+            case (?principal) { principal };
+            case (null) { let _principal = Principal.fromText(_token0.address); _token0Principal := ?_principal; _principal; };
+        };
+    };
+
+    private func _getToken1Principal() : Principal {
+        switch (_token1Principal) {
+            case (?principal) { principal };
+            case (null) { let _principal = Principal.fromText(_token1.address); _token1Principal := ?_principal; _principal; };
+        };
     };
 
     private func _addLiquidity(tickLower : Int, tickUpper : Int, amount0Desired : SafeUint.Uint256, amount1Desired : SafeUint.Uint256) : Result.Result<{ amount0 : Nat; amount1 : Nat; liquidityDelta : Nat }, Text> {
@@ -551,7 +549,6 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    
     private func _depositFrom(txIndex: Nat, token: Types.Token, tokenPrincipal: Principal, tokenAct: TokenAdapterTypes.TokenAdapter, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : async Result.Result<Nat, Types.Error> {
         func __depositFrom(): async Result.Result<Nat, Types.Error> {
             switch (await tokenAct.transferFrom({from = from; to = to; amount = amount; fee = ?fee; memo = memo; created_at_time = null })) {
@@ -580,20 +577,20 @@ shared (initMsg) actor class SwapPool(
         switch (_txState.getTransaction(txIndex)) {
             case (?tx) {
                 switch (tx.action) {
-                    case (#Swap(info)) {
-                        Debug.print("==> -- startDepositForSwap --");
-                        switch (_txState.startDepositForSwap(txIndex, tokenPrincipal, from, to, amount, fee, memo)) {
-                            case (#ok()) { return await __depositFrom(); };
-                            case (#err(msg)) { return #err(#InternalError(msg)); };
-                        };
-                    };
                     case (#Deposit(info)) {
                         switch (info.status) {
                             case (#Processing) { return await __depositFrom(); };
                             case (_) { return #err(#InternalError("Invalid transaction")); };
                         };
                     };
-                    case (#AddLiquidity(info)) {
+                    case (#Swap(_)) {
+                        Debug.print("==> -- startDepositForSwap --");
+                        switch (_txState.startDepositForSwap(txIndex, tokenPrincipal, from, to, amount, fee, memo)) {
+                            case (#ok()) { return await __depositFrom(); };
+                            case (#err(msg)) { return #err(#InternalError(msg)); };
+                        };
+                    };
+                    case (#AddLiquidity(_)) {
                         switch (_txState.startDepositForAddLiquidity(txIndex, tokenPrincipal, from, to, amount, fee, memo)) {
                             case (#ok()) { return await __depositFrom(); };
                             case (#err(msg)) { return #err(#InternalError(msg)); };
@@ -635,19 +632,19 @@ shared (initMsg) actor class SwapPool(
         switch (_txState.getTransaction(txIndex)) {
             case (?tx) {
                 switch (tx.action) {
-                    case (#Swap(info)) {
-                        switch (_txState.startDepositForSwap(txIndex, tokenPrincipal, from, to, amount, fee, memo)) {
-                            case (#ok()) { return await __deposit(); };
-                            case (#err(msg)) { return #err(#InternalError(msg)); };
-                        };
-                    };
                     case (#Deposit(info)) {
                         switch (info.status) {
                             case (#Processing) { return await __deposit(); };
                             case (_) { return #err(#InternalError("InvalidTransaction")); };
                         };
                     };
-                    case (#AddLiquidity(info)) {
+                    case (#Swap(_)) {
+                        switch (_txState.startDepositForSwap(txIndex, tokenPrincipal, from, to, amount, fee, memo)) {
+                            case (#ok()) { return await __deposit(); };
+                            case (#err(msg)) { return #err(#InternalError(msg)); };
+                        };
+                    };
+                    case (#AddLiquidity(_)) {
                         switch (_txState.startDepositForAddLiquidity(txIndex, tokenPrincipal, from, to, amount, fee, memo)) {
                             case (#ok()) { return await __deposit(); };
                             case (#err(msg)) { return #err(#InternalError(msg)); };
@@ -692,7 +689,7 @@ shared (initMsg) actor class SwapPool(
             switch (_txState.getTransaction(trxIndex)) {
                 case (?tx) {
                     switch (tx.action) {
-                        case (#Swap(info)) {
+                        case (#Swap(_)) {
                             switch (_txState.startWithdrawForSwap(trxIndex, tokenPrincipal, from, to, amount, fee, memo)) {
                                 case (#ok()) { 
                                     __withdraw<system>();
@@ -751,7 +748,6 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
-
     private func _swap(caller: Principal, trxIndex: Nat, args: Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
         Debug.print("==> -- _swap.983 --" # debug_show(trxIndex));
         var swapAmount = 0;
@@ -781,8 +777,6 @@ shared (initMsg) actor class SwapPool(
             };
         };
     };
-
-    
 
     private func _preSwap(args : Types.SwapArgs, operator : Principal) : Result.Result<Nat, Types.Error> {
         var swapResult = switch (_computeSwap(args, operator, false)) {
@@ -1188,7 +1182,6 @@ shared (initMsg) actor class SwapPool(
         if (not (args.amount > args.fee)) { return #err(#InternalError("Input amount should be greater than fee")) };
         // var amount : Nat = Nat.sub(args.amount, args.fee);
 
-
         let from = {owner = canisterId; subaccount = subaccount;};
         let to = { owner = canisterId; subaccount = null }; 
         let amount = args.amount;
@@ -1422,31 +1415,6 @@ shared (initMsg) actor class SwapPool(
 
         return #ok(positionId);
     };
-    private var _token0Principal : ?Principal = null;
-    private var _token1Principal : ?Principal = null;
-
-    private func _getToken0Principal() : Principal {
-        switch (_token0Principal) {
-            case (?principal) { principal };
-            case (null) {
-                let _principal = Principal.fromText(_token0.address);
-                _token0Principal := ?_principal;
-                _principal;
-            };
-        };
-    };
-    private func _getToken1Principal() : Principal {
-        switch (_token1Principal) {
-            case (?principal) { principal };
-            case (null) {
-                let _principal = Principal.fromText(_token1.address);
-                _token1Principal := ?_principal;
-                _principal;
-            };
-        };
-    };
-
-    
 
     public shared({ caller }) func depositFromAndSwap(args: Types.DepositAndSwapArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
@@ -2637,10 +2605,10 @@ shared (initMsg) actor class SwapPool(
         return ICRC21.icrc21_canister_call_consent_message(request);
     };
 
-    private func _syncRecordsJob() : async () { await _swapRecordService.syncRecord(); };
-
-    private func _syncTokenFeeJob() : async () { _token0Fee := ?(await _token0Act.fee()); _token1Fee := ?(await _token1Act.fee()); };
-    
+    // --------------------------- claim fee ------------------------------------
+    private stable var _claimLog : [Text] = [];
+    private var _claimLogBuffer : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
+    public query func getClaimLog() : async [Text] { return Buffer.toArray(_claimLogBuffer); };
     private func _claimSwapFeeRepurchaseJob() : async () {
         let balance0 = _tokenAmountService.getSwapFee0Repurchase();
         let balance1 = _tokenAmountService.getSwapFee1Repurchase();
@@ -2664,6 +2632,13 @@ shared (initMsg) actor class SwapPool(
         //     };
         // };
     };
+
+    // sync records
+    private func _syncRecordsJob() : async () { await _swapRecordService.syncRecord(); };
+
+    // sync token fee
+    private func _syncTokenFeeJob() : async () { _token0Fee := ?(await _token0Act.fee()); _token1Fee := ?(await _token1Act.fee()); };
+    
     let _jobService: Job.JobService = Job.JobService();
     public shared({caller}) func stopJobs(names: [Text]) : async () {
         _checkAdminPermission(caller);
