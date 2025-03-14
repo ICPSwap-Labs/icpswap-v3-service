@@ -5,7 +5,6 @@ import Text "mo:base/Text";
 import Blob "mo:base/Blob";
 import Nat "mo:base/Nat";
 
-
 module {
     public type Amount = Nat;
     public type Account = {
@@ -99,6 +98,7 @@ module {
         deposit1: ?DepositInfo;
         positionId: Nat;
         status: AddLiquidityStatus;
+        liquidity: Nat;
     };
     public type AddLiquidityStatus = {
         #Created;
@@ -125,6 +125,7 @@ module {
         withdraw0: ?WithdrawInfo;
         withdraw1: ?WithdrawInfo;
         status: DecreaseLiquidityStatus;
+        liquidity: Nat;
     };
     public type DecreaseLiquidityStatus = {
         #Created;

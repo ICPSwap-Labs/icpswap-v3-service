@@ -13,6 +13,7 @@ module {
             status = #Created;
             withdraw0 = null;
             withdraw1 = null;
+            liquidity = 0;
         };
     };
     public func success(decreaseLiquidity : Types.DecreaseLiquidityInfo, amount0 : Nat, amount1 : Nat): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -25,6 +26,7 @@ module {
             status = #DecreaseSuccess;
             withdraw0 = decreaseLiquidity.withdraw0;
             withdraw1 = decreaseLiquidity.withdraw1;
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
     public func fail(decreaseLiquidity : Types.DecreaseLiquidityInfo, error : Text): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -37,6 +39,7 @@ module {
             status = #Failed(error);
             withdraw0 = decreaseLiquidity.withdraw0;
             withdraw1 = decreaseLiquidity.withdraw1;
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
     public func startWithdrawToken0(decreaseLiquidity : Types.DecreaseLiquidityInfo, withdraw : Types.WithdrawInfo): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -49,6 +52,7 @@ module {
             status = #Withdraw0Processing;
             withdraw0 = ?withdraw;
             withdraw1 = decreaseLiquidity.withdraw1;
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
     public func completeWithdrawToken0(decreaseLiquidity : Types.DecreaseLiquidityInfo, withdraw : Types.WithdrawInfo): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -61,6 +65,7 @@ module {
             status = #Withdraw0Completed;
             withdraw0 = ?withdraw;
             withdraw1 = decreaseLiquidity.withdraw1;
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
     public func failWithdrawToken0(decreaseLiquidity : Types.DecreaseLiquidityInfo, withdraw : Types.WithdrawInfo): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -73,6 +78,7 @@ module {
             status = #Failed("Withdraw0Failed");
             withdraw0 = ?withdraw;
             withdraw1 = decreaseLiquidity.withdraw1;  
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
     public func startWithdrawToken1(decreaseLiquidity : Types.DecreaseLiquidityInfo, withdraw : Types.WithdrawInfo): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -85,6 +91,7 @@ module {
             status = #Withdraw1Processing;
             withdraw0 = decreaseLiquidity.withdraw0;
             withdraw1 = ?withdraw;
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
     public func completeWithdrawToken1(decreaseLiquidity : Types.DecreaseLiquidityInfo, withdraw : Types.WithdrawInfo): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -97,6 +104,7 @@ module {
             status = #Withdraw1Completed;
             withdraw0 = decreaseLiquidity.withdraw0;
             withdraw1 = ?withdraw;
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
     public func failWithdrawToken1(decreaseLiquidity : Types.DecreaseLiquidityInfo, withdraw : Types.WithdrawInfo): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -109,6 +117,7 @@ module {
             status = #Failed("Withdraw1Failed");
             withdraw0 = decreaseLiquidity.withdraw0;
             withdraw1 = ?withdraw;
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
     public func complete(decreaseLiquidity : Types.DecreaseLiquidityInfo): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -121,6 +130,7 @@ module {
             status = #Completed;
             withdraw0 = decreaseLiquidity.withdraw0;
             withdraw1 = decreaseLiquidity.withdraw1;
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
     public func successAndComplete(decreaseLiquidity : Types.DecreaseLiquidityInfo, amount0: Nat, amount1: Nat): Result.Result<Types.DecreaseLiquidityInfo, Text> {
@@ -133,6 +143,7 @@ module {
             status = #Completed;
             withdraw0 = decreaseLiquidity.withdraw0;
             withdraw1 = decreaseLiquidity.withdraw1;
+            liquidity = decreaseLiquidity.liquidity;
         });
     };
 }

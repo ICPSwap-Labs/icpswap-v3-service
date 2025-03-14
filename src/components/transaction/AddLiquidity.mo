@@ -11,6 +11,7 @@ module {
             deposit0 = null;
             deposit1 = null;
             positionId = 0;
+            liquidity = 0;
             status = #Created;
         };
     };
@@ -26,6 +27,7 @@ module {
                     deposit0 = ?depositInfo;
                     deposit1 = info.deposit1;
                     positionId = info.positionId;
+                    liquidity = info.liquidity;
                     status = #Token0DepositProcessing;
                 });
             };
@@ -45,6 +47,7 @@ module {
                     deposit0 = ?depositInfo;
                     deposit1 = info.deposit1;
                     positionId = info.positionId;
+                    liquidity = info.liquidity;
                     status = #Token0DepositCompleted;
                 });
             };
@@ -64,6 +67,7 @@ module {
                     deposit0 = info.deposit0;
                     deposit1 = ?depositInfo;
                     positionId = info.positionId;
+                    liquidity = info.liquidity;
                     status = #Token1DepositProcessing;  
                 });
             };
@@ -83,6 +87,7 @@ module {
                     deposit0 = info.deposit0;
                     deposit1 = ?depositInfo;
                     positionId = info.positionId;
+                    liquidity = info.liquidity;
                     status = #Token1DepositCompleted;
                 });
             };
@@ -102,6 +107,7 @@ module {
                     deposit0 = info.deposit0;
                     deposit1 = info.deposit1;
                     positionId = positionId; 
+                    liquidity = info.liquidity;
                     status = #LiquidityMinting;
                 });
             };
@@ -121,6 +127,7 @@ module {
                     deposit0 = info.deposit0;
                     deposit1 = info.deposit1;
                     positionId = info.positionId;
+                    liquidity = info.liquidity;
                     status = #Completed;
                 }); 
             };
@@ -140,7 +147,8 @@ module {
                     deposit0 = info.deposit0;
                     deposit1 = info.deposit1;
                     positionId = info.positionId;
-                    status = #Failed(error)
+                    liquidity = info.liquidity;
+                    status = #Failed(error);
                 });
             };
             case (_) {

@@ -37,7 +37,10 @@ module {
         };
     };
     public type Fun = (action: Types.Action) -> Result.Result<Types.Action, Types.Error>;
-    public class State(initialIndex: Nat, initialTransactions: [(Nat, Transaction)]) {
+    public class State(
+        initialIndex: Nat, 
+        initialTransactions: [(Nat, Transaction)]
+    ) {
         public var index: Nat = initialIndex;
         public var transactions = HashMap.fromIter<Nat, Transaction>(initialTransactions.vals(), initialTransactions.size(), Nat.equal, _hash);
         public func getTxId() : Nat {

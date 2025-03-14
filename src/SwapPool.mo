@@ -139,7 +139,6 @@ shared (initMsg) actor class SwapPool(
     private var _txIndex : Nat = 0;
     private var _txState : Tx.State = Tx.State(_txIndex, _txsArray);
 
-
     private var _token0Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token0.address, _token0.standard);
     private var _token1Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token1.address, _token1.standard);
     private let _trustAct = actor (Principal.toText(trustedCanisterManagerCid)) : actor { isCanisterTrusted : shared query (Principal) -> async Bool; };
@@ -430,19 +429,19 @@ shared (initMsg) actor class SwapPool(
         _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
         _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
-            _pushSwapInfoCache(#decreasePositionLiquidity(args.positionId), Principal.toText(Principal.fromActor(this)), Principal.toText(owner), Principal.toText(owner), liquidityDelta, collectResult.amount0, collectResult.amount1, true);
-            if (loArgs.isLimitOrder) {
-                _pushSwapInfoCache(
-                    #limitOrder({ positionId = args.positionId; tickLimit = loArgs.tickLimit; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }), 
-                    Principal.toText(Principal.fromActor(this)), 
-                    Principal.toText(owner), 
-                    Principal.toText(owner), 
-                    liquidityDelta, 
-                    collectResult.amount0, 
-                    collectResult.amount1, 
-                    true
-                );
-            };
+            // _pushSwapInfoCache(#decreasePositionLiquidity(args.positionId), Principal.toText(Principal.fromActor(this)), Principal.toText(owner), Principal.toText(owner), liquidityDelta, collectResult.amount0, collectResult.amount1, true);
+            // if (loArgs.isLimitOrder) {
+            //     _pushSwapInfoCache(
+            //         #limitOrder({ positionId = args.positionId; tickLimit = loArgs.tickLimit; token0InAmount = loArgs.token0InAmount; token1InAmount = loArgs.token1InAmount; }), 
+            //         Principal.toText(Principal.fromActor(this)), 
+            //         Principal.toText(owner), 
+            //         Principal.toText(owner), 
+            //         liquidityDelta, 
+            //         collectResult.amount0, 
+            //         collectResult.amount1, 
+            //         true
+            //     );
+            // };
             ignore _tokenHolderService.deposit2(owner, _token0, collectResult.amount0, _token1, collectResult.amount1);
             _jobService.onActivity<system>();
         };
@@ -760,6 +759,7 @@ shared (initMsg) actor class SwapPool(
                     };
                     swapAmount := _executeSwap(args, caller, swapResult);                    
                     ignore _txState.completeSwap(trxIndex, swapAmount);
+                    _pushSwapInfoCache(trxIndex);
 
                     // set a one-time timer to remove limit order automatically
                     ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
@@ -1015,7 +1015,7 @@ shared (initMsg) actor class SwapPool(
             swapAmount := IntUtils.toNat(-(swapResult.amount1), 256);
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(IntUtils.toNat(swapResult.amount0, 256))).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(swapAmount)).val());
-            _pushSwapInfoCache(#swap, Principal.toText(caller), Principal.toText(Principal.fromActor(this)), Principal.toText(caller), 0, SafeUint.Uint256(IntUtils.toNat(swapResult.amount0, 256)).val(), SafeUint.Uint256(swapAmount).val(), args.zeroForOne);
+            // _pushSwapInfoCache(#swap, Principal.toText(caller), Principal.toText(Principal.fromActor(this)), Principal.toText(caller), 0, SafeUint.Uint256(IntUtils.toNat(swapResult.amount0, 256)).val(), SafeUint.Uint256(swapAmount).val(), args.zeroForOne);
 
             ignore _tokenHolderService.swap(caller, _token0, IntUtils.toNat(swapResult.amount0, 256), _token1, swapAmount);
         };
@@ -1023,7 +1023,7 @@ shared (initMsg) actor class SwapPool(
             swapAmount := IntUtils.toNat(-(swapResult.amount0), 256);
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(swapAmount)).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(IntUtils.toNat(swapResult.amount1, 256))).val());
-            _pushSwapInfoCache(#swap, Principal.toText(caller), Principal.toText(Principal.fromActor(this)), Principal.toText(caller), 0, SafeUint.Uint256(IntUtils.toNat(swapResult.amount1, 256)).val(), SafeUint.Uint256(swapAmount).val(), args.zeroForOne);
+            // _pushSwapInfoCache(#swap, Principal.toText(caller), Principal.toText(Principal.fromActor(this)), Principal.toText(caller), 0, SafeUint.Uint256(IntUtils.toNat(swapResult.amount1, 256)).val(), SafeUint.Uint256(swapAmount).val(), args.zeroForOne);
 
             ignore _tokenHolderService.swap(caller, _token1, IntUtils.toNat(swapResult.amount1, 256), _token0, swapAmount);
         };
@@ -1100,43 +1100,23 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
-    private func _pushSwapInfoCache(
-        action : Types.TransactionType,
-        from : Text,
-        to : Text,
-        recipient : Text,
-        liquidityChange : Nat,
-        token0ChangeAmount : Nat,
-        token1ChangeAmount : Nat,
-        zeroForOne : Bool,
-    ) : () {
-        var poolCid : Text = Principal.toText(Principal.fromActor(this));
-        let (token0Id, token1Id, token0Standard, token1Standard, token0Amount, token1Amount) = if (zeroForOne) {
-            (_token0.address, _token1.address, _token0.standard, _token1.standard, _tokenAmountService.getTokenAmount0(), _tokenAmountService.getTokenAmount1());
-        } else {
-            (_token1.address, _token0.address, _token1.standard, _token0.standard, _tokenAmountService.getTokenAmount1(), _tokenAmountService.getTokenAmount0());
+    private func _pushSwapInfoCache(txIndex: Nat) : () {
+        var poolCid : Text = Principal.toText(_getCanisterId());
+        let tx = _txState.getTransaction(txIndex);
+        switch (tx) {
+            case (null) { return };
+            case (?tx) {
+                _swapRecordService.addRecord({
+                    poolId = poolCid;
+                    txInfo = tx;
+                    currentLiquidity = _liquidity;
+                    currentTick = _tick;
+                    currentSqrtPriceX96 = _sqrtPriceX96;
+                });
+            }
         };
-        _swapRecordService.addRecord(
-            poolCid,
-            token0Id,
-            token0Standard,
-            token0Amount,
-            token0ChangeAmount,
-            token1Id,
-            token1Standard,
-            token1Amount,
-            token1ChangeAmount,
-            action,
-            from,
-            to,
-            recipient,
-            _tick,
-            _sqrtPriceX96,
-            _liquidity,
-            liquidityChange,
-            _fee,
-        );
     };
+
     private func _submit(): async () {};
     private func _rollback(msg: Text) : () {
         Prim.trap(msg);
@@ -1668,7 +1648,7 @@ shared (initMsg) actor class SwapPool(
             );
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(addResult.amount0)).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
-            _pushSwapInfoCache(#addPositionLiquidity(positionId), Principal.toText(msg.caller), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), addResult.liquidityDelta, addResult.amount0, addResult.amount1, true);
+            // _pushSwapInfoCache(#addPositionLiquidity(positionId), Principal.toText(msg.caller), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), addResult.liquidityDelta, addResult.amount0, addResult.amount1, true);
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
             _jobService.onActivity<system>();
             return #ok(positionId);
@@ -1798,7 +1778,7 @@ shared (initMsg) actor class SwapPool(
             );
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(addResult.amount0)).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
-            _pushSwapInfoCache(#increasePositionLiquidity(args.positionId), Principal.toText(msg.caller), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), addResult.liquidityDelta, addResult.amount0, addResult.amount1, true);
+            // _pushSwapInfoCache(#increasePositionLiquidity(args.positionId), Principal.toText(msg.caller), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), addResult.liquidityDelta, addResult.amount0, addResult.amount1, true);
 
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
             ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () {
@@ -1860,7 +1840,7 @@ shared (initMsg) actor class SwapPool(
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
             if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
-                _pushSwapInfoCache(#claimPosition(args.positionId), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), Principal.toText(msg.caller), 0, collectResult.amount0, collectResult.amount1, true);
+                // _pushSwapInfoCache(#claimPosition(args.positionId), Principal.toText(Principal.fromActor(this)), Principal.toText(msg.caller), Principal.toText(msg.caller), 0, collectResult.amount0, collectResult.amount1, true);
                 ignore _tokenHolderService.deposit2(msg.caller, _token0, collectResult.amount0, _token1, collectResult.amount1);
             };
         } catch (e) {
@@ -1944,7 +1924,7 @@ shared (initMsg) actor class SwapPool(
                     _positionTickService.putUserPositionId(PrincipalUtils.toAddress(to), positionId);
 
                     _positionTickService.deleteAllowancedUserPosition(positionId);
-                    _pushSwapInfoCache(#transferPosition(positionId), Principal.toText(from), Principal.toText(to), Principal.toText(to), 0, 0, 0, true);
+                    // _pushSwapInfoCache(#transferPosition(positionId), Principal.toText(from), Principal.toText(to), Principal.toText(to), 0, 0, 0, true);
                     _jobService.onActivity<system>();
                     ignore _txState.completeTransferPosition(from, Principal.fromActor(this), positionId, { owner = from; subaccount = null }, { owner = to; subaccount = null });
                     return #ok(true);

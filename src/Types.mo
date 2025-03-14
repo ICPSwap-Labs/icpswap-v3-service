@@ -6,6 +6,7 @@ import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
 import ICRCTypes "./ICRCTypes";
+import TxTypes "./components/transaction/Types";
 
 module {
 
@@ -245,48 +246,21 @@ module {
         #transferPosition : Nat;
         #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
     };
+    public type SwapRecordInfo = {
+        poolId : Text;
+        txInfo : TxTypes.Transaction;
+        currentLiquidity : Nat;
+        currentTick : Int;
+        currentSqrtPriceX96 : Nat;
+    };
     public type TxStorage = actor {
         push : (SwapRecordInfo) -> async ();
         batchPush : ([SwapRecordInfo]) -> async ();
-        addOwner : (Principal) -> async ();
         addClient : (Principal) -> async ();
     };
     public type PushError = {
         message : Text;
         time : Int;
-    };
-    public type TxStorageCanister = {
-        canisterId : Text;
-        canister : TxStorage;
-        var retryCount : Nat;
-        var errors : [PushError];
-    };
-    public type SwapRecordInfo = {
-        action : TransactionType;
-        feeTire : Nat;
-        from : Text;
-        liquidityChange : Nat;
-        liquidityTotal : Nat;
-        poolId : Text;
-        price : Nat;
-        feeAmount : Int;
-        feeAmountTotal : Int;
-        TVLToken0 : Int;
-        TVLToken1 : Int;
-        recipient : Text;
-        tick : Int;
-        timestamp : Int;
-        to : Text;
-        token0AmountTotal : Nat;
-        token0ChangeAmount : Nat;
-        token0Fee : Nat;
-        token0Id : Text;
-        token0Standard : Text;
-        token1AmountTotal : Nat;
-        token1ChangeAmount : Nat;
-        token1Fee : Nat;
-        token1Id : Text;
-        token1Standard : Text;
     };
     public type CycleInfo = {
         balance : Nat;
