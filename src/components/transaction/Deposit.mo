@@ -3,7 +3,6 @@ import Principal "mo:base/Principal";
 import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 import Blob "mo:base/Blob";
-import Result "mo:base/Result";
 import Transfer "./Transfer";
 
 module {
@@ -13,57 +12,30 @@ module {
             status = #Processing;
         };
     };
-    public func success(deposit: Types.DepositInfo, transferIndex: Nat): Result.Result<Types.DepositInfo, Text> {
-        switch (deposit.status) {
-            case (#Processing) {
-                switch (Transfer.complete(deposit.transfer, transferIndex)) {
-                    case (#ok(transfer)) {
-                        return #ok({
-                            transfer = transfer;
-                            status = #Success;
-                        });
-                    };
-                    case (#err(error)) {
-                        return #err(error);
-                    };
-                };
-            };
-            case (_) {
-                return #err("DepositStatusError");
-            };
+
+    public func success(deposit: Types.DepositInfo, transferIndex: Nat): Types.DepositInfo {
+        assert(deposit.status == #Processing);
+        let transfer = Transfer.complete(deposit.transfer, transferIndex);
+        return {
+            transfer = transfer;
+            status = #Success;
         };
     };
-    public func complete(deposit: Types.DepositInfo): Result.Result<Types.DepositInfo, Text> {
-        switch (deposit.status) {
-            case (#Success) {
-                return #ok({
-                    transfer = deposit.transfer;
-                    status = #Completed;
-                });
-            };
-            case (_) {
-                return #err("DepositStatusError");
-            };
+
+    public func complete(deposit: Types.DepositInfo): Types.DepositInfo {
+        assert(deposit.status == #Success);
+        return {
+            transfer = deposit.transfer;
+            status = #Completed;
         };
     };
-    public func fail(deposit: Types.DepositInfo, error: Text): Result.Result<Types.DepositInfo, Text> {
-        switch (deposit.status) {
-            case (#Success) {
-                switch (Transfer.fail(deposit.transfer, error)) {
-                    case (#ok(transfer)) {
-                        return #ok({
-                            transfer = transfer;
-                            status = #Failed(error);
-                        });
-                    };
-                    case (#err(error)) {
-                        return #err(error);
-                    };
-                };
-            };
-            case (_) {
-                return #err("DepositStatusError");
-            };
+
+    public func fail(deposit: Types.DepositInfo, error: Text): Types.DepositInfo {
+        assert(deposit.status == #Success);
+        let transfer = Transfer.fail(deposit.transfer, error);
+        return {
+            transfer = transfer;
+            status = #Failed(error);
         };
     };
 };

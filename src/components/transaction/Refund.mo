@@ -4,7 +4,6 @@ import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 import Blob "mo:base/Blob";
 import Transfer "./Transfer";
-import Result "mo:base/Result";
 
 module {
     public func start(token: Principal, from: Types.Account, to: Types.Account, amount: Nat, fee: Nat, memo: ?Blob): Types.RefundInfo {
@@ -14,6 +13,7 @@ module {
             status = #Created;
         };
     };
+
     public func startAndProcess(token: Principal, from: Types.Account, to: Types.Account, amount: Nat, fee: Nat, memo: ?Blob): Types.RefundInfo {
         return {
             token = token;
@@ -21,67 +21,31 @@ module {
             status = #Created;
         };
     };
-    public func process(refund: Types.RefundInfo): Result.Result<Types.RefundInfo, Text> {
-        switch (refund.status) {
-            case (#Created) {
-                switch (Transfer.process(refund.transfer)) {
-                    case (#ok(transfer)) {
-                        return #ok({
-                            token = refund.token;
-                            transfer = transfer;
-                            status = #Processing;
-                        });
-                    };
-                    case (#err(error)) {
-                        return #err(error);
-                    };
-                };
-            };
-            case (_) {
-                return #err("WithdrawStatusError");
-            };
+
+    public func process(refund: Types.RefundInfo): Types.RefundInfo {
+        assert(refund.status == #Created);
+        return {
+            token = refund.token;
+            transfer = Transfer.process(refund.transfer);
+            status = #Processing;
         };
     };
-    public func success(refund: Types.RefundInfo, transferIndex: Nat): Result.Result<Types.RefundInfo, Text> {
-        switch (refund.status) {
-            case (#Processing) {
-                switch (Transfer.complete(refund.transfer, transferIndex)) {
-                    case (#ok(transfer)) {
-                        return #ok({
-                            token = refund.token;
-                            transfer = transfer;
-                            status = #Completed
-                        });
-                    };
-                    case (#err(error)) {
-                        return #err(error);
-                    };
-                };
-            };
-            case (_) {
-                return #err("WithdrawStatusError");
-            };
+
+    public func success(refund: Types.RefundInfo, transferIndex: Nat): Types.RefundInfo {
+        assert(refund.status == #Processing);
+        return {
+            token = refund.token;
+            transfer = Transfer.complete(refund.transfer, transferIndex);
+            status = #Completed;
         };
     };
-    public func fail(refund: Types.RefundInfo, error: Text): Result.Result<Types.RefundInfo, Text> {
-        switch (refund.status) {
-            case (#Processing) {
-                switch (Transfer.fail(refund.transfer, error)) {
-                    case (#ok(transfer)) {
-                        return #ok({
-                            token = refund.token;
-                            transfer = transfer;
-                            status = #Failed(error);
-                        });
-                    };
-                    case (#err(error)) {
-                        return #err(error);
-                    };
-                };
-            };
-            case (_) {
-                return #err("WithdrawStatusError");
-            };
+
+    public func fail(refund: Types.RefundInfo, error: Text): Types.RefundInfo {
+        assert(refund.status == #Processing);
+        return {
+            token = refund.token;
+            transfer = Transfer.fail(refund.transfer, error);
+            status = #Failed(error);
         };
     };
 };

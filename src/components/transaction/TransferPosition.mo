@@ -9,5 +9,4 @@ module TransferPosition {
             status = #Completed;
         };
     };
-    
 };
