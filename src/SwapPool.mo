@@ -555,6 +555,10 @@ shared (initMsg) actor class SwapPool(
                     _txState.depositTransferred(txIndex, index);
                     ignore _tokenHolderService.deposit(caller, token, amount);
                     _txState.depositCredited(txIndex);
+                    switch (_txState.getTransaction(txIndex)) {
+                        case (?tx) { switch (tx.action) { case (#Deposit(_)) { _pushSwapInfoCache(txIndex); }; case (_) {}; }; };
+                        case (_) {};
+                    };
                     return #ok(amount);
                 };
                 case (#Err(msg)) {
@@ -597,14 +601,9 @@ shared (initMsg) actor class SwapPool(
                     ignore _tokenHolderService.deposit(caller, token, amount);
                     _txState.depositCredited(txIndex);
                     switch (_txState.getTransaction(txIndex)) {
-                        case (?tx) {
-                            switch (tx.action) {
-                                case (#Deposit(_)) { _pushSwapInfoCache(txIndex); }; case (_) {};
-                            };
-                        };
+                        case (?tx) { switch (tx.action) { case (#Deposit(_)) { _pushSwapInfoCache(txIndex); }; case (_) {}; }; };
                         case (_) {};
                     };
-
                     return #ok(amount);
                 };
                 case (#Err(msg)) {
@@ -660,6 +659,7 @@ shared (initMsg) actor class SwapPool(
         };
 
         if (_tokenHolderService.withdraw(caller, token, amount)) {
+            _txState.withdrawCredited(txIndex);
             switch (_txState.getTransaction(txIndex)) {
                 case (?tx) {
                     switch (tx.action) {
@@ -669,7 +669,7 @@ shared (initMsg) actor class SwapPool(
                                 return #err(#InternalError("AmountOut less than fee"));
                             };
                             switch (info.status) {
-                                case (#Created) {  
+                                case (#CreditCompleted) {  
                                     __withdraw<system>(); 
                                     return #ok(txIndex);
                                 };
@@ -682,7 +682,7 @@ shared (initMsg) actor class SwapPool(
                                 return #ok(0);
                             };
                             switch (info.status) {
-                                case (#SwapCompleted) {
+                                case (#WithdrawCreditCompleted) {
                                     __withdraw<system>();
                                     return #ok(txIndex);
                                 };
@@ -1061,8 +1061,8 @@ shared (initMsg) actor class SwapPool(
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
         ).val();
-        var swapFee0Repurchase = 0;
-        // var swapFee0Repurchase = SafeUint.Uint128(swapFee0Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
+        // var swapFee0Repurchase = 0;
+        var swapFee0Repurchase = SafeUint.Uint128(swapFee0Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
         var swapFee0Lp = if (swapFee0Total > swapFee0Repurchase) {
             SafeUint.Uint128(swapFee0Total).sub(SafeUint.Uint128(swapFee0Repurchase)).val();
         } else { swapFee0Repurchase := 0; swapFee0Total };
@@ -1073,8 +1073,8 @@ shared (initMsg) actor class SwapPool(
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
         ).val();
-        var swapFee1Repurchase = 0;
-        // var swapFee1Repurchase = SafeUint.Uint128(swapFee1Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
+        // var swapFee1Repurchase = 0;
+        var swapFee1Repurchase = SafeUint.Uint128(swapFee1Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
         var swapFee1Lp = if (swapFee1Total > swapFee1Repurchase) {
             SafeUint.Uint128(swapFee1Total).sub(SafeUint.Uint128(swapFee1Repurchase)).val();
         } else { swapFee1Repurchase := 0; swapFee1Total };
@@ -1131,7 +1131,7 @@ shared (initMsg) actor class SwapPool(
         if (not (args.amount > 0)) { return #err(#InternalError("Input amount should be greater than 0")) };
         if (not (args.amount > args.fee)) { return #err(#InternalError("Input amount should be greater than fee")) };
 
-        let from = {owner = canisterId; subaccount = subaccount;};
+        let from = { owner = canisterId; subaccount = subaccount; };
         let to = { owner = canisterId; subaccount = null }; 
         let amount = args.amount;
 

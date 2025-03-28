@@ -122,24 +122,6 @@ module {
             };
         };
 
-        public func depositCompleted(txId: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Deposit(deposit)) {
-                            if (deposit.status == #TransferCompleted) {
-                                let newDeposit = Deposit.process(deposit);
-                                let trx = _copy(tx, #Deposit(newDeposit));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
-                    };
-                };
-            };
-        };
-
         public func depositFailed(txId: Nat, err: Types.Error): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
@@ -171,7 +153,7 @@ module {
             return txId;
         };
 
-        public func withdrawCredited(txId: Nat): Nat {
+        public func withdrawCredited(txId: Nat): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -194,7 +176,6 @@ module {
                     };
                 };
             };
-            txId
         };
 
         public func withdrawCompleted(txId: Nat, txIndex: ?Nat): Nat {
