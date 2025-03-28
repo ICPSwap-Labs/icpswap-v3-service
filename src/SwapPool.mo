@@ -1368,10 +1368,6 @@ shared (initMsg) actor class SwapPool(
 
         switch(await _depositFrom(txIndex, tokenIn, tokenInAct, caller, { owner = caller; subaccount = null }, { owner = canisterId; subaccount = null }, amountIn, feeIn, memo)) {
             case (#ok(_)) {
-                
-                let txInfo1 = _txState.get(txIndex);
-                Debug.print("txInfo1: " # debug_show(txInfo1));
-
                 let swapArgs = { amountIn = args.amountIn; amountOutMinimum = args.amountOutMinimum; zeroForOne = args.zeroForOne; };
                 // If slippage is over range, refund the token
                 var checkFailedMsg = "";
@@ -1391,16 +1387,10 @@ shared (initMsg) actor class SwapPool(
                     return #err(#InternalError("SlippageCheckFailed: " # checkFailedMsg));
                 };
                 ignore _txState.oneStepSwapPreSwapCompleted(txIndex);
-
-                let txInfo2 = _txState.get(txIndex);
-                Debug.print("txInfo2: " # debug_show(txInfo2));
                 
                 switch(await _swap(caller, swapArgs)) {
                     case (#ok(amount)) {
                         ignore _txState.oneStepSwapSwapCompleted(txIndex);
-
-                        let txInfo3 = _txState.get(txIndex);
-                        Debug.print("txInfo3: " # debug_show(txInfo3));
 
                         switch(await _withdraw(txIndex, tokenOut, tokenOutAct, caller,{ owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amount, feeOut, memo)) {
                             case (#ok(amount)) { return #ok(amount); };
@@ -2573,7 +2563,7 @@ shared (initMsg) actor class SwapPool(
         _checkAdminPermission(caller);
         _jobService.active();
     };
-    // _jobService.createJob<system>("SyncTrxsJob", 60, _syncRecordsJob);
+    _jobService.createJob<system>("SyncTrxsJob", 60, _syncRecordsJob);
     _jobService.createJob<system>("SyncTokenFeeJob", 3600, _syncTokenFeeJob);
     _jobService.createJob<system>("WithdrawFeeJob", 3600 * 24 * 7, _claimSwapFeeRepurchaseJob);
     _jobService.createJob<system>("ClearExpiredTransferLogJob", 3600 * 24 * 7, _clearExpiredFailedTransactionJob);
