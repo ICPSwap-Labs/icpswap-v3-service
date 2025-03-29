@@ -162,7 +162,6 @@ shared (initMsg) actor class SwapFactory(
     /// get pool by token addresses and fee.
     public query func getPool(args : Types.GetPoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
         let poolKey : Text = PoolUtils.getPoolKey(args.token0, args.token1, args.fee);
-        Debug.print("poolKey-> " # debug_show (poolKey));
         switch (_poolDataService.getPools().get(poolKey)) {
             case (?pool) { #ok(pool) };
             case (_) { #err(#CommonError) };
@@ -888,8 +887,6 @@ shared (initMsg) actor class SwapFactory(
                 switch (moduleHash) {
                     case (?actualHash) {
                         if (not Blob.equal(actualHash, expectedHash)) {
-                            Debug.print("Expected: " # debug_show(expectedHash));
-                            Debug.print("Actual: " # debug_show(actualHash));
                             return #Err("Installer " # Principal.toText(installer.canisterId) # " has incorrect module hash");
                         };
                     };

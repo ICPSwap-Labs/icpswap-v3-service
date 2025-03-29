@@ -102,8 +102,8 @@ module SwapRecord {
         };
 
         public func _checkSyncInterval(now : Int) : Bool {
-            // Debug.print("==> now : " # debug_show(now));
-            // Debug.print("==> _lastSyncTime : " # debug_show(_lastSyncTime));
+            Debug.print("==> now : " # debug_show(now));
+            Debug.print("==> _lastSyncTime : " # debug_show(_lastSyncTime));
             if (_retryCount < 3) {
                 true;
             } else {

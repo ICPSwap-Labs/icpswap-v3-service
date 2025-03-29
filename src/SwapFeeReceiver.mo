@@ -73,7 +73,7 @@ shared (initMsg) actor class SwapFeeReceiver(
             try {
                 await operation();
             } catch (e) {
-            // Log error but don't reschedule to avoid infinite retry loops
+                // Log error but don't reschedule to avoid infinite retry loops
                 Debug.print("Retry operation failed: " # Error.message(e));
             };
         });
