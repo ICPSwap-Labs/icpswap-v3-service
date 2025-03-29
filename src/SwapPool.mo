@@ -674,7 +674,6 @@ shared (initMsg) actor class SwapPool(
                     let amountOut = Nat.sub(amount, fee);
                     switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amountOut; fee = ?fee; memo = memo; created_at_time = null})) {
                         case (#Ok(index)) {
-                            ignore _tokenHolderService.withdraw(caller, token, amount);
                             _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, ?index));
                         };
                         case (#Err(e)) {
@@ -716,7 +715,6 @@ shared (initMsg) actor class SwapPool(
                                     return #ok(txIndex);
                                 };
                                 case (_) {
-                                    Debug.print("Current status: " # debug_show(info.status));
                                     return #err(#InternalError("Invalid one-step swap transaction status: expected SwapCompleted status"));
                                 };
                             };
@@ -1741,9 +1739,22 @@ shared (initMsg) actor class SwapPool(
 
         let result = _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
         switch (result) {
-            case (#ok(res)) { _pushSwapInfoCache(_txState.decreaseLiquidityCompleted(txIndex, res.amount0, res.amount1)); };
+            case (#ok(res)) {
+                _pushSwapInfoCache(_txState.decreaseLiquidityCompleted(txIndex, res.amount0, res.amount1));
+                
+                // auto withdraw
+                if(res.amount0 > 0){
+                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount0, _token0Fee);
+                    ignore await _withdraw(txIndex, _token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
+                };
+                if(res.amount1 > 0){
+                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount1, _token1Fee);
+                    ignore await _withdraw(txIndex, _token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
+                };
+            };
             case (#err(err)) { ignore _txState.decreaseLiquidityFailed(txIndex, debug_show(err)); };
         };
+        
         ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
         return result;
     };
@@ -1773,6 +1784,16 @@ shared (initMsg) actor class SwapPool(
                 ignore _tokenHolderService.deposit2(msg.caller, _token0, collectResult.amount0, _token1, collectResult.amount1);
             };
             _pushSwapInfoCache(_txState.claimCompleted(txIndex, collectResult.amount0, collectResult.amount1));
+            
+            // auto withdraw
+            if(collectResult.amount0 > 0){
+                let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee);
+                ignore await _withdraw(txIndex, _token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
+            };
+            if(collectResult.amount1 > 0){
+                let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee);
+                ignore await _withdraw(txIndex, _token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
+            };
         } catch (e) {
             _rollback("claim failed: " # Error.message(e));
         };
