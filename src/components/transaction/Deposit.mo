@@ -3,67 +3,63 @@ import Principal "mo:base/Principal";
 import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 import Blob "mo:base/Blob";
-import Result "mo:base/Result";
-import Transfer "./Transfer";
 
 module {
     public func start(token: Principal, from: Types.Account, to: Types.Account, amount: Nat, fee: Nat, memo: ?Blob): Types.DepositInfo {
         return {
-            transfer = Transfer.startAndProcess(token, from, to, amount, fee, memo);
-            status = #Processing;
+            status = #Created;
+            transfer = {
+                token = token;
+                from = from;
+                to = to;
+                amount = amount;
+                fee = fee;
+                memo = memo;
+                index = 0;
+            };
+            err = null;
         };
     };
-    public func success(deposit: Types.DepositInfo, transferIndex: Nat): Result.Result<Types.DepositInfo, Text> {
+
+    public func process(deposit: Types.DepositInfo): Types.DepositInfo {
         switch (deposit.status) {
-            case (#Processing) {
-                switch (Transfer.complete(deposit.transfer, transferIndex)) {
-                    case (#ok(transfer)) {
-                        return #ok({
-                            transfer = transfer;
-                            status = #Success;
-                        });
-                    };
-                    case (#err(error)) {
-                        return #err(error);
+            case (#Created) {
+                if (deposit.transfer.amount == 0) {
+                    return {
+                        transfer = deposit.transfer;
+                        status = #Completed;
+                        err = null;
                     };
                 };
+                return {
+                    transfer = deposit.transfer;
+                    status = #TransferCompleted;
+                    err = null;
+                };
             };
-            case (_) {
-                return #err("DepositStatusError");
-            };
-        };
-    };
-    public func complete(deposit: Types.DepositInfo): Result.Result<Types.DepositInfo, Text> {
-        switch (deposit.status) {
-            case (#Success) {
-                return #ok({
+            case (#TransferCompleted) {
+                return {
                     transfer = deposit.transfer;
                     status = #Completed;
-                });
-            };
-            case (_) {
-                return #err("DepositStatusError");
-            };
-        };
-    };
-    public func fail(deposit: Types.DepositInfo, error: Text): Result.Result<Types.DepositInfo, Text> {
-        switch (deposit.status) {
-            case (#Success) {
-                switch (Transfer.fail(deposit.transfer, error)) {
-                    case (#ok(transfer)) {
-                        return #ok({
-                            transfer = transfer;
-                            status = #Failed(error);
-                        });
-                    };
-                    case (#err(error)) {
-                        return #err(error);
-                    };
+                    err = null;
                 };
             };
-            case (_) {
-                return #err("DepositStatusError");
+            case (#Completed) {
+                return deposit;
+            };
+            case (#Failed) {
+                return deposit;
             };
         };
     };
+
+    public func fail(deposit: Types.DepositInfo, error: Text): Types.DepositInfo {
+        assert(deposit.status != #Completed);
+        return {
+            transfer = deposit.transfer;
+            status = #Failed;
+            err = ?error;
+        };
+    };
+    
 };

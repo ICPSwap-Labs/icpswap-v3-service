@@ -6,6 +6,7 @@ import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
 import ICRCTypes "./ICRCTypes";
+import TxTypes "./components/transaction/Types";
 
 module {
 
@@ -245,48 +246,21 @@ module {
         #transferPosition : Nat;
         #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
     };
+    public type SwapRecordInfo = {
+        poolId : Text;
+        txInfo : TxTypes.Transaction;
+        currentLiquidity : Nat;
+        currentTick : Int;
+        currentSqrtPriceX96 : Nat;
+    };
     public type TxStorage = actor {
         push : (SwapRecordInfo) -> async ();
         batchPush : ([SwapRecordInfo]) -> async ();
-        addOwner : (Principal) -> async ();
         addClient : (Principal) -> async ();
     };
     public type PushError = {
         message : Text;
         time : Int;
-    };
-    public type TxStorageCanister = {
-        canisterId : Text;
-        canister : TxStorage;
-        var retryCount : Nat;
-        var errors : [PushError];
-    };
-    public type SwapRecordInfo = {
-        action : TransactionType;
-        feeTire : Nat;
-        from : Text;
-        liquidityChange : Nat;
-        liquidityTotal : Nat;
-        poolId : Text;
-        price : Nat;
-        feeAmount : Int;
-        feeAmountTotal : Int;
-        TVLToken0 : Int;
-        TVLToken1 : Int;
-        recipient : Text;
-        tick : Int;
-        timestamp : Int;
-        to : Text;
-        token0AmountTotal : Nat;
-        token0ChangeAmount : Nat;
-        token0Fee : Nat;
-        token0Id : Text;
-        token0Standard : Text;
-        token1AmountTotal : Nat;
-        token1ChangeAmount : Nat;
-        token1Fee : Nat;
-        token1Id : Text;
-        token1Standard : Text;
     };
     public type CycleInfo = {
         balance : Nat;
@@ -397,6 +371,7 @@ module {
         amountOutMinimum : Text;
     };
     public type SwapPoolMsg = {
+        #activeJobs : () -> ();
         #addLimitOrder : () -> LimitOrderArgs;
         #allTokenBalance : () -> (Nat, Nat);
         #approvePosition : () -> (Principal, Nat);
@@ -404,30 +379,34 @@ module {
         #checkOwnerOfUserPosition : () -> (Principal, Nat);
         #claim : () -> ClaimArgs;
         #decreaseLiquidity : () -> DecreaseLiquidityArgs;
+        #deleteFailedTransaction : () -> (Nat, Bool);
         #deposit : () -> DepositArgs;
+        #depositAllAndMint : () -> DepositAndMintArgs;
         #depositAndSwap : () -> DepositAndSwapArgs;
         #depositFrom : () -> DepositArgs;
         #depositFromAndSwap : () -> DepositAndSwapArgs;
+        #getAdmins : () -> ();
         #getAvailabilityState : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
-        #getInitArgs : () -> ();
         #getFeeGrowthGlobal : () -> ();
+        #getInitArgs : () -> ();
+        #getJobs : () -> ();
         #getLimitOrderAvailabilityState : () -> ();
-        #getLimitOrders : () -> ();
         #getLimitOrderStack : () -> ();
+        #getLimitOrders : () -> ();
+        #getMistransferBalance : () -> Token;
         #getPosition : () -> GetPositionArgs;
         #getPositions : () -> (Nat, Nat);
         #getSortedUserLimitOrders : () -> Principal;
         #getSwapRecordState : () -> ();
-        #getSwapTransactions : () -> ();
         #getTickBitmaps : () -> ();
         #getTickInfos : () -> (Nat, Nat);
         #getTicks : () -> (Nat, Nat);
         #getTokenAmountState : () -> ();
         #getTokenBalance : () -> ();
         #getTokenMeta : () -> ();
-        #getTransferLogs : () -> ();
+        #getTransactions : () -> ();
         #getUserByPositionId : () -> Nat;
         #getUserLimitOrders : () -> Principal;
         #getUserPosition : () -> Nat;
@@ -438,42 +417,32 @@ module {
         #getUserPositionsByPrincipal : () -> Principal;
         #getUserUnusedBalance : () -> Principal;
         #getVersion : () -> ();
-        // #getWithdrawErrorLog : () -> ();
+        #icrc10_supported_standards : () -> ();
+        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
+        #icrc28_trusted_origins : () -> ();
         #increaseLiquidity : () -> IncreaseLiquidityArgs;
+        #init : () -> (Nat, Int, Nat);
         #metadata : () -> ();
         #mint : () -> MintArgs;
         #quote : () -> SwapArgs;
         #quoteForAll : () -> SwapArgs;
         #refreshIncome : () -> Nat;
         #removeLimitOrder : () -> Nat;
+        #restartJobs : () -> [Text];
+        #setAdmins : () -> [Principal];
+        #setAvailable : () -> Bool;
+        #setIcrc28TrustedOrigins : () -> [Text];
+        #setLimitOrderAvailable : () -> Bool;
+        #setWhiteList : () -> [Principal];
+        #stopJobs : () -> [Text];
         #sumTick : () -> ();
         #swap : () -> SwapArgs;
         #transferPosition : () -> (Principal, Principal, Nat);
-        #withdraw : () -> WithdrawArgs;
-        #withdrawToSubaccount : () -> WithdrawToSubaccountArgs;
-        #getAdmins : () -> ();
-        #getMistransferBalance : () -> Token;
-        #withdrawMistransferBalance : () -> Token;
-        #stopJobs : () -> [Text];
-        #restartJobs : () -> [Text];
-        #getJobs : () -> ();
-        #activeJobs : () -> ();
-        // --------  Admin permission required.  ---------
-        #depositAllAndMint : () -> DepositAndMintArgs;
-        #setAvailable : () -> Bool;
-        #setLimitOrderAvailable : () -> Bool;
-        #setWhiteList : () -> [Principal];
-        #removeErrorTransferLog : () -> (Nat, Bool);
-        // --------  Controller permission required.  ---------
-        #init : () -> (Nat, Int, Nat);
-        #setAdmins : () -> [Principal];
         #upgradeTokenStandard : () -> Principal;
-        #resetTokenAmountState : () -> (Nat, Nat, Nat, Nat);
-         // ------ icrc21
-        #icrc10_supported_standards : () -> ();
-        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
-        #icrc28_trusted_origins : () -> ();
-        #setIcrc28TrustedOrigins : () -> [Text];
+        #withdraw : () -> WithdrawArgs;
+        #withdrawMistransferBalance : () -> Token;
+        #withdrawToSubaccount : () -> WithdrawToSubaccountArgs
+      
     };
     public type SwapFactoryMsg = {
         #addPasscode : () -> (Principal, Passcode);

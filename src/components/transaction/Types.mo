@@ -1,10 +1,8 @@
 import Time "mo:base/Time";
 import Principal "mo:base/Principal";
-import Result "mo:base/Result";
 import Text "mo:base/Text";
 import Blob "mo:base/Blob";
 import Nat "mo:base/Nat";
-
 
 module {
     public type Amount = Nat;
@@ -20,12 +18,105 @@ module {
         canisterId: Principal;
         action: Action;
     };
+
     public type Action = {
         #Deposit: DepositInfo;
-        #Swap: SwapInfo;
         #Withdraw: WithdrawInfo;
+        #Refund: RefundInfo;
         #AddLiquidity: AddLiquidityInfo;
+        #DecreaseLiquidity: DecreaseLiquidityInfo;
+        #Claim: ClaimInfo;
+        #Swap: SwapInfo;
+        #OneStepSwap: OneStepSwapInfo;
+        #TransferPosition: TransferPositionInfo;
+        #AddLimitOrder: AddLimitOrderInfo;
+        #RemoveLimitOrder: RemoveLimitOrderInfo;
+        #ExecuteLimitOrder: ExecuteLimitOrderInfo;
     };
+
+    public type DepositStatus = {
+        #Created;
+        #TransferCompleted;
+        #Completed;
+        #Failed;
+    };
+
+    public type WithdrawStatus = {
+        #Created;
+        #CreditCompleted;
+        #Completed;
+        #Failed;
+    };
+
+    public type RefundStatus = {
+        #Created;
+        #CreditCompleted;
+        #Completed;
+        #Failed;
+    };
+
+    public type AddLiquidityStatus = {
+        #Created;
+        #Completed;
+        #Failed;
+    };
+
+    public type DecreaseLiquidityStatus = {
+        #Created;
+        #Completed;
+        #Failed;
+    };
+
+    public type ClaimStatus = {
+        #Created;
+        #Completed;
+        #Failed;
+    };
+
+    public type SwapStatus = {
+        #Created;
+        #Completed;
+        #Failed;
+    };
+
+    public type OneStepSwapStatus = {
+        #Created;
+        #DepositTransferCompleted;
+        #DepositCreditCompleted;
+        #PreSwapCompleted;
+        #SwapCompleted;
+        // #WithdrawTransferCompleted;
+        #WithdrawCreditCompleted;
+        #Completed;
+        #Failed;
+    };
+
+    public type TransferPositionStatus = {
+        #Created;
+        #Completed;
+        #Failed;
+    };
+
+    public type AddLimitOrderStatus = {
+        #Created;
+        #Completed;
+        #Failed;
+    };
+
+    public type RemoveLimitOrderStatus = {
+        #Created;
+        #RemoveLimitOrderCompleted;
+        #Completed;
+        #Failed;
+    };
+
+    public type ExecuteLimitOrderStatus = {
+        #Created;
+        #ExecuteLimitOrderCompleted;
+        #Completed;
+        #Failed;
+    };
+
     public type Transfer = {
         token: Principal;
         from: Account;
@@ -33,84 +124,101 @@ module {
         amount: Nat;
         fee: Nat;
         memo: ?Blob;
-        status: TransferStatus;
+        index: Nat;
     };
-    public type TransferStatus = {
-        #Created;
-        #Processing;
-        #Completed: Nat;
-        #Failed: Error;
+
+    public type DepositInfo = {
+        transfer: Transfer;
+        status: DepositStatus;
+        err: ?Error;
     };
+
+    public type WithdrawInfo = {
+        transfer: Transfer;
+        status: WithdrawStatus;
+        err: ?Error;
+    };
+
+    public type RefundInfo = {
+        failedIndex: Nat;
+        transfer: Transfer;
+        status: RefundStatus;
+        err: ?Error;
+    };
+
+    public type AddLiquidityInfo = {
+        positionId: Nat;
+        token0: Principal;
+        token1: Principal;
+        amount0: Nat;
+        amount1: Nat;
+        status: AddLiquidityStatus;
+        liquidity: Nat;
+        err: ?Error;
+    };
+
+    public type DecreaseLiquidityInfo = {
+        positionId: Nat;
+        token0: Principal;
+        token1: Principal;
+        amount0: Nat;
+        amount1: Nat;
+        status: DecreaseLiquidityStatus;
+        liquidity: Nat;
+        err: ?Error;
+    };
+
+    public type ClaimInfo = {
+        positionId: Nat;
+        token0: Principal;
+        token1: Principal;
+        amount0: Nat;
+        amount1: Nat;
+        status: ClaimStatus;
+        err: ?Error;
+    };
+
     public type SwapInfo = {
         tokenIn: Principal;
         tokenOut: Principal;
         amountIn: Amount;
         amountOut: Nat;
-        deposit: ?DepositInfo;
-        withdraw: ?WithdrawInfo;
-        refundToken0: ?RefundInfo;
-        refundToken1: ?RefundInfo;
         status: SwapStatus;
+        err: ?Error;
     };
-    public type SwapStatus = {
-        #Created;
-        #DepositProcessing;
-        #DepositCompleted;
-        #SwapStarted;
-        #SwapSuccess;
-        #WithdrawProcessing;
-        #Completed;
-        #Failed: Error;
+
+    public type OneStepSwapInfo = {
+        deposit: DepositInfo;
+        withdraw: WithdrawInfo;
+        swap: SwapInfo;
+        status: OneStepSwapStatus;
+        err: ?Error;
     };
-    public type DepositInfo = {
-        transfer: Transfer;
-        status: DepositStatus;
-    };
-    public type WithdrawInfo = {
-        transfer: Transfer;
-        status: WithdrawStatus;
-    };
-    public type DepositStatus = {
-        #Processing;
-        #Success;
-        #Completed;
-        #Failed: Error; 
-    };
-    public type WithdrawStatus = {
-        #Created;
-        #Processing;
-        #Completed;
-        #Failed: Error;
-    };
-    public type RefundInfo = {
-        token: Principal;
-        transfer: Transfer;
-        status: RefundStatus;
-    };
-    public type AddLiquidityInfo = {
-        token0: Principal;
-        token1: Principal;
-        amount0: Nat;
-        amount1: Nat;
-        deposit0: ?DepositInfo;
-        deposit1: ?DepositInfo;
+
+    public type TransferPositionInfo = {
         positionId: Nat;
-        status: AddLiquidityStatus;
+        from: Account;
+        to: Account;
+        status: TransferPositionStatus;
+        err: ?Error;
     };
-    public type AddLiquidityStatus = {
-        #Created;
-        #Token0DepositProcessing;
-        #Token0DepositCompleted;
-        #Token1DepositProcessing;
-        #Token1DepositCompleted;
-        #LiquidityMinting;
-        #Completed;
-        #Failed: Error;
+
+    public type AddLimitOrderInfo = {
+        positionId: Nat;
+        status: AddLimitOrderStatus;
+        err: ?Error;
     };
-    public type RefundStatus = {
-        #Created;
-        #Processing;
-        #Completed;
-        #Failed: Error;
+
+    public type RemoveLimitOrderInfo = {
+        positionId: Nat;
+        status: RemoveLimitOrderStatus;
+        err: ?Error;
     };
+
+    public type ExecuteLimitOrderInfo = {
+        positionId: Nat;
+        status: ExecuteLimitOrderStatus;
+        err: ?Error;
+    };
+
 }
