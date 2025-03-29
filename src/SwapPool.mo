@@ -216,7 +216,7 @@ shared (initMsg) actor class SwapPool(
                 };
 
                 let txIndex = _txState.startExecuteLimitOrder(value.owner, _getCanisterId(), value.userPositionId);
-                let result = await* _decreaseLiquidity(
+                let result = _decreaseLiquidity(
                     value.owner, 
                     { isLimitOrder = true; token0InAmount = value.token0InAmount; token1InAmount = value.token1InAmount; tickLimit = key.tickLimit; }, 
                     { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); }
@@ -234,6 +234,7 @@ shared (initMsg) actor class SwapPool(
                             let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken1Principal(), from, to, res.amount1, _token1Fee);
                             ignore await _withdraw(txIndex, _token1, _token1Act, _getCanisterId(), from, to, res.amount1, _fee, ?PoolUtils.natToBlob(txIndex));
                         };
+                        ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
                     };
                     case (#err(err)) { ignore _txState.executeLimitOrderFailed(txIndex, debug_show(err)); };
                 };
@@ -421,7 +422,7 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    private func _decreaseLiquidity(owner : Principal, loArgs : Types.DecreaseLimitOrderArgs, args : Types.DecreaseLiquidityArgs) : async* Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {        
+    private func _decreaseLiquidity(owner : Principal, loArgs : Types.DecreaseLimitOrderArgs, args : Types.DecreaseLiquidityArgs) : Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {        
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         var liquidityDelta = TextUtils.toNat(args.liquidity);
         if (Nat.equal(liquidityDelta, 0)) { return #err(#InternalError("Illegal liquidity delta")); };
@@ -443,7 +444,7 @@ shared (initMsg) actor class SwapPool(
         _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
             ignore _tokenHolderService.deposit2(owner, _token0, collectResult.amount0, _token1, collectResult.amount1);
-            _jobService.onActivity<system>();
+            // _jobService.onActivity<system>();
         };
         return #ok({
             amount0 = collectResult.amount0;
@@ -552,12 +553,28 @@ shared (initMsg) actor class SwapPool(
         func __depositFrom(): async Result.Result<Nat, Types.Error> {
             switch (await tokenAct.transferFrom({from = from; to = to; amount = amount; fee = ?fee; memo = memo; created_at_time = null })) {
                 case (#Ok(index)) {
-                    _txState.depositTransferred(txIndex, index);
-                    ignore _tokenHolderService.deposit(caller, token, amount);
-                    _txState.depositCredited(txIndex);
                     switch (_txState.getTransaction(txIndex)) {
-                        case (?tx) { switch (tx.action) { case (#Deposit(_)) { _pushSwapInfoCache(txIndex); }; case (_) {}; }; };
-                        case (_) {};
+                        case (?tx) {
+                            switch (tx.action) {
+                                case (#Deposit(_)) {
+                                    _txState.depositTransferred(txIndex, index);
+                                    ignore _tokenHolderService.deposit(caller, token, amount);
+                                    _txState.depositCredited(txIndex);
+                                    _pushSwapInfoCache(txIndex);
+                                };
+                                case (#OneStepSwap(_)) {
+                                    _txState.oneStepSwapDepositTransferred(txIndex, index);
+                                    ignore _tokenHolderService.deposit(caller, token, amount);
+                                    _txState.oneStepSwapDepositCredited(txIndex);
+                                };
+                                case (_) {
+                                    return #err(#InternalError("Unsupported transaction type"));
+                                };
+                            };
+                        };
+                        case (_) {
+                            return #err(#InternalError("Transaction not found"));
+                        };
                     };
                     return #ok(amount);
                 };
@@ -597,12 +614,24 @@ shared (initMsg) actor class SwapPool(
         func __deposit(): async Result.Result<Nat, Types.Error> {
             switch (await tokenAct.transfer({from = from; from_subaccount = from.subaccount; to = to; amount = amount; fee = ?fee; memo = memo; created_at_time = null })) {
                 case (#Ok(index)) {
-                    _txState.depositTransferred(txIndex, index);
-                    ignore _tokenHolderService.deposit(caller, token, amount);
-                    _txState.depositCredited(txIndex);
                     switch (_txState.getTransaction(txIndex)) {
-                        case (?tx) { switch (tx.action) { case (#Deposit(_)) { _pushSwapInfoCache(txIndex); }; case (_) {}; }; };
-                        case (_) {};
+                        case (?tx) {
+                            switch (tx.action) {
+                                case (#Deposit(_)) {
+                                    _txState.depositTransferred(txIndex, index);
+                                    ignore _tokenHolderService.deposit(caller, token, amount);
+                                    _txState.depositCredited(txIndex);
+                                    _pushSwapInfoCache(txIndex);
+                                };
+                                case (#OneStepSwap(_)) {
+                                    _txState.oneStepSwapDepositTransferred(txIndex, index);
+                                    ignore _tokenHolderService.deposit(caller, token, amount);
+                                    _txState.oneStepSwapDepositCredited(txIndex);
+                                };
+                                case (_) { return #err(#InternalError("Unsupported transaction type")); };
+                            };
+                        };
+                        case (_) { return #err(#InternalError("Transaction not found")); };
                     };
                     return #ok(amount);
                 };
@@ -1311,7 +1340,8 @@ shared (initMsg) actor class SwapPool(
         _nextPositionId := _nextPositionId + 1;
         
         try {
-            let txIndex = _txState.startAddLiquidity(caller, _getCanisterId(), _getToken0Principal(), _getToken1Principal(), amount0Desired.val(), amount1Desired.val());
+            let txIndex = _txState.startAddLiquidity(caller, _getCanisterId(), _getToken0Principal(), _getToken1Principal(), amount0Desired.val(), amount1Desired.val(), positionId);
+            
             var addResult = switch (_addLiquidity(args.tickLower, args.tickUpper, amount0Desired, amount1Desired)) {
                 case (#ok(result)) { result };
                 case (#err(code)) {
@@ -1337,7 +1367,7 @@ shared (initMsg) actor class SwapPool(
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
             ignore _tokenHolderService.withdraw2(args.positionOwner, _token0, addResult.amount0, _token1, addResult.amount1);
             
-            _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1));
+            _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta));
         } catch (e) {
             _rollback("DepositAllAndMint.mint failed: " # Error.message(e));
         };
@@ -1363,7 +1393,7 @@ shared (initMsg) actor class SwapPool(
         let amountIn: Nat = TextUtils.toNat(args.amountIn);
         let canisterId = _getCanisterId();
 
-        let txIndex = _txState.startOneStepSwap(caller, canisterId, tokenInPrincipal, tokenOutPrincipal, amountIn);
+        let txIndex = _txState.startOneStepSwap(caller, canisterId, tokenInPrincipal, tokenOutPrincipal, amountIn, TextUtils.toNat(args.amountOutMinimum), feeIn, feeOut, caller, null);
         let memo = ?PoolUtils.natToBlob(txIndex);
 
         switch(await _depositFrom(txIndex, tokenIn, tokenInAct, caller, { owner = caller; subaccount = null }, { owner = canisterId; subaccount = null }, amountIn, feeIn, memo)) {
@@ -1382,15 +1412,15 @@ shared (initMsg) actor class SwapPool(
                     };
                 } else { true; };
                 if(not checkPassed) {
-                    ignore _txState.oneStepSwapFailed(txIndex, checkFailedMsg);
+                    _txState.oneStepSwapFailed(txIndex, checkFailedMsg);
                     ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
                     return #err(#InternalError("SlippageCheckFailed: " # checkFailedMsg));
                 };
-                ignore _txState.oneStepSwapPreSwapCompleted(txIndex);
+                _txState.oneStepSwapPreSwapCompleted(txIndex);
                 
                 switch(await _swap(caller, swapArgs)) {
                     case (#ok(amount)) {
-                        ignore _txState.oneStepSwapSwapCompleted(txIndex);
+                        _txState.oneStepSwapSwapCompleted(txIndex, amount);
 
                         switch(await _withdraw(txIndex, tokenOut, tokenOutAct, caller,{ owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amount, feeOut, memo)) {
                             case (#ok(amount)) { return #ok(amount); };
@@ -1398,7 +1428,7 @@ shared (initMsg) actor class SwapPool(
                         };
                     };
                     case (#err(e)) {
-                        ignore _txState.oneStepSwapFailed(txIndex, "SwapFailed:" # debug_show(e));
+                        _txState.oneStepSwapFailed(txIndex, "SwapFailed:" # debug_show(e));
                         ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
                         return #err(e);
                     };
@@ -1426,7 +1456,7 @@ shared (initMsg) actor class SwapPool(
         let amountIn: Nat = TextUtils.toNat(args.amountIn);
         let canisterId = _getCanisterId();
 
-        let txIndex = _txState.startOneStepSwap(caller, canisterId, tokenInPrincipal, tokenOutPrincipal, amountIn);
+        let txIndex = _txState.startOneStepSwap(caller, canisterId, tokenInPrincipal, tokenOutPrincipal, amountIn, TextUtils.toNat(args.amountOutMinimum), feeIn, feeOut, caller, ?AccountUtils.principalToBlob(caller));
         
         let depositFrom = { owner = canisterId; subaccount = subaccount };
         let depositTo = { owner = canisterId; subaccount = null };
@@ -1449,23 +1479,23 @@ shared (initMsg) actor class SwapPool(
                         };
                     } else { true; };
                     if(not checkPassed) {
-                        ignore _txState.oneStepSwapFailed(txIndex, checkFailedMsg);
+                        _txState.oneStepSwapFailed(txIndex, checkFailedMsg);
                         ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
                         return #err(#InternalError("SlippageCheckFailed: " # checkFailedMsg));
                     };
                 };
-                ignore _txState.oneStepSwapPreSwapCompleted(txIndex);
+                _txState.oneStepSwapPreSwapCompleted(txIndex);
 
                 switch(await _swap(caller, swapArgs)) {
                     case (#ok(amount)) {
-                        ignore _txState.oneStepSwapSwapCompleted(txIndex);
+                        _txState.oneStepSwapSwapCompleted(txIndex, amount);
                         switch(await _withdraw(txIndex, tokenOut, tokenOutAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amount, feeOut, memo)) {
                             case (#ok(amount)) { return #ok(amount); };
                             case (#err(e)) { return #err(e); };
                         };
                     };
                     case (#err(e)) {
-                        ignore _txState.oneStepSwapFailed(txIndex, "SwapFailed:" # debug_show(e));
+                        _txState.oneStepSwapFailed(txIndex, "SwapFailed:" # debug_show(e));
                         ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
                         return #err(e);
                     };
@@ -1489,14 +1519,14 @@ shared (initMsg) actor class SwapPool(
                 # ". amount0Balance=" # debug_show (accountBalance.balance0) # ", amount1Balance=" # debug_show (accountBalance.balance1)
             ));
         };
-
-        let (token0Fee, token1Fee) = (_token0Fee, _token1Fee);
-
-        let txIndex = _txState.startAddLiquidity(msg.caller, _getCanisterId(), _getToken0Principal(), _getToken1Principal(), amount0Desired.val(), amount1Desired.val());
         
         try {
             let positionId = _nextPositionId;
             _nextPositionId := _nextPositionId + 1;
+            let (token0Fee, token1Fee) = (_token0Fee, _token1Fee);
+
+            let txIndex = _txState.startAddLiquidity(msg.caller, _getCanisterId(), _getToken0Principal(), _getToken1Principal(), amount0Desired.val(), amount1Desired.val(), positionId);
+            
             var addResult = switch (_addLiquidity(args.tickLower, args.tickUpper, amount0Desired, amount1Desired)) {
                 case (#ok(result)) { result; };
                 case (#err(code)) { 
@@ -1532,7 +1562,7 @@ shared (initMsg) actor class SwapPool(
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
 
-            _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1));
+            _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta));
 
             // Check if there are unused tokens that need to be refunded
             if (amount0Desired.val() > addResult.amount0) {
@@ -1640,11 +1670,10 @@ shared (initMsg) actor class SwapPool(
             ));
         };
 
-        let (token0Fee, token1Fee) = (_token0Fee, _token1Fee);
-
-        let txIndex = _txState.startAddLiquidity(msg.caller, _getCanisterId(), _getToken0Principal(), _getToken1Principal(), amount0Desired.val(), amount1Desired.val());
-        
         try {
+            let txIndex = _txState.startAddLiquidity(msg.caller, _getCanisterId(), _getToken0Principal(), _getToken1Principal(), amount0Desired.val(), amount1Desired.val(), args.positionId);
+
+            let (token0Fee, token1Fee) = (_token0Fee, _token1Fee);
             var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
             var addResult = switch (_addLiquidity(userPositionInfo.tickLower, userPositionInfo.tickUpper, amount0Desired, amount1Desired)) {
                 case (#ok(result)) { result };
@@ -1684,7 +1713,7 @@ shared (initMsg) actor class SwapPool(
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
 
-            _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1));
+            _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta));
 
             // Check if there are unused tokens that need to be refunded
             if (amount0Desired.val() > addResult.amount0) {
@@ -1710,11 +1739,12 @@ shared (initMsg) actor class SwapPool(
 
         let txIndex = _txState.startDecreaseLiquidity(msg.caller, _getCanisterId(), args.positionId, token0, token1, TextUtils.toNat(args.liquidity));
 
-        let result = await* _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
+        let result = _decreaseLiquidity(msg.caller, { isLimitOrder = false; token0InAmount = 0; token1InAmount = 0; tickLimit = 0; }, args);
         switch (result) {
             case (#ok(res)) { _pushSwapInfoCache(_txState.decreaseLiquidityCompleted(txIndex, res.amount0, res.amount1)); };
             case (#err(err)) { ignore _txState.decreaseLiquidityFailed(txIndex, debug_show(err)); };
         };
+        ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
         return result;
     };
 

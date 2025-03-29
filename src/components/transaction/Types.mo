@@ -188,12 +188,9 @@ module {
     };
 
     public type OneStepSwapInfo = {
-        tokenIn: Principal;
-        tokenOut: Principal;
-        amountIn: Amount;
-        amountOut: Nat;
-        deposit: ?DepositInfo;
-        withdraw: ?WithdrawInfo;
+        deposit: DepositInfo;
+        withdraw: WithdrawInfo;
+        swap: SwapInfo;
         status: OneStepSwapStatus;
         err: ?Error;
     };

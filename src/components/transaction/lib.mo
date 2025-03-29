@@ -323,10 +323,11 @@ module {
             token0: Principal, 
             token1: Principal, 
             amount0: Nat, 
-            amount1: Nat
+            amount1: Nat,
+            positionId: Nat
         ): Nat {
             let txId = getNextTxId();
-            let info = AddLiquidity.start(token0, token1, amount0, amount1);
+            let info = AddLiquidity.start(token0, token1, amount0, amount1, positionId);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
@@ -337,7 +338,7 @@ module {
             return txId;
         };
 
-        public func addLiquidityCompleted(txId: Nat, amount0: Nat, amount1: Nat): Nat {
+        public func addLiquidityCompleted(txId: Nat, amount0: Nat, amount1: Nat, liquidity: Nat): Nat {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -345,7 +346,7 @@ module {
                         case (#AddLiquidity(info)) {
                             if (info.status == #Created) {
                                 let newInfo = AddLiquidity.process(info);
-                                let trx = _copy(tx, #AddLiquidity({ newInfo with amount0 = amount0; amount1 = amount1; }));
+                                let trx = _copy(tx, #AddLiquidity({ newInfo with amount0 = amount0; amount1 = amount1; liquidity = liquidity; }));
                                 transactions.put(txId, trx);
                             };
                         };
@@ -724,9 +725,20 @@ module {
         };
 
         // --------------------------- one step swap ------------------------------------
-        public func startOneStepSwap(owner: Principal, canisterId: Principal, tokenIn: Principal, tokenOut: Principal, amountIn: Nat): Nat {
+        public func startOneStepSwap(
+            owner: Principal, 
+            canisterId: Principal, 
+            tokenIn: Principal, 
+            tokenOut: Principal, 
+            amountIn: Nat,
+            amountOut: Nat,
+            amountInFee: Nat, 
+            amountOutFee: Nat,
+            caller: Principal,
+            subaccount: ?Blob
+        ): Nat {
             let txId = getNextTxId();
-            let info = OneStepSwap.start(tokenIn, tokenOut, amountIn);
+            let info = OneStepSwap.start(tokenIn, tokenOut, amountIn, amountOut, amountInFee, amountOutFee, canisterId, caller, subaccount);
             transactions.put(txId, {
                 id = txId;  
                 timestamp = Time.now();
@@ -737,7 +749,43 @@ module {
             return txId;
         };
 
-        public func oneStepSwapPreSwapCompleted(txId: Nat): Nat {
+        public func oneStepSwapDepositTransferred(txId: Nat, txIndex: Nat): () {
+            switch (transactions.get(txId)) {
+                case null { assert(false) };
+                case (?tx) {
+                    switch(tx.action) { 
+                        case (#OneStepSwap(info)) {
+                            if (info.status == #Created) {
+                                let newInfo = OneStepSwap.process(info);
+                                let trx = _copy(tx, #OneStepSwap({ newInfo with deposit = { info.deposit with transfer = { info.deposit.transfer with index = txIndex } } }));
+                                transactions.put(txId, trx);
+                            };  
+                        };
+                        case(_) { assert(false) };
+                    };
+                };
+            };
+        };
+
+        public func oneStepSwapDepositCredited(txId: Nat): () {
+            switch (transactions.get(txId)) {
+                case null { assert(false) };
+                case (?tx) {
+                    switch(tx.action) { 
+                        case (#OneStepSwap(info)) {
+                            if (info.status == #DepositTransferCompleted) {
+                                let newInfo = OneStepSwap.process(info);
+                                let trx = _copy(tx, #OneStepSwap(newInfo));
+                                transactions.put(txId, trx);
+                            };  
+                        };
+                        case(_) { assert(false) };
+                    };
+                };
+            };
+        };
+
+        public func oneStepSwapPreSwapCompleted(txId: Nat): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -753,16 +801,33 @@ module {
                     };
                 };
             };
-            txId
         };
 
-        public func oneStepSwapSwapCompleted(txId: Nat): Nat {
+        public func oneStepSwapSwapCompleted(txId: Nat, amountOut: Nat): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
                     switch(tx.action) { 
                         case (#OneStepSwap(info)) {
                             if (info.status == #PreSwapCompleted) {
+                                let newInfo = OneStepSwap.process(info);
+                                let trx = _copy(tx, #OneStepSwap({ newInfo with swap = { info.swap with amountOut = amountOut; status = #Completed } }));
+                                transactions.put(txId, trx);
+                            };  
+                        };
+                        case(_) { assert(false) };
+                    };
+                };
+            };
+        };
+
+        public func oneStepSwapWithdrawCredited(txId: Nat): () {
+            switch (transactions.get(txId)) {
+                case null { assert(false) };
+                case (?tx) {
+                    switch(tx.action) { 
+                        case (#OneStepSwap(info)) {
+                            if (info.status == #SwapCompleted) {
                                 let newInfo = OneStepSwap.process(info);
                                 let trx = _copy(tx, #OneStepSwap(newInfo));
                                 transactions.put(txId, trx);
@@ -772,29 +837,32 @@ module {
                     };
                 };
             };
-            txId
-        };  
+        };
 
-        public func oneStepSwapCompleted(txId: Nat, amountOut: Nat): Nat {
+        public func oneStepSwapWithdrawCompleted(txId: Nat, txIndex: ?Nat): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
-                    switch(tx.action) {
+                    switch(tx.action) { 
                         case (#OneStepSwap(info)) {
-                            if (info.status == #Created) {
+                            if (info.status == #WithdrawCreditCompleted) {
                                 let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap({ newInfo with amountOut = amountOut }));
+                                let trx = _copy(tx, #OneStepSwap(
+                                    switch(txIndex) {
+                                        case null { newInfo };
+                                        case (?index) { { newInfo with withdraw = { info.withdraw with transfer = { info.withdraw.transfer with index = index } } } };
+                                    }
+                                ));
                                 transactions.put(txId, trx);
-                            };
+                            };  
                         };
                         case(_) { assert(false) };
                     };
                 };
             };
-            txId
         };
 
-        public func oneStepSwapFailed(txId: Nat, err: Types.Error): Nat {
+        public func oneStepSwapFailed(txId: Nat, err: Types.Error): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -808,7 +876,6 @@ module {
                     };
                 };
             };
-            txId
         };
 
     };

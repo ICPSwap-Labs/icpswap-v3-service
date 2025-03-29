@@ -8,14 +8,15 @@ module {
         token0: Principal, 
         token1: Principal, 
         amount0: Nat, 
-        amount1: Nat
+        amount1: Nat,
+        positionId: Nat
     ): Types.AddLiquidityInfo {
         return {
             token0 = token0;
             token1 = token1;
             amount0 = amount0;
             amount1 = amount1;
-            positionId = 0;
+            positionId = positionId;
             liquidity = 0;
             status = #Created;
             err = null;
