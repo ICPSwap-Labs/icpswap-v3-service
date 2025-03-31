@@ -736,7 +736,6 @@ shared (initMsg) actor class SwapPool(
                 try {
                     switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amount; fee = ?fee; memo = memo; created_at_time = null})) {
                         case (#Ok(index)) {
-                            ignore _tokenHolderService.withdraw(caller, token, amount);
                             let (refundTxIndex, failedTxIndex) = _txState.refundCompleted(txIndex, index);
                             _pushSwapInfoCache(refundTxIndex);
                             _pushSwapInfoCache(failedTxIndex);
@@ -751,18 +750,17 @@ shared (initMsg) actor class SwapPool(
             });
         };
 
-        if (amount <= fee) {
-            return #err(#InternalError("Amount less than fee"));
-        };
+        if (amount <= fee) { return #err(#InternalError("Amount less than fee")); };
         let txIndex = _txState.startRefund(caller, _getCanisterId(), Principal.fromText(token.address), from, to, amount, fee, failedIndex);
 
         if (_tokenHolderService.withdraw(caller, token, amount)) {
+            _txState.refundCredited(txIndex);
             switch (_txState.getTransaction(txIndex)) {
                 case (?tx) {
                     switch (tx.action) {
                         case (#Refund(info)) {
                             switch (info.status) {
-                                case (#Created) {  
+                                case (#CreditCompleted) {  
                                     __refund<system>(); 
                                     return #ok(txIndex);
                                 };
@@ -1909,7 +1907,7 @@ shared (initMsg) actor class SwapPool(
                             ignore _refund<system>(token, tokenAct, msg.caller, info.transfer.from, info.transfer.to, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
                         };
                     };
-                    case (_) { };  
+                    case (_) { return #err(#InternalError("Unsupported action")); };  
                 };
                 _txState.delete(txId);
                 return #ok(true);
@@ -2476,7 +2474,6 @@ shared (initMsg) actor class SwapPool(
             case (#init _)                   { (not _inited) and Prim.isController(caller) };
             case (#setAdmins _)              { Prim.isController(caller) };
             case (#upgradeTokenStandard _)   { Prim.isController(caller) };
-            case (#resetTokenAmountState _)  { Prim.isController(caller) };
             // Admin
             case (#depositAllAndMint _)      { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setAvailable _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
@@ -2487,7 +2484,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.5.7";
+    private var _version : Text = "3.6.0";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
@@ -2585,8 +2582,9 @@ shared (initMsg) actor class SwapPool(
     
     // clear failed logs older than 60 days every 12 hours.
     private func _clearExpiredFailedTransactionJob(): async () {
-        for((index, transaction) in _txState.getTransactions().vals()){
-            if (Int.abs(Time.now() - transaction.timestamp) > 60 * 60 * 24 * 60) {
+        for((index, transaction) in _txState.getTransactions().vals()) {
+            // 60 days in nanoseconds = 60 * 24 * 60 * 60 * 1_000_000_000
+            if (Int.abs(Time.now() - transaction.timestamp) > 60 * 24 * 60 * 60 * 1000000000) {
                 _txState.delete(index);
             };
         };
