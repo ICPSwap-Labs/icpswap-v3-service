@@ -241,7 +241,7 @@ module {
             return txId;
         };
 
-        public func refundCredited(txId: Nat): Nat {
+        public func refundCredited(txId: Nat): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -257,7 +257,6 @@ module {
                     };
                 };
             };
-            txId
         };
 
         public func refundCompleted(txId: Nat, txIndex: Nat): (Nat, Nat) {
@@ -281,7 +280,11 @@ module {
                                                 (txId, newInfo.failedIndex)
                                             };
                                             case (#OneStepSwap(failedInfo)) {
-                                                let trx = _copy(failedTx, #OneStepSwap({ failedInfo with status = #Completed; }));
+                                                let trx = _copy(failedTx, #OneStepSwap({ 
+                                                    failedInfo with status = #Completed; 
+                                                    withdraw = { failedInfo.withdraw with status = #Failed; }; 
+                                                    swap = { failedInfo.swap with status = #Failed; }; 
+                                                }));
                                                 transactions.put(newInfo.failedIndex, trx);
                                                 (txId, newInfo.failedIndex)
                                             };
