@@ -387,6 +387,7 @@ module {
         #depositFromAndSwap : () -> DepositAndSwapArgs;
         #getAdmins : () -> ();
         #getAvailabilityState : () -> ();
+        #getCachedTokenFee : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
         #getFeeGrowthGlobal : () -> ();
@@ -405,7 +406,6 @@ module {
         #getTicks : () -> (Nat, Nat);
         #getTokenAmountState : () -> ();
         #getTokenBalance : () -> ();
-        #getTokenMeta : () -> ();
         #getTransactions : () -> ();
         #getUserByPositionId : () -> Nat;
         #getUserLimitOrders : () -> Principal;
@@ -441,8 +441,7 @@ module {
         #upgradeTokenStandard : () -> Principal;
         #withdraw : () -> WithdrawArgs;
         #withdrawMistransferBalance : () -> Token;
-        #withdrawToSubaccount : () -> WithdrawToSubaccountArgs
-      
+        #withdrawToSubaccount : () -> WithdrawToSubaccountArgs;  
     };
     public type SwapFactoryMsg = {
         #addPasscode : () -> (Principal, Passcode);
