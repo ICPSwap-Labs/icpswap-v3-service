@@ -71,6 +71,7 @@ module SwapRecord {
                         Debug.print("==> push success..");
                         if (_retryCount > 0) {
                             _retryCount := 0;
+                            _errors := _initError([]);
                         };
                     } catch (e) {
                         Debug.print("==> push fail. " # Error.message(e) # ", retryCount = " # Nat.toText(_retryCount));

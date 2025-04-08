@@ -52,9 +52,6 @@ import Tx "./components/transaction";
 
 import Types "./Types";
 import ICRCTypes "./ICRCTypes";
-import OneStepSwap "components/transaction/OneStepSwap";
-import Withdraw "components/transaction/Withdraw";
-import Refund "components/transaction/Refund";
 
 
 shared (initMsg) actor class SwapPool(
@@ -77,7 +74,7 @@ shared (initMsg) actor class SwapPool(
 
         _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) { 
             case (#ok(r)) { r }; 
-            case (#err(code)) { throw Error.reject("init pool failed: " # code); }; 
+            case (#err(code)) { throw Error.reject("Pool initialization failed: " # code); }; 
         };
         _fee := fee;
         _tickSpacing := tickSpacing;
@@ -332,7 +329,11 @@ shared (initMsg) actor class SwapPool(
     };
 
     private func _assertAccessible(caller : Principal) {
-        assert(_isAvailable(caller) and (not Principal.isAnonymous(caller)));
+        assert(_isAvailable(caller));
+    };
+
+    private func _assertNotAnonymous(caller : Principal) {
+        assert(not Principal.isAnonymous(caller));
     };
     
     private func _checkAmount(amountDesired : Nat, operator : Principal, token : Types.Token) : Bool {
@@ -612,20 +613,21 @@ shared (initMsg) actor class SwapPool(
 
     private func _deposit(txIndex: Nat, token: Types.Token, tokenAct: TokenAdapterTypes.TokenAdapter, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : async Result.Result<Nat, Types.Error> {
         func __deposit(): async Result.Result<Nat, Types.Error> {
-            switch (await tokenAct.transfer({from = from; from_subaccount = from.subaccount; to = to; amount = amount; fee = ?fee; memo = memo; created_at_time = null })) {
+            let amountDeposit = Nat.sub(amount, fee);
+            switch (await tokenAct.transfer({from = from; from_subaccount = from.subaccount; to = to; amount = amountDeposit; fee = ?fee; memo = memo; created_at_time = null })) {
                 case (#Ok(index)) {
                     switch (_txState.getTransaction(txIndex)) {
                         case (?tx) {
                             switch (tx.action) {
                                 case (#Deposit(_)) {
                                     _txState.depositTransferred(txIndex, index);
-                                    ignore _tokenHolderService.deposit(caller, token, amount);
+                                    ignore _tokenHolderService.deposit(caller, token, amountDeposit);
                                     _txState.depositCredited(txIndex);
                                     _pushSwapInfoCache(txIndex);
                                 };
                                 case (#OneStepSwap(_)) {
                                     _txState.oneStepSwapDepositTransferred(txIndex, index);
-                                    ignore _tokenHolderService.deposit(caller, token, amount);
+                                    ignore _tokenHolderService.deposit(caller, token, amountDeposit);
                                     _txState.oneStepSwapDepositCredited(txIndex);
                                 };
                                 case (_) { return #err(#InternalError("Unsupported transaction type")); };
@@ -633,7 +635,7 @@ shared (initMsg) actor class SwapPool(
                         };
                         case (_) { return #err(#InternalError("Transaction not found")); };
                     };
-                    return #ok(amount);
+                    return #ok(amountDeposit);
                 };
                 case (#Err(msg)) {
                     let errorMsg = debug_show(msg);
@@ -642,7 +644,8 @@ shared (initMsg) actor class SwapPool(
                 };
             };
         };
-        
+
+        if (amount <= fee) { return #err(#InternalError("Amount less than fee")); };
         switch (_txState.getTransaction(txIndex)) {
             case (?tx) {
                 switch (tx.action) {
@@ -686,16 +689,16 @@ shared (initMsg) actor class SwapPool(
             });
         };
 
+        if (amount <= fee) {
+            _txState.delete(txIndex);
+            return #err(#InternalError("AmountOut less than fee"));
+        };
         if (_tokenHolderService.withdraw(caller, token, amount)) {
             _txState.withdrawCredited(txIndex);
             switch (_txState.getTransaction(txIndex)) {
                 case (?tx) {
                     switch (tx.action) {
                         case (#Withdraw(info)) {
-                            if (amount <= fee) {
-                                _txState.delete(txIndex);
-                                return #err(#InternalError("AmountOut less than fee"));
-                            };
                             switch (info.status) {
                                 case (#CreditCompleted) {  
                                     __withdraw<system>(); 
@@ -1135,6 +1138,7 @@ shared (initMsg) actor class SwapPool(
 
     public shared ({ caller }) func deposit(args : Types.DepositArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
+        _assertNotAnonymous(caller);
 
         if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
         let (token, tokenPrincipal, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
@@ -1158,17 +1162,16 @@ shared (initMsg) actor class SwapPool(
 
         let from = { owner = canisterId; subaccount = subaccount; };
         let to = { owner = canisterId; subaccount = null }; 
-        let amount = args.amount;
 
-        let txIndex = _txState.startDeposit(caller, canisterId, tokenPrincipal, from, to, amount, args.fee);
-        return await _deposit(txIndex, token, tokenAct, caller, from, to, amount, args.fee, ?PoolUtils.natToBlob(txIndex));
+        let txIndex = _txState.startDeposit(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee);
+        return await _deposit(txIndex, token, tokenAct, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
     };
 
     public shared ({ caller }) func depositFrom(args : Types.DepositArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
-        if (args.token != _token0.address and args.token != _token1.address) {
-            return #err(#UnsupportedToken(args.token));
-        };
+        _assertNotAnonymous(caller);
+
+        if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
         let (token, tokenPrincipal, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
             (_token0, _getToken0Principal(), _token0Act, _token0Fee);
         } else {
@@ -1191,6 +1194,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared ({ caller }) func withdraw(args : Types.WithdrawArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
+        _assertNotAnonymous(caller);
+
         if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
         let (token, tokenPrincipal, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
             (_token0, _getToken0Principal(), _token0Act, _token0Fee);
@@ -1206,16 +1211,17 @@ shared (initMsg) actor class SwapPool(
         if (not (args.amount > 0)) { return #err(#InternalError("Amount can not be 0")); };
         if (args.amount > balance) { return #err(#InsufficientFunds) };
         if (not (args.amount > fee)) { return #err(#InsufficientFunds) };
-        var amount : Nat = Nat.sub(args.amount, fee);
 
         let from = {owner = canisterId; subaccount = null;};
         let to = { owner = caller; subaccount = null }; 
-        let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, amount, args.fee);
-        return await _withdraw(txIndex, token,tokenAct, caller, from, to, amount, args.fee, ?PoolUtils.natToBlob(txIndex));
+        let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee);
+        return await _withdraw(txIndex, token,tokenAct, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
     };
     
     public shared ({ caller }) func withdrawToSubaccount(args : Types.WithdrawToSubaccountArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
+        _assertNotAnonymous(caller);
+
         if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
         let (token, tokenPrincipal, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
             (_token0, _getToken0Principal(), _token0Act, _token0Fee);
@@ -1231,13 +1237,12 @@ shared (initMsg) actor class SwapPool(
         if (not (args.amount > 0)) { return #err(#InternalError("Amount can not be 0")); };
         if (args.amount > balance) { return #err(#InsufficientFunds) };
         if (not (args.amount > fee)) { return #err(#InsufficientFunds) };
-        var amount : Nat = Nat.sub(args.amount, fee);
         let from = {owner = canisterId; subaccount = null;};
         let to = { owner = caller; subaccount = ?args.subaccount }; 
 
-        let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, amount, args.fee);
+        let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee);
 
-        return await _withdraw(txIndex, token, tokenAct, caller, from, to, amount, args.fee, ?PoolUtils.natToBlob(txIndex));
+        return await _withdraw(txIndex, token, tokenAct, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
     };
 
     public shared ({ caller }) func depositAllAndMint(args : Types.DepositAndMintArgs) : async Result.Result<Nat, Types.Error> {
@@ -1373,6 +1378,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared({ caller }) func depositFromAndSwap(args: Types.DepositAndSwapArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
+        _assertNotAnonymous(caller);
+
         let (fee0, fee1) = (_token0Fee, _token1Fee);
         let (tokenIn, tokenInPrincipal, tokenInAct, feeIn, tokenOut, tokenOutPrincipal, tokenOutAct,feeOut) = if (args.zeroForOne) { 
             (_token0, _getToken0Principal(), _token0Act, fee0, _token1, _getToken1Principal(), _token1Act, fee1) 
@@ -1393,24 +1400,24 @@ shared (initMsg) actor class SwapPool(
         let memo = ?PoolUtils.natToBlob(txIndex);
 
         switch(await _depositFrom(txIndex, tokenIn, tokenInAct, caller, { owner = caller; subaccount = null }, { owner = canisterId; subaccount = null }, amountIn, feeIn, memo)) {
-            case (#ok(_)) {
-                let swapArgs = { amountIn = args.amountIn; amountOutMinimum = args.amountOutMinimum; zeroForOne = args.zeroForOne; };
+            case (#ok(depositAmount)) {
+                let swapArgs = { amountIn = Nat.toText(depositAmount); amountOutMinimum = args.amountOutMinimum; zeroForOne = args.zeroForOne; };
                 // If slippage is over range, refund the token
                 var checkFailedMsg = "";
                 var checkPassed = if (TextUtils.toInt(args.amountOutMinimum) > 0) {
                     switch (_preSwap(swapArgs, caller)) {
                         case (#ok(result)) {
                             if (result < TextUtils.toInt(args.amountOutMinimum)) {
-                                checkFailedMsg := "SlippageCheckFailed: amountOutMinimum=" # debug_show(args.amountOutMinimum) # ", preCheckAmount=" # debug_show(result); false;
+                                checkFailedMsg := "minimum amount requirement not met: expected minimum " # debug_show(args.amountOutMinimum) # ", available amount " # debug_show(result); false;
                             } else { true; };
                         };
-                        case (#err(code)) { checkFailedMsg := "SlippageCheckFailed: " # debug_show(code); false; };
+                        case (#err(code)) { checkFailedMsg := debug_show(code); false; };
                     };
                 } else { true; };
                 if(not checkPassed) {
                     _txState.oneStepSwapFailed(txIndex, checkFailedMsg);
-                    ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
-                    return #err(#InternalError("SlippageCheckFailed: " # checkFailedMsg));
+                    ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, depositAmount, feeIn, memo, txIndex);
+                    return #err(#InternalError("Slippage check failed: " # checkFailedMsg));
                 };
                 _txState.oneStepSwapPreSwapCompleted(txIndex);
                 
@@ -1436,6 +1443,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared({ caller }) func depositAndSwap(args: Types.DepositAndSwapArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
+        _assertNotAnonymous(caller);
+        
         let (fee0, fee1) = (_token0Fee, _token1Fee);
         let (tokenIn, tokenInPrincipal, tokenInAct, feeIn, tokenOut, tokenOutPrincipal, tokenOutAct,feeOut) = if (args.zeroForOne) { 
             (_token0, _getToken0Principal(), _token0Act, fee0, _token1, _getToken1Principal(), _token1Act, fee1) 
@@ -1459,8 +1468,8 @@ shared (initMsg) actor class SwapPool(
         let memo = ?PoolUtils.natToBlob(txIndex);
         
         switch(await _deposit(txIndex, tokenIn, tokenInAct, caller, depositFrom, depositTo, amountIn, feeIn, memo)) {
-            case (#ok(_)) {
-                let swapArgs = { amountIn = args.amountIn; amountOutMinimum = args.amountOutMinimum; zeroForOne = args.zeroForOne; };
+            case (#ok(depositAmount)) {
+                let swapArgs = { amountIn = Nat.toText(depositAmount); amountOutMinimum = args.amountOutMinimum; zeroForOne = args.zeroForOne; };
                 // If slippage is over range, refund the token
                 if (TextUtils.toInt(args.amountOutMinimum) > 0) {
                     var checkFailedMsg = "";
@@ -1468,16 +1477,16 @@ shared (initMsg) actor class SwapPool(
                         switch (_preSwap(swapArgs, caller)) {
                             case (#ok(result)) {
                                 if (result < TextUtils.toInt(args.amountOutMinimum)) {
-                                    checkFailedMsg := "SlippageCheckFailed: amountOutMinimum=" # debug_show(args.amountOutMinimum) # ", preCheckAmount=" # debug_show(result); false;
+                                    checkFailedMsg := "minimum amount requirement not met: expected minimum " # debug_show(args.amountOutMinimum) # ", available amount " # debug_show(result); false;
                                 } else { true; };
                             };
-                            case (#err(code)) { checkFailedMsg := "SlippageCheckFailed: " # debug_show(code); false; };
+                            case (#err(code)) { checkFailedMsg := debug_show(code); false; };
                         };
                     } else { true; };
                     if(not checkPassed) {
                         _txState.oneStepSwapFailed(txIndex, checkFailedMsg);
-                        ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
-                        return #err(#InternalError("SlippageCheckFailed: " # checkFailedMsg));
+                        ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, depositAmount, feeIn, memo, txIndex);
+                        return #err(#InternalError("Slippage check failed: " # checkFailedMsg));
                     };
                 };
                 _txState.oneStepSwapPreSwapCompleted(txIndex);
@@ -1503,6 +1512,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func mint(args : Types.MintArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+
         if (not _checkUserPositionLimit()) { return #err(#InternalError("Number of user position exceeds limit")); };
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
         var amount1Desired = SafeUint.Uint256(TextUtils.toNat(args.amount1Desired));
@@ -1578,6 +1589,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func addLimitOrder(args : Types.LimitOrderArgs) : async Result.Result<Bool, Types.Error> {
         _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
@@ -1618,7 +1631,9 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func removeLimitOrder(positionId : Nat) : async Result.Result<Bool, Types.Error> {
         _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
         assert(_isLimitOrderAvailable);
+
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), positionId)) {
             return #err(#InternalError("Caller is not owner"));
         };
@@ -1647,6 +1662,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func increaseLiquidity(args : Types.IncreaseLiquidityArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
@@ -1728,6 +1745,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func decreaseLiquidity(args : Types.DecreaseLiquidityArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
         _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
@@ -1759,6 +1778,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
         _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
@@ -1805,6 +1826,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func swap(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+
         let (tokenInPrincipal, tokenOutPrincipal) = if (args.zeroForOne) { 
             (_getToken0Principal(), _getToken1Principal()) 
         } else { 
@@ -1840,6 +1863,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func approvePosition(spender : Principal, positionId : Nat) : async Result.Result<Bool, Types.Error> {
         _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+
         switch (_positionTickService.getUserPositionIds().get(PrincipalUtils.toAddress(msg.caller))) {
             case (?positionArray) {
                 if (ListUtils.arrayContains(positionArray, positionId, Nat.equal)) {
@@ -1857,6 +1882,8 @@ shared (initMsg) actor class SwapPool(
 
     public shared (msg) func transferPosition(from : Principal, to : Principal, positionId : Nat) : async Result.Result<Bool, Types.Error> {
         _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+
         if (_hasActiveLimitOrder(positionId)) {
             return #err(#InternalError("Active limit order can not be transferred"));
         };
@@ -1960,17 +1987,14 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func quote(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
-        _assertAccessible(msg.caller);
         return _preSwap(args, msg.caller);
     };
 
     public query (msg) func quoteForAll(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
-        _assertAccessible(msg.caller);
         return _preSwapForAll(args, msg.caller);
     };
 
-    public query (msg) func refreshIncome(positionId : Nat) : async Result.Result<{ tokensOwed0 : Nat; tokensOwed1 : Nat }, Types.Error> {
-        _assertAccessible(msg.caller);
+    public query func refreshIncome(positionId : Nat) : async Result.Result<{ tokensOwed0 : Nat; tokensOwed1 : Nat }, Types.Error> {
         let result = switch (_refreshIncome(positionId)) {
             case (#ok(result)) { result };
             case (#err(code)) { throw Error.reject(code) };
@@ -1982,7 +2006,6 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func batchRefreshIncome(positionIds : [Nat]) : async Result.Result<{ totalTokensOwed0 : Nat; totalTokensOwed1 : Nat; tokenIncome : [(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })] }, Types.Error> {
-        _assertAccessible(msg.caller);
         var totalTokensOwed0 : Nat = 0;
         var totalTokensOwed1 : Nat = 0;
         var tokenIncomeBuffer : Buffer.Buffer<(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })> = Buffer.Buffer<(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })>(0);
@@ -2027,16 +2050,8 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public shared (msg) func getTokenMeta() : async {
-        token0 : [(Text, Types.Value)];
-        token1 : [(Text, Types.Value)];
-        token0Fee : Nat;
-        token1Fee : Nat;
-    } {
-        _assertAccessible(msg.caller);
+    public query func getCachedTokenFee() : async { token0Fee : Nat; token1Fee : Nat; } {
         return {
-            token0 = await _token0Act.metadata();
-            token1 = await _token1Act.metadata();
             token0Fee = _token0Fee;
             token1Fee = _token1Fee;
         };
@@ -2489,7 +2504,6 @@ shared (initMsg) actor class SwapPool(
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
-        if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
         if(not (await _trustAct.isCanisterTrusted(Principal.fromText(token.address)))) {
@@ -2500,7 +2514,8 @@ shared (initMsg) actor class SwapPool(
     };
     public shared({caller}) func withdrawMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
-        if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
+        _assertNotAnonymous(caller);
+        
         if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
         if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
         // validate if the canister is trusted.
