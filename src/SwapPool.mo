@@ -1934,7 +1934,11 @@ shared (initMsg) actor class SwapPool(
                             ignore _refund<system>(token, tokenAct, msg.caller, info.transfer.from, info.transfer.to, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
                         };
                     };
-                    case (_) { return #err(#InternalError("Unsupported action")); };  
+                    case (_) {
+                        if (Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
+                            return #err(#InternalError("Transaction is not expired"));
+                        };
+                    };  
                 };
                 _txState.delete(txId);
                 return #ok(true);
@@ -2005,7 +2009,7 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query (msg) func batchRefreshIncome(positionIds : [Nat]) : async Result.Result<{ totalTokensOwed0 : Nat; totalTokensOwed1 : Nat; tokenIncome : [(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })] }, Types.Error> {
+    public query func batchRefreshIncome(positionIds : [Nat]) : async Result.Result<{ totalTokensOwed0 : Nat; totalTokensOwed1 : Nat; tokenIncome : [(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })] }, Types.Error> {
         var totalTokensOwed0 : Nat = 0;
         var totalTokensOwed1 : Nat = 0;
         var tokenIncomeBuffer : Buffer.Buffer<(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })> = Buffer.Buffer<(Nat, { tokensOwed0 : Nat; tokensOwed1 : Nat })>(0);
@@ -2595,11 +2599,13 @@ shared (initMsg) actor class SwapPool(
         };
     };
     
-    // clear failed logs older than 60 days every 12 hours.
+    // clear failed logs older than 30 days everyday.
     private func _clearExpiredFailedTransactionJob(): async () {
         for((index, transaction) in _txState.getTransactions().vals()) {
-            // 60 days in nanoseconds = 60 * 24 * 60 * 60 * 1_000_000_000
-            if (Int.abs(Time.now() - transaction.timestamp) > 60 * 24 * 60 * 60 * 1000000000) {
+            Debug.print("now: " # debug_show(Time.now()));
+            Debug.print("transaction.timestamp: " # debug_show(transaction.timestamp));
+            // 30 days in nanoseconds = 30 * 24 * 60 * 60 * 1_000_000_000
+            if (Int.abs(Time.now() - transaction.timestamp) > 30 * 24 * 60 * 60 * 1000000000) {
                 _txState.delete(index);
             };
         };
@@ -2630,7 +2636,7 @@ shared (initMsg) actor class SwapPool(
     _jobService.createJob<system>("SyncTrxsJob", 60, _syncRecordsJob);
     _jobService.createJob<system>("SyncTokenFeeJob", 3600, _syncTokenFeeJob);
     _jobService.createJob<system>("WithdrawFeeJob", 3600 * 24 * 7, _claimSwapFeeRepurchaseJob);
-    _jobService.createJob<system>("ClearExpiredTransferLogJob", 3600 * 24 * 7, _clearExpiredFailedTransactionJob);
+    _jobService.createJob<system>("ClearExpiredTransferLogJob", 3600 * 24, _clearExpiredFailedTransactionJob);
     
     system func preupgrade() {
         _userPositionsEntries := Iter.toArray(_positionTickService.getUserPositions().entries());
