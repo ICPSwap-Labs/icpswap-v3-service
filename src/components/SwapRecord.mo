@@ -67,7 +67,7 @@ module SwapRecord {
                 if (tempRecordCache.size() > 0) {
                     try {
                         Debug.print("==> start push record to : " # _infoCid);
-                        await _infoAct.batchPush(Buffer.toArray<Types.SwapRecordInfo>(tempRecordCache));
+                        await _infoAct.batchPushV2(Buffer.toArray<Types.SwapRecordInfo>(tempRecordCache));
                         Debug.print("==> push success..");
                         if (_retryCount > 0) {
                             _retryCount := 0;

@@ -256,6 +256,7 @@ module {
     public type TxStorage = actor {
         push : (SwapRecordInfo) -> async ();
         batchPush : ([SwapRecordInfo]) -> async ();
+        batchPushV2 : ([SwapRecordInfo]) -> async ();
         addClient : (Principal) -> async ();
     };
     public type PushError = {
