@@ -74,7 +74,7 @@ shared (initMsg) actor class SwapPool(
 
         _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) { 
             case (#ok(r)) { r }; 
-            case (#err(code)) { throw Error.reject("init pool failed: " # code); }; 
+            case (#err(code)) { throw Error.reject("Pool initialization failed: " # code); }; 
         };
         _fee := fee;
         _tickSpacing := tickSpacing;
@@ -1409,16 +1409,16 @@ shared (initMsg) actor class SwapPool(
                     switch (_preSwap(swapArgs, caller)) {
                         case (#ok(result)) {
                             if (result < TextUtils.toInt(args.amountOutMinimum)) {
-                                checkFailedMsg := "SlippageCheckFailed: amountOutMinimum=" # debug_show(args.amountOutMinimum) # ", preCheckAmount=" # debug_show(result); false;
+                                checkFailedMsg := "minimum amount requirement not met: expected minimum " # debug_show(args.amountOutMinimum) # ", available amount " # debug_show(result); false;
                             } else { true; };
                         };
-                        case (#err(code)) { checkFailedMsg := "SlippageCheckFailed: " # debug_show(code); false; };
+                        case (#err(code)) { checkFailedMsg := debug_show(code); false; };
                     };
                 } else { true; };
                 if(not checkPassed) {
                     _txState.oneStepSwapFailed(txIndex, checkFailedMsg);
                     ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
-                    return #err(#InternalError("SlippageCheckFailed: " # checkFailedMsg));
+                    return #err(#InternalError("Slippage check failed: " # checkFailedMsg));
                 };
                 _txState.oneStepSwapPreSwapCompleted(txIndex);
                 
@@ -1478,16 +1478,16 @@ shared (initMsg) actor class SwapPool(
                         switch (_preSwap(swapArgs, caller)) {
                             case (#ok(result)) {
                                 if (result < TextUtils.toInt(args.amountOutMinimum)) {
-                                    checkFailedMsg := "SlippageCheckFailed: amountOutMinimum=" # debug_show(args.amountOutMinimum) # ", preCheckAmount=" # debug_show(result); false;
+                                    checkFailedMsg := "minimum amount requirement not met: expected minimum " # debug_show(args.amountOutMinimum) # ", available amount " # debug_show(result); false;
                                 } else { true; };
                             };
-                            case (#err(code)) { checkFailedMsg := "SlippageCheckFailed: " # debug_show(code); false; };
+                            case (#err(code)) { checkFailedMsg := debug_show(code); false; };
                         };
                     } else { true; };
                     if(not checkPassed) {
                         _txState.oneStepSwapFailed(txIndex, checkFailedMsg);
                         ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
-                        return #err(#InternalError("SlippageCheckFailed: " # checkFailedMsg));
+                        return #err(#InternalError("Slippage check failed: " # checkFailedMsg));
                     };
                 };
                 _txState.oneStepSwapPreSwapCompleted(txIndex);
