@@ -1387,10 +1387,10 @@ shared (initMsg) actor class SwapPool(
             (_token1, _getToken1Principal(), _token1Act, fee1, _token0, _getToken0Principal(), _token0Act, fee0) 
         };
         if (not Nat.equal(feeIn, args.tokenInFee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(feeIn) # ", received: " # debug_show(args.tokenInFee) # "), please try later")); 
+            return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeIn) # ", received: " # Nat.toText(args.tokenInFee) # "), please try later")); 
         };
         if (not Nat.equal(feeOut, args.tokenOutFee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(feeOut) # ", received: " # debug_show(args.tokenOutFee) # "), please try later")); 
+            return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeOut) # ", received: " # Nat.toText(args.tokenOutFee) # "), please try later")); 
         };
 
         let amountIn: Nat = TextUtils.toNat(args.amountIn);
@@ -1408,7 +1408,7 @@ shared (initMsg) actor class SwapPool(
                     switch (_preSwap(swapArgs, caller)) {
                         case (#ok(result)) {
                             if (result < TextUtils.toInt(args.amountOutMinimum)) {
-                                checkFailedMsg := "minimum amount requirement not met: expected minimum " # debug_show(args.amountOutMinimum) # ", available amount " # debug_show(result); false;
+                                checkFailedMsg := "minimum amount requirement not met: expected minimum " # args.amountOutMinimum # ", available amount " # Nat.toText(result); false;
                             } else { true; };
                         };
                         case (#err(code)) { checkFailedMsg := debug_show(code); false; };
@@ -1452,10 +1452,10 @@ shared (initMsg) actor class SwapPool(
             (_token1, _getToken1Principal(), _token1Act, fee1, _token0, _getToken0Principal(), _token0Act, fee0) 
         };
         if (not Nat.equal(feeIn, args.tokenInFee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(feeIn) # ", received: " # debug_show(args.tokenInFee) # "), please try later")); 
+            return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeIn) # ", received: " # Nat.toText(args.tokenInFee) # "), please try later")); 
         };
         if (not Nat.equal(feeOut, args.tokenOutFee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(feeOut) # ", received: " # debug_show(args.tokenOutFee) # "), please try later")); 
+            return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeOut) # ", received: " # Nat.toText(args.tokenOutFee) # "), please try later")); 
         };
         let subaccount = Option.make(AccountUtils.principalToBlob(caller));
         let amountIn: Nat = TextUtils.toNat(args.amountIn);
@@ -1477,7 +1477,7 @@ shared (initMsg) actor class SwapPool(
                         switch (_preSwap(swapArgs, caller)) {
                             case (#ok(result)) {
                                 if (result < TextUtils.toInt(args.amountOutMinimum)) {
-                                    checkFailedMsg := "minimum amount requirement not met: expected minimum " # debug_show(args.amountOutMinimum) # ", available amount " # debug_show(result); false;
+                                    checkFailedMsg := "minimum amount requirement not met: expected minimum " # args.amountOutMinimum # ", available amount " # Nat.toText(result); false;
                                 } else { true; };
                             };
                             case (#err(code)) { checkFailedMsg := debug_show(code); false; };
@@ -1871,11 +1871,11 @@ shared (initMsg) actor class SwapPool(
                     _positionTickService.putAllowancedUserPosition(positionId, PrincipalUtils.toAddress(spender));
                     return #ok(true);
                 } else {
-                    throw Error.reject("approve failed: you don't own the position");
+                    return #err(#InternalError("Approve position failed: you don't own the position"));
                 };
             };
             case (_) {
-                throw Error.reject("approve failed: you don't have any positions");
+                return #err(#InternalError("Approve position failed: you don't have any positions"));
             };
         };
     };
@@ -1907,11 +1907,11 @@ shared (initMsg) actor class SwapPool(
                     ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
                     return #ok(true);
                 } else {
-                    throw Error.reject("transfer position failed: the sender doesn't own the position");
+                    return #err(#InternalError("Transfer position failed: the sender doesn't own the position"));
                 };
             };
             case (_) {
-                throw Error.reject("transfer position failed: the sender doesn't have any positions");
+                return #err(#InternalError("Transfer position failed: the sender doesn't have any positions"));
             };
         };
     };
