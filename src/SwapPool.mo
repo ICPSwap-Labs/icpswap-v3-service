@@ -737,11 +737,12 @@ shared (initMsg) actor class SwapPool(
         func __refund<system>() {
             ignore Timer.setTimer<system>(#nanoseconds(0), func (): async () {
                 try {
-                    switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amount; fee = ?fee; memo = memo; created_at_time = null})) {
+                    let amountOut = Nat.sub(amount, fee);
+                    switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amountOut; fee = ?fee; memo = memo; created_at_time = null})) {
                         case (#Ok(index)) {
                             let (refundTxIndex, failedTxIndex) = _txState.refundCompleted(txIndex, index);
                             _pushSwapInfoCache(refundTxIndex);
-                            _pushSwapInfoCache(failedTxIndex);
+                            switch (failedTxIndex) { case (?failedTxIndex) { _pushSwapInfoCache(failedTxIndex) }; case (_) { }; };
                         };
                         case (#Err(e)) {
                             ignore _txState.refundFailed(txIndex, debug_show(e));
@@ -756,7 +757,7 @@ shared (initMsg) actor class SwapPool(
         if (amount <= fee) { return #err(#InternalError("Amount less than fee")); };
         let txIndex = _txState.startRefund(caller, _getCanisterId(), Principal.fromText(token.address), from, to, amount, fee, failedIndex);
 
-        if (_tokenHolderService.withdraw(caller, token, amount)) {
+        if (_tokenHolderService.withdraw(to.owner, token, amount)) {
             _txState.refundCredited(txIndex);
             switch (_txState.getTransaction(txIndex)) {
                 case (?tx) {
@@ -1573,10 +1574,14 @@ shared (initMsg) actor class SwapPool(
 
             // Check if there are unused tokens that need to be refunded
             if (amount0Desired.val() > addResult.amount0) {
-                ignore _refund<system>(_token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount0Desired.val(), token0Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
+                let amount0Refund = amount0Desired.val() - addResult.amount0;
+                ignore _tokenHolderService.deposit(msg.caller, _token0, amount0Refund);
+                ignore _refund<system>(_token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount0Refund, token0Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
             };
             if (amount1Desired.val() > addResult.amount1) {
-                ignore _refund<system>(_token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount1Desired.val(), token1Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
+                let amount1Refund = amount1Desired.val() - addResult.amount1;
+                ignore _tokenHolderService.deposit(msg.caller, _token1, amount1Refund);
+                ignore _refund<system>(_token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount1Refund, token1Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
             };
 
             ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
@@ -1730,10 +1735,14 @@ shared (initMsg) actor class SwapPool(
 
             // Check if there are unused tokens that need to be refunded
             if (amount0Desired.val() > addResult.amount0) {
-                ignore _refund<system>(_token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount0Desired.val(), token0Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
+                let amount0Refund = amount0Desired.val() - addResult.amount0;
+                ignore _tokenHolderService.deposit(msg.caller, _token0, amount0Refund);
+                ignore _refund<system>(_token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount0Refund, token0Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
             };
             if (amount1Desired.val() > addResult.amount1) {
-                ignore _refund<system>(_token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount1Desired.val(), token1Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
+                let amount1Refund = amount1Desired.val() - addResult.amount1;
+                ignore _tokenHolderService.deposit(msg.caller, _token1, amount1Refund);
+                ignore _refund<system>(_token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount1Refund, token1Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
             };
             ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
         } catch (e) {
@@ -1925,13 +1934,15 @@ shared (initMsg) actor class SwapPool(
                     case (#Withdraw(info)) {
                         if (refund) {
                             let (token, tokenAct) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act) } else { (_token1, _token1Act) };
+                            ignore _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount);
                             ignore _refund<system>(token, tokenAct, msg.caller, info.transfer.from, info.transfer.to, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
                         };
                     };
                     case (#Refund(info)) {
                         if (refund) {
                             let (token, tokenAct) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act) } else { (_token1, _token1Act) };
-                            ignore _refund<system>(token, tokenAct, msg.caller, info.transfer.from, info.transfer.to, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
+                            ignore _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount);
+                            ignore _refund<system>(token, tokenAct, msg.caller, info.transfer.from, info.transfer.to, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), info.failedIndex);
                         };
                     };
                     case (_) {
@@ -1943,9 +1954,7 @@ shared (initMsg) actor class SwapPool(
                 _txState.delete(txId);
                 return #ok(true);
             };
-            case (_) {
-                return #err(#InternalError("Transaction not found"));
-            };
+            case (_) { return #err(#InternalError("Transaction not found")); };
         };
     };
 

@@ -80,14 +80,14 @@ module {
                         case (#Deposit(deposit)) {
                             if (deposit.status == #Created) {
                                 let newDeposit = Deposit.process(deposit);
-                                let trx = _copy(tx, #Deposit({ newDeposit with index = txIndex; }));
+                                let trx = _copy(tx, #Deposit({ newDeposit with transfer = { newDeposit.transfer with index = txIndex } }));
                                 transactions.put(txId, trx);
                             };
                         };
                         case(#OneStepSwap(info)) {
                             if (info.status == #Created) {
                                 let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap({ newInfo with index = txIndex; }));
+                                let trx = _copy(tx, #OneStepSwap({ newInfo with deposit = { newInfo.deposit with transfer = { newInfo.deposit.transfer with index = txIndex } } }));
                                 transactions.put(txId, trx);
                             };
                         };
@@ -259,44 +259,44 @@ module {
             };
         };
 
-        public func refundCompleted(txId: Nat, txIndex: Nat): (Nat, Nat) {
+        public func refundCompleted(txId: Nat, txIndex: Nat): (Nat, ?Nat) {
             switch (transactions.get(txId)) {
-                case null { assert(false); (0, 0) };
+                case null { assert(false); (0, null) };
                 case (?tx) {
                     switch(tx.action) {
                         case (#Refund(info)) {
                             if (info.status == #CreditCompleted) {
                                 let newInfo = Refund.process(info);
-                                let trx = _copy(tx, #Refund({ newInfo with index = txIndex; }));
+                                let trx = _copy(tx, #Refund({ newInfo with transfer = { newInfo.transfer with index = txIndex; } }));
                                 transactions.put(txId, trx);
-                                
+
                                 switch (transactions.get(newInfo.failedIndex)) {
-                                    case null { assert(false); (0, 0) };
+                                    case null { (txId, null) };
                                     case (?failedTx) {
                                         switch(failedTx.action) {
                                             case (#Withdraw(failedInfo)) {
-                                                let trx = _copy(failedTx, #Withdraw({ failedInfo with status = #Completed; }));
-                                                transactions.put(newInfo.failedIndex, trx);
-                                                (txId, newInfo.failedIndex)
+                                                let failedTrx = _copy(failedTx, #Withdraw({ failedInfo with status = #Completed; }));
+                                                transactions.put(newInfo.failedIndex, failedTrx);
+                                                (txId, ?newInfo.failedIndex)
                                             };
                                             case (#OneStepSwap(failedInfo)) {
-                                                let trx = _copy(failedTx, #OneStepSwap({ 
+                                                let failedTrx = _copy(failedTx, #OneStepSwap({ 
                                                     failedInfo with status = #Completed; 
                                                     withdraw = { failedInfo.withdraw with status = #Failed; }; 
                                                     swap = { failedInfo.swap with status = #Failed; }; 
                                                 }));
-                                                transactions.put(newInfo.failedIndex, trx);
-                                                (txId, newInfo.failedIndex)
+                                                transactions.put(newInfo.failedIndex, failedTrx);
+                                                (txId, ?newInfo.failedIndex)
                                             };
-                                            case(_) { assert(false); (0, 0) };
+                                            case(_) { assert(false); (0, null) };
                                         };
                                     };
                                 };
                             } else {
-                                (txId, info.failedIndex)
+                                (txId, ?info.failedIndex)
                             }
                         };
-                        case(_) { assert(false); (0, 0) };
+                        case(_) { assert(false); (0, null) };
                     };
                 };
             };
