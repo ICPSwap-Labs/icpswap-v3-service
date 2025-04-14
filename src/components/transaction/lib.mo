@@ -28,7 +28,7 @@ module {
     public type Error = Text;
     public type Account = Types.Account;
     public type Amount = Types.Amount;
-
+    public type Token = Types.Token;
     func _hash(n: Nat) : Hash.Hash { return Prim.natToNat32(n); };
     func _copy(tx: Transaction, action: Types.Action): Transaction {
         return {
@@ -323,8 +323,8 @@ module {
         public func startAddLiquidity(
             owner: Principal, 
             canisterId: Principal, 
-            token0: Principal, 
-            token1: Principal, 
+            token0: Token, 
+            token1: Token, 
             amount0: Nat, 
             amount1: Nat,
             positionId: Nat
@@ -378,7 +378,7 @@ module {
         };
 
         // --------------------------- decrease liquidity ------------------------------------
-        public func startDecreaseLiquidity(owner: Principal, canisterId: Principal, positionId: Nat, token0: Principal, token1: Principal, liquidity: Nat): Nat {
+        public func startDecreaseLiquidity(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token, liquidity: Nat): Nat {
             let txId = getNextTxId();
             let info = DecreaseLiquidity.start(positionId, token0, token1, liquidity);
             transactions.put(txId, {
@@ -428,7 +428,7 @@ module {
         };
 
         // --------------------------- claim ------------------------------------
-        public func startClaim(owner: Principal, canisterId: Principal, positionId: Nat, token0: Principal, token1: Principal): Nat {
+        public func startClaim(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token): Nat {
             let txId = getNextTxId();
             let info = Claim.start(positionId, token0, token1);
             transactions.put(txId, {
@@ -528,9 +528,9 @@ module {
         };
 
         // --------------------------- add limit order ------------------------------------
-        public func startAddLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat): Nat {
+        public func startAddLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token, amount0: Nat, amount1: Nat, tickLimit: Int): Nat {
             let txId = getNextTxId();
-            let info = AddLimitOrder.start(positionId);
+            let info = AddLimitOrder.start(positionId, token0, token1, amount0, amount1, tickLimit);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
@@ -578,9 +578,9 @@ module {
         };
 
         // --------------------------- execute limit order ------------------------------------
-        public func startExecuteLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat): Nat {
+        public func startExecuteLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token): Nat {
             let txId = getNextTxId();
-            let info = ExecuteLimitOrder.start(positionId);
+            let info = ExecuteLimitOrder.start(positionId, token0, token1);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
@@ -591,7 +591,7 @@ module {
             return txId;
         };
 
-        public func executeLimitOrderCompleted(txId: Nat): Nat {
+        public func executeLimitOrderCompleted(txId: Nat, amount0: Nat, amount1: Nat): Nat {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -599,7 +599,7 @@ module {
                         case (#ExecuteLimitOrder(info)) {
                             if (info.status == #Created) {
                                 let newInfo = ExecuteLimitOrder.process(info);
-                                let trx = _copy(tx, #ExecuteLimitOrder(newInfo));
+                                let trx = _copy(tx, #ExecuteLimitOrder({ newInfo with amount0 = amount0; amount1 = amount1; }));
                                 transactions.put(txId, trx);
                             };
                         };
@@ -628,9 +628,9 @@ module {
         };
 
         // --------------------------- remove limit order ------------------------------------
-        public func startRemoveLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat): Nat {
+        public func startRemoveLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token): Nat {
             let txId = getNextTxId();
-            let info = RemoveLimitOrder.start(positionId);
+            let info = RemoveLimitOrder.start(positionId, token0, token1);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
@@ -641,7 +641,7 @@ module {
             return txId;
         };
 
-        public func removeLimitOrderCompleted(txId: Nat): Nat {
+        public func removeLimitOrderDeleted(txId: Nat): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -657,10 +657,28 @@ module {
                     };
                 };
             };
+        };
+
+        public func removeLimitOrderCompleted(txId: Nat, amount0: Nat, amount1: Nat): Nat {
+            switch (transactions.get(txId)) {
+                case null { assert(false) };
+                case (?tx) {
+                    switch(tx.action) {
+                        case (#RemoveLimitOrder(info)) {
+                            if (info.status == #LimitOrderDeleted) {
+                                let newInfo = RemoveLimitOrder.process(info);
+                                let trx = _copy(tx, #RemoveLimitOrder({ newInfo with amount0 = amount0; amount1 = amount1; }));
+                                transactions.put(txId, trx);
+                            };
+                        };
+                        case(_) { assert(false) };
+                    };
+                };
+            };
             txId
         };
 
-        public func removeLimitOrderFailed(txId: Nat, err: Types.Error): Nat {
+        public func removeLimitOrderFailed(txId: Nat, err: Types.Error): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -674,11 +692,10 @@ module {
                     };
                 };
             };
-            txId
         };
 
         // --------------------------- swap ------------------------------------
-        public func startSwap(owner: Principal, canisterId: Principal, tokenIn: Principal, tokenOut: Principal, amountIn: Nat): Nat {
+        public func startSwap(owner: Principal, canisterId: Principal, tokenIn: Token, tokenOut: Token, amountIn: Nat): Nat {
             let txId = getNextTxId();
             let info = Swap.start(tokenIn, tokenOut, amountIn);
             transactions.put(txId, {
@@ -731,8 +748,8 @@ module {
         public func startOneStepSwap(
             owner: Principal, 
             canisterId: Principal, 
-            tokenIn: Principal, 
-            tokenOut: Principal, 
+            tokenIn: Token, 
+            tokenOut: Token, 
             amountIn: Nat,
             amountOut: Nat,
             amountInFee: Nat, 

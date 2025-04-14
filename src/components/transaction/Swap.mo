@@ -1,14 +1,15 @@
 import Types "./Types";
-import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 
 module {
-    public func start(tokenIn: Principal, tokenOut: Principal, amountIn: Types.Amount): Types.SwapInfo {
+    public func start(tokenIn: Types.Token, tokenOut: Types.Token, amountIn: Types.Amount): Types.SwapInfo {
         return {
             tokenIn = tokenIn;
             tokenOut = tokenOut;
             amountIn = amountIn;
             amountOut = 0;
+            amountInFee = 0;
+            amountOutFee = 0;
             status = #Created;
             err = null;
         };
@@ -22,6 +23,8 @@ module {
                     tokenOut = info.tokenOut;
                     amountIn = info.amountIn;
                     amountOut = info.amountOut;
+                    amountInFee = info.amountInFee;
+                    amountOutFee = info.amountOutFee;
                     status = #Completed;
                     err = null;
                 };
@@ -42,6 +45,8 @@ module {
             tokenOut = info.tokenOut;
             amountIn = info.amountIn;
             amountOut = info.amountOut;
+            amountInFee = info.amountInFee;
+            amountOutFee = info.amountOutFee;
             status = #Failed;
             err = ?error;
         };

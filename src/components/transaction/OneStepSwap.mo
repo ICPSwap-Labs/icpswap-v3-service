@@ -5,8 +5,8 @@ import Blob "mo:base/Blob";
 
 module {
     public func start(
-        tokenIn: Principal, 
-        tokenOut: Principal, 
+        tokenIn: Types.Token, 
+        tokenOut: Types.Token, 
         amountIn: Nat,
         amountOut: Nat,
         amountInFee: Nat,
@@ -18,7 +18,7 @@ module {
         return {
             deposit = {
                 transfer = {
-                    token = tokenIn;
+                    token = tokenIn.address;
                     from = { owner = if(subaccount == null) { caller } else { canisterId }; subaccount = subaccount };
                     to = { owner = canisterId; subaccount = null };
                     amount = amountIn;
@@ -31,7 +31,7 @@ module {
             };
             withdraw = {
                 transfer = {
-                    token = tokenOut;
+                    token = tokenOut.address;
                     from = { owner = canisterId; subaccount = null };
                     to = { owner = caller; subaccount = null };
                     amount = amountOut;
@@ -47,6 +47,8 @@ module {
                 tokenOut = tokenOut;
                 amountIn = amountIn;
                 amountOut = amountOut;
+                amountInFee = amountInFee;
+                amountOutFee = amountOutFee;
                 status = #Created;
                 err = null;
             };
@@ -96,7 +98,7 @@ module {
             case (#SwapCompleted) {
                 return {
                     deposit = info.deposit;
-                    withdraw = { info.withdraw with status = #CreditCompleted; amount = info.swap.amountOut; };
+                    withdraw = { info.withdraw with status = #CreditCompleted; transfer = { info.withdraw.transfer with amount = info.swap.amountOut; }; };
                     swap = info.swap;
                     status = #WithdrawCreditCompleted;
                     err = null;

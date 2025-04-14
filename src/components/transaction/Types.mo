@@ -10,6 +10,10 @@ module {
         owner: Principal;
         subaccount: ?Blob;
     };
+    public type Token = {
+        address : Principal;
+        standard : Text;
+    };
     public type Error = Text;
     public type Transaction = {
         id: Nat;
@@ -105,14 +109,13 @@ module {
 
     public type RemoveLimitOrderStatus = {
         #Created;
-        #RemoveLimitOrderCompleted;
+        #LimitOrderDeleted;
         #Completed;
         #Failed;
     };
 
     public type ExecuteLimitOrderStatus = {
         #Created;
-        #ExecuteLimitOrderCompleted;
         #Completed;
         #Failed;
     };
@@ -148,8 +151,8 @@ module {
 
     public type AddLiquidityInfo = {
         positionId: Nat;
-        token0: Principal;
-        token1: Principal;
+        token0: Token;
+        token1: Token;
         amount0: Nat;
         amount1: Nat;
         status: AddLiquidityStatus;
@@ -159,8 +162,8 @@ module {
 
     public type DecreaseLiquidityInfo = {
         positionId: Nat;
-        token0: Principal;
-        token1: Principal;
+        token0: Token;
+        token1: Token;
         amount0: Nat;
         amount1: Nat;
         status: DecreaseLiquidityStatus;
@@ -170,8 +173,8 @@ module {
 
     public type ClaimInfo = {
         positionId: Nat;
-        token0: Principal;
-        token1: Principal;
+        token0: Token;
+        token1: Token;
         amount0: Nat;
         amount1: Nat;
         status: ClaimStatus;
@@ -179,10 +182,12 @@ module {
     };
 
     public type SwapInfo = {
-        tokenIn: Principal;
-        tokenOut: Principal;
+        tokenIn: Token;
+        tokenOut: Token;
         amountIn: Amount;
         amountOut: Nat;
+        amountInFee: Nat;
+        amountOutFee: Nat;
         status: SwapStatus;
         err: ?Error;
     };
@@ -199,24 +204,45 @@ module {
         positionId: Nat;
         from: Account;
         to: Account;
+        token0Amount: Nat;
+        token1Amount: Nat;
         status: TransferPositionStatus;
         err: ?Error;
     };
 
     public type AddLimitOrderInfo = {
         positionId: Nat;
+        token0: Token;
+        token1: Token;
+        token0AmountIn: Nat;
+        token1AmountIn: Nat;
+        tickLimit: Int;
         status: AddLimitOrderStatus;
         err: ?Error;
     };
 
     public type RemoveLimitOrderInfo = {
         positionId: Nat;
+        token0: Token;
+        token1: Token;
+        token0AmountIn: Nat;
+        token1AmountIn: Nat;
+        token0AmountOut: Nat;
+        token1AmountOut: Nat;
+        tickLimit: Int;
         status: RemoveLimitOrderStatus;
         err: ?Error;
     };
 
     public type ExecuteLimitOrderInfo = {
         positionId: Nat;
+        token0: Token;
+        token1: Token;
+        token0AmountIn: Nat;
+        token1AmountIn: Nat;
+        token0AmountOut: Nat;
+        token1AmountOut: Nat;
+        tickLimit: Int;
         status: ExecuteLimitOrderStatus;
         err: ?Error;
     };

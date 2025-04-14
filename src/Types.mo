@@ -210,9 +210,6 @@ module {
     };
     public type DecreaseLimitOrderArgs = {
         isLimitOrder : Bool;
-        token0InAmount : Nat;
-        token1InAmount : Nat;
-        tickLimit : Int;
     };
     public type ClaimArgs = {
         positionId : Nat;
@@ -247,7 +244,7 @@ module {
         #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
     };
     public type SwapRecordInfo = {
-        poolId : Text;
+        txIndex : Nat;
         txInfo : TxTypes.Transaction;
         currentLiquidity : Nat;
         currentTick : Int;
@@ -391,6 +388,7 @@ module {
         #getCachedTokenFee : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
+        #getFailedTransactions : () -> ();
         #getFeeGrowthGlobal : () -> ();
         #getInitArgs : () -> ();
         #getJobs : () -> ();
