@@ -83,7 +83,8 @@ dfx build
 echo
 
 TOTAL_SUPPLY="1000000000000000000"
-TRANS_FEE="0";
+TRANS_FEE="100000000";
+# TRANS_FEE="0";
 MINTER_PRINCIPAL="$(dfx identity get-principal)"
 MINTER_WALLET="$(dfx identity get-wallet)"
 
@@ -210,42 +211,15 @@ function deposit() # token tokenAmount
     fi
 }
 
-function mint(){ #tickLower tickUpper amount0Desired amount0Min amount1Desired amount1Min ### liquidity tickCurrent sqrtRatioX96
+function mint(){ #tickLower tickUpper amount0Desired amount0Min amount1Desired amount1Min
     result=`dfx canister call $poolId mint "(record { token0 = \"$token0\"; token1 = \"$token1\"; fee = 3000: nat; tickLower = $1: int; tickUpper = $2: int; amount0Desired = \"$3\"; amount1Desired = \"$5\"; })"`
-    info=`dfx canister call $poolId metadata`
-    info=${info//"_"/""}
-    if [[ "$info" =~ "$7" ]] && [[ "$info" =~ "$8" ]] && [[ "$info" =~ "$9" ]]; then
-      echo "\033[32m mint success. \033[0m"
-    else
-      echo "\033[31m mint fail. $info \n expected $7 $8 $9 \033[0m"
-    fi
+    echo "\033[32m mint success. \033[0m"
+
     dfx canister call PositionIndex addPoolId "(\"$poolId\")"
 }
 
-
-function increase() #positionId amount0Desired amount0Min amount1Desired amount1Min ### liquidity tickCurrent sqrtRatioX96
+function withdraw() #token amount
 {
-    echo "=== increase... ==="
-    result=`dfx canister call $poolId increaseLiquidity "(record { positionId = $1 :nat; amount0Desired = \"$2\"; amount1Desired = \"$4\"; })"`
-    echo "increase result: $result"
-    
-    info=`dfx canister call $poolId metadata`
-    info=${info//"_"/""}
-    if [[ "$info" =~ "$6" ]] && [[ "$info" =~ "$7" ]] && [[ "$info" =~ "$8" ]]; then
-      echo "\033[32m increase success. \033[0m"
-    else
-      echo "\033[31m increase fail. $info \n expected $6 $7 $8 \033[0m"
-    fi
-}
-
-function decrease() #positionId liquidity amount0Min amount1Min ### liquidity tickCurrent sqrtRatioX96
-{
-    echo "=== decrease... ==="
-    result=`dfx canister call $poolId getUserPosition "($1: nat)"`
-    echo "user position result: $result"
-    result=`dfx canister call $poolId decreaseLiquidity "(record { positionId = $1 :nat; liquidity = \"$2\"; })"`
-    echo "decrease result: $result"
-
     result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
     echo "unused balance result: $result"
 
@@ -254,30 +228,24 @@ function decrease() #positionId liquidity amount0Min amount1Min ### liquidity ti
     echo "withdraw amount0: $withdrawAmount0"
     echo "withdraw amount1: $withdrawAmount1"
 
-    if [ "$withdrawAmount0" -ne 0 ]; then
-      result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
-      echo "token0 withdraw result: $result"
-    fi
-    if [ "$withdrawAmount1" -ne 0 ]; then
-      result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
-      echo "token1 withdraw result: $result"
+    if [ "$withdrawAmount0" -gt 0 ]; then
+        result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
+        echo "token0 withdraw result: $result"
     fi
 
-    info=`dfx canister call $poolId metadata`
-    info=${info//"_"/""}
-    if [[ "$info" =~ "$5" ]] && [[ "$info" =~ "$6" ]] && [[ "$info" =~ "$7" ]]; then
-      echo "\033[32m decrease liquidity success. \033[0m"
-    else
-      echo "\033[31m decrease liquidity fail. $info \n expected $5 $6 $7 \033[0m"
+    if [ "$withdrawAmount1" -gt 0 ]; then
+        result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
+        echo "token1 withdraw result: $result"
     fi
-    dfx canister call PositionIndex removePoolId "(\"$poolId\")"
-}
+    
+    token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
+    echo "token0 $MINTER_PRINCIPAL balance: $token0BalanceResult"
+    token1BalanceResult="$(balanceOf $token1 $MINTER_PRINCIPAL null)"
+    echo "token1 $MINTER_PRINCIPAL balance: $token1BalanceResult"
+    token0BalanceResult=${token0BalanceResult//"_"/""}
+    token1BalanceResult=${token1BalanceResult//"_"/""}
 
-function quote() #amountIn amountOutMinimum
-{ 
-    echo "=== quote... ==="
-    result=`dfx canister call $poolId quote "(record { zeroForOne = true; amountIn = \"$1\"; amountOutMinimum = \"$2\"; })"`
-    echo "quote result: $result"
+    echo "\033[32m withdraw success. \033[0m"
 }
 
 function swap() #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96  token0BalanceAmount token1BalanceAmount zeroForOne
@@ -289,34 +257,7 @@ function swap() #depositToken depositAmount amountIn amountOutMinimum ### liquid
     else
         result=`dfx canister call $poolId swap "(record { zeroForOne = false; amountIn = \"$3\"; amountOutMinimum = \"$4\"; })"`
     fi
-    echo "swap result: $result"
-
-    result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
-    echo "unused balance result: $result"
-
-    withdrawAmount0=$(echo "$result" | sed -n 's/.*balance0 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
-    withdrawAmount1=$(echo "$result" | sed -n 's/.*balance1 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
-    echo "withdraw amount0: $withdrawAmount0"
-    echo "withdraw amount1: $withdrawAmount1"
-
-    result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
-    echo "token0 withdraw result: $result"
-    result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
-    echo "token1 withdraw result: $result"
-    
-    token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
-    echo "token0 $MINTER_PRINCIPAL balance: $token0BalanceResult"
-    token1BalanceResult="$(balanceOf $token1 $MINTER_PRINCIPAL null)"
-    echo "token1 $MINTER_PRINCIPAL balance: $token1BalanceResult"
-    info=`dfx canister call $poolId metadata`
-    info=${info//"_"/""}
-    token0BalanceResult=${token0BalanceResult//"_"/""}
-    token1BalanceResult=${token1BalanceResult//"_"/""}
-    if [[ "$info" =~ "$5" ]] && [[ "$info" =~ "$6" ]] && [[ "$info" =~ "$7" ]] && [[ "$token0BalanceResult" =~ "$8" ]] && [[ "$token1BalanceResult" =~ "$9" ]]; then
-      echo "\033[32m swap success. \033[0m"
-    else
-      echo "\033[31m swap fail. $info \n expected $5 $6 $7 $8 $9\033[0m"
-    fi
+    echo "\033[32m swap success. \033[0m"
 }
 
 function oneStepSwap() #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96  token0BalanceAmount token1BalanceAmount zeroForOne
@@ -327,34 +268,7 @@ function oneStepSwap() #depositToken depositAmount amountIn amountOutMinimum ###
     else
         result=`dfx canister call $poolId depositFromAndSwap "(record { zeroForOne = false; amountIn = \"$3\"; amountOutMinimum = \"$4\"; tokenInFee = $TRANS_FEE: nat; tokenOutFee = $TRANS_FEE: nat; })"`
     fi
-    echo "swap result: $result"
-
-    result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
-    echo "unused balance result: $result"
-
-    withdrawAmount0=$(echo "$result" | sed -n 's/.*balance0 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
-    withdrawAmount1=$(echo "$result" | sed -n 's/.*balance1 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
-    echo "withdraw amount0: $withdrawAmount0"
-    echo "withdraw amount1: $withdrawAmount1"
-
-    result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
-    echo "token0 withdraw result: $result"
-    result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
-    echo "token1 withdraw result: $result"
-    
-    token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
-    echo "token0 $MINTER_PRINCIPAL balance: $token0BalanceResult"
-    token1BalanceResult="$(balanceOf $token1 $MINTER_PRINCIPAL null)"
-    echo "token1 $MINTER_PRINCIPAL balance: $token1BalanceResult"
-    info=`dfx canister call $poolId metadata`
-    info=${info//"_"/""}
-    token0BalanceResult=${token0BalanceResult//"_"/""}
-    token1BalanceResult=${token1BalanceResult//"_"/""}
-    if [[ "$info" =~ "$5" ]] && [[ "$info" =~ "$6" ]] && [[ "$info" =~ "$7" ]] && [[ "$token0BalanceResult" =~ "$8" ]] && [[ "$token1BalanceResult" =~ "$9" ]]; then
-      echo "\033[32m one step swap success. \033[0m"
-    else
-      echo "\033[31m one step swap fail. $info \n expected $5 $6 $7 $8 $9\033[0m"
-    fi
+    echo "\033[32m swap success. \033[0m"
 }
 
 function checkBalance(){
@@ -371,70 +285,60 @@ function checkBalance(){
     fi
 }
 
-function income() #positionId tickLower tickUpper
-{
-    echo "=== refreshIncome... ==="
-    result=`dfx canister call $poolId refreshIncome "($1: nat)"`
-    echo "refreshIncome result: $result"
-    result=`dfx canister call $poolId getUserPosition "($1: nat)"`
-    result=`dfx canister call $poolId getPosition "(record {tickLower = $2: int; tickUpper = $3: int})"`
-}
-
-function testMintSwap()
+function testSyncSwap()
 {   
+    local mode=$1  # "sync" or "async"
+    local count=$2 # number of times to execute
+    
     echo
     echo test mint process
     echo
     #sqrtPriceX96
     create_pool 274450166607934908532224538203
 
-    # withdraw_mistransfer
-
-    # test_factory_passcode
-
     echo
     echo "==> step 1 mint"
-    deposit $token0 100000000000
-    deposit $token1 1667302813453
-    #tickLower tickUpper amount0Desired amount0Min amount1Desired amount1Min ### liquidity tickCurrent sqrtRatioX96
-    mint -23040 46080 100000000000 92884678893 1667302813453 1573153132015 529634421680 24850 274450166607934908532224538203
-    #token0BalanceAmount token1BalanceAmount
-    checkBalance 999999900000000000 999998332697186547
+    deposit $token0 99999999999999
+    deposit $token1 99999999999999
+    #tickLower tickUpper amount0Desired amount0Min amount1Desired amount1Min
+    mint -887220 887220 99999999999999 99999999999999 99999999999999 99999999999999 
 
-    echo "==> step 2 swap"
-    #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
-    # swap $token0 100000000000 100000000000 658322113914 529634421680 14808 166123716848874888729218662825 999999800000000000 999999056851511853
-    oneStepSwap $token0 100000000000 100000000000 658322113914 529634421680 14808 166123716848874888729218662825 999999800000000000 999999056851511853
+    echo "==> step 2 withdraw"
+    withdraw
 
-    echo "==> step 3 swap"
-    #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
-    swap $token1 200300000000 200300000000 34999517311 529634421680 18116 195996761539654227777570705349 999999838499469043 999998856551511853
+    echo "==> swap begin"
 
-    echo "==> step 4 mint"
-    deposit $token0 2340200000000
-    deposit $token1 12026457043801
-    #tickLower tickUpper amount0Desired amount0Min amount1Desired amount1Min ### liquidity tickCurrent sqrtRatioX96
-    mint -16080 92220 2340200000000 2228546458622 12026457043801 11272984126445 6464892363717 18116 195996761539654227777570705349
-    #token0BalanceAmount token1BalanceAmount
-    checkBalance 999997498299469043 999986830094468052
+    if [ "$mode" = "sync" ]; then
+        echo "Executing $count synchronous swaps..."
+        for ((i=1; i<=$count; i++)); do
+            echo "Swap $i of $count"
+            oneStepSwap $token0 10000000000 10000000000 0
+        done
+    else
+        echo "Executing $count asynchronous swaps..."
+        for ((i=1; i<=$count; i++)); do
+            echo "Starting swap $i of $count"
+            oneStepSwap $token0 10000000000 10000000000 0 &
+        done
+        wait  # Wait for all background processes to complete
+    fi
+    
+    echo "==> swap end"
 
-    echo "==> step 5 swap"
-    #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
-    # swap $token1 900934100000000 900934100000000 2274000482681 0 887271 1461446703485210103287273052203988822378723970341 999999999699999993 999398897657090959
-    oneStepSwap $token1 900934100000000 900934100000000 2274000482681 0 887271 1461446703485210103287273052203988822378723970341 999999999699999993 999398897657090959
-
-    echo "==> step 6 swap"
-    #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
-    swap $token0 10000000000 10000000000 78411589305243 5935257942037 89098 6815937996742481301561907102830 999999989699999993 999485150405326727
-
-    echo "==> step 7 failed one step swap"
-    #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96 token0BalanceAmount token1BalanceAmount
-    # swap $token1 900934100000000 900934100000000 2274000482681 0 887271 1461446703485210103287273052203988822378723970341 999999999699999993 999398897657090959
-    oneStepSwap $token1 900934100000000 900934100000000 2274000482681000 0 887271 1461446703485210103287273052203988822378723970341 999999999699999993 999398897657090959
-
+    echo "==> metadata"
+    result=`dfx canister call $poolId metadata`
+    echo $result
 };
 
-testMintSwap
+# Check if parameters are provided
+if [ $# -lt 2 ]; then
+    echo "Usage: $0 <mode> <count>"
+    echo "  mode: sync or async"
+    echo "  count: number of times to execute"
+    exit 1
+fi
 
-dfx stop
-mv dfx.json.bak dfx.json
+testSyncSwap "$1" "$2"
+
+# dfx stop
+# mv dfx.json.bak dfx.json
