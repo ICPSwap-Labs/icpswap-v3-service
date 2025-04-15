@@ -8,11 +8,16 @@ import Buffer "mo:base/Buffer";
 import HashMap "mo:base/HashMap";
 import Iter "mo:base/Iter";
 import Result "mo:base/Result";
-import Types "./Types";
-import ListUtils "mo:commons/utils/ListUtils";
 import Bool "mo:base/Bool";
+import Prim "mo:⛔";
+
+import ListUtils "mo:commons/utils/ListUtils";
 import CollectionUtils "mo:commons/utils/CollectionUtils";
 import PrincipalUtils "mo:commons/utils/PrincipalUtils";
+
+import Types "./Types";
+import ICRCTypes "./ICRCTypes";
+import ICRC21 "./components/ICRC21";
 
 shared (initMsg) actor class PositionIndex(
     factoryCid : Principal
@@ -120,8 +125,36 @@ shared (initMsg) actor class PositionIndex(
         });
     };
 
+    // --------------------------- ICRC28 ------------------------------------
+    private stable var _icrc28_trusted_origins : [Text] = [
+        "https://standards.identitykit.xyz",
+        "https://dev.standards.identitykit.xyz",
+        "https://demo.identitykit.xyz",
+        "https://dev.demo.identitykit.xyz",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "https://nfid.one",
+        "https://dev.nfid.one",
+        "https://app.icpswap.com",
+        "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io"
+    ];
+    public shared(msg) func setIcrc28TrustedOrigins(origins: [Text]) : async Result.Result<Bool, ()> {
+        assert(Prim.isController(msg.caller));
+        _icrc28_trusted_origins := origins;
+        return #ok(true);
+    };
+    public func icrc28_trusted_origins() : async ICRCTypes.Icrc28TrustedOriginsResponse {
+        return {trusted_origins = _icrc28_trusted_origins};
+    };
+    public query func icrc10_supported_standards() : async [{ url : Text; name : Text }] {
+        return ICRC21.icrc10_supported_standards();
+    };
+    public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
+        return ICRC21.icrc21_canister_call_consent_message(request);
+    };
+
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.5.0";
+    private var _version : Text = "3.6.0";
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {

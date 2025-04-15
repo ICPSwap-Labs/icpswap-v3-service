@@ -188,15 +188,9 @@ function create_pool() #sqrtPriceX96
     # dfx canister call $poolId getConfigCids
     dfx canister call PositionIndex updatePoolIds 
     
-    balance=`dfx canister call Test testTokenAdapterBalanceOf "(\"$(dfx canister id ICRC2)\", \"ICRC2\", principal \"$poolId\", null)"`
-    echo $balance
-    balance=`dfx canister call Test testTokenAdapterBalanceOf "(\"$(dfx canister id ICRC2)\", \"ICRC2\", principal \"$(dfx canister id PasscodeManager)\", null)"`
-    echo $balance
-    dfx canister call PasscodeManager transferValidate "(principal \"$poolId\", $TOTAL_SUPPLY)"
     dfx canister call PasscodeManager transferValidate "(principal \"$poolId\", 100000000)"
     dfx canister call PasscodeManager transfer "(principal \"$poolId\", 100000000)"
-    balance=`dfx canister call Test testTokenAdapterBalanceOf "(\"$(dfx canister id ICRC2)\", \"ICRC2\", principal \"$poolId\", null)"`
-    echo $balance
+
 }
 
 function deposit() # token tokenAmount

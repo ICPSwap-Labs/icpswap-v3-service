@@ -26,7 +26,11 @@ actor {
         return Blob.fromArray(Array.freeze(defaultArr));
     };
 
-    public shared (msg) func getSubaccount() : async Text {
+    public query (msg) func getSubaccount() : async Blob {
+        return _principalToBlob(msg.caller);
+    };
+
+    public query (msg) func getSubaccountText() : async Text {
         var text : Text = debug_show (Option.make(_principalToBlob(msg.caller)));
         text := Text.replace(text, #text("\\"), "\\");
         return "text__" # text # "__";

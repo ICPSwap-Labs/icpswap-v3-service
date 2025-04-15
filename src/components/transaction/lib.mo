@@ -28,7 +28,7 @@ module {
     public type Error = Text;
     public type Account = Types.Account;
     public type Amount = Types.Amount;
-
+    public type Token = Types.Token;
     func _hash(n: Nat) : Hash.Hash { return Prim.natToNat32(n); };
     func _copy(tx: Transaction, action: Types.Action): Transaction {
         return {
@@ -80,14 +80,14 @@ module {
                         case (#Deposit(deposit)) {
                             if (deposit.status == #Created) {
                                 let newDeposit = Deposit.process(deposit);
-                                let trx = _copy(tx, #Deposit({ newDeposit with index = txIndex; }));
+                                let trx = _copy(tx, #Deposit({ newDeposit with transfer = { newDeposit.transfer with index = txIndex } }));
                                 transactions.put(txId, trx);
                             };
                         };
                         case(#OneStepSwap(info)) {
                             if (info.status == #Created) {
                                 let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap({ newInfo with index = txIndex; }));
+                                let trx = _copy(tx, #OneStepSwap({ newInfo with deposit = { newInfo.deposit with transfer = { newInfo.deposit.transfer with index = txIndex } } }));
                                 transactions.put(txId, trx);
                             };
                         };
@@ -259,44 +259,44 @@ module {
             };
         };
 
-        public func refundCompleted(txId: Nat, txIndex: Nat): (Nat, Nat) {
+        public func refundCompleted(txId: Nat, txIndex: Nat): (Nat, ?Nat) {
             switch (transactions.get(txId)) {
-                case null { assert(false); (0, 0) };
+                case null { assert(false); (0, null) };
                 case (?tx) {
                     switch(tx.action) {
                         case (#Refund(info)) {
                             if (info.status == #CreditCompleted) {
                                 let newInfo = Refund.process(info);
-                                let trx = _copy(tx, #Refund({ newInfo with index = txIndex; }));
+                                let trx = _copy(tx, #Refund({ newInfo with transfer = { newInfo.transfer with index = txIndex; } }));
                                 transactions.put(txId, trx);
-                                
+
                                 switch (transactions.get(newInfo.failedIndex)) {
-                                    case null { assert(false); (0, 0) };
+                                    case null { (txId, null) };
                                     case (?failedTx) {
                                         switch(failedTx.action) {
                                             case (#Withdraw(failedInfo)) {
-                                                let trx = _copy(failedTx, #Withdraw({ failedInfo with status = #Completed; }));
-                                                transactions.put(newInfo.failedIndex, trx);
-                                                (txId, newInfo.failedIndex)
+                                                let failedTrx = _copy(failedTx, #Withdraw({ failedInfo with status = #Completed; }));
+                                                transactions.put(newInfo.failedIndex, failedTrx);
+                                                (txId, ?newInfo.failedIndex)
                                             };
                                             case (#OneStepSwap(failedInfo)) {
-                                                let trx = _copy(failedTx, #OneStepSwap({ 
+                                                let failedTrx = _copy(failedTx, #OneStepSwap({ 
                                                     failedInfo with status = #Completed; 
                                                     withdraw = { failedInfo.withdraw with status = #Failed; }; 
                                                     swap = { failedInfo.swap with status = #Failed; }; 
                                                 }));
-                                                transactions.put(newInfo.failedIndex, trx);
-                                                (txId, newInfo.failedIndex)
+                                                transactions.put(newInfo.failedIndex, failedTrx);
+                                                (txId, ?newInfo.failedIndex)
                                             };
-                                            case(_) { assert(false); (0, 0) };
+                                            case(_) { assert(false); (0, null) };
                                         };
                                     };
                                 };
                             } else {
-                                (txId, info.failedIndex)
+                                (txId, ?info.failedIndex)
                             }
                         };
-                        case(_) { assert(false); (0, 0) };
+                        case(_) { assert(false); (0, null) };
                     };
                 };
             };
@@ -323,8 +323,8 @@ module {
         public func startAddLiquidity(
             owner: Principal, 
             canisterId: Principal, 
-            token0: Principal, 
-            token1: Principal, 
+            token0: Token, 
+            token1: Token, 
             amount0: Nat, 
             amount1: Nat,
             positionId: Nat
@@ -378,7 +378,7 @@ module {
         };
 
         // --------------------------- decrease liquidity ------------------------------------
-        public func startDecreaseLiquidity(owner: Principal, canisterId: Principal, positionId: Nat, token0: Principal, token1: Principal, liquidity: Nat): Nat {
+        public func startDecreaseLiquidity(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token, liquidity: Nat): Nat {
             let txId = getNextTxId();
             let info = DecreaseLiquidity.start(positionId, token0, token1, liquidity);
             transactions.put(txId, {
@@ -428,7 +428,7 @@ module {
         };
 
         // --------------------------- claim ------------------------------------
-        public func startClaim(owner: Principal, canisterId: Principal, positionId: Nat, token0: Principal, token1: Principal): Nat {
+        public func startClaim(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token): Nat {
             let txId = getNextTxId();
             let info = Claim.start(positionId, token0, token1);
             transactions.put(txId, {
@@ -528,9 +528,9 @@ module {
         };
 
         // --------------------------- add limit order ------------------------------------
-        public func startAddLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat): Nat {
+        public func startAddLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token, amount0: Nat, amount1: Nat, tickLimit: Int): Nat {
             let txId = getNextTxId();
-            let info = AddLimitOrder.start(positionId);
+            let info = AddLimitOrder.start(positionId, token0, token1, amount0, amount1, tickLimit);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
@@ -578,9 +578,9 @@ module {
         };
 
         // --------------------------- execute limit order ------------------------------------
-        public func startExecuteLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat): Nat {
+        public func startExecuteLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token, token0InAmount: Nat, token1InAmount: Nat, tickLimit: Int): Nat {
             let txId = getNextTxId();
-            let info = ExecuteLimitOrder.start(positionId);
+            let info = ExecuteLimitOrder.start(positionId, token0, token1, token0InAmount, token1InAmount, tickLimit);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
@@ -591,7 +591,7 @@ module {
             return txId;
         };
 
-        public func executeLimitOrderCompleted(txId: Nat): Nat {
+        public func executeLimitOrderCompleted(txId: Nat, token0AmountOut: Nat, token1AmountOut: Nat): Nat {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -599,7 +599,7 @@ module {
                         case (#ExecuteLimitOrder(info)) {
                             if (info.status == #Created) {
                                 let newInfo = ExecuteLimitOrder.process(info);
-                                let trx = _copy(tx, #ExecuteLimitOrder(newInfo));
+                                let trx = _copy(tx, #ExecuteLimitOrder({ newInfo with token0AmountOut = token0AmountOut; token1AmountOut = token1AmountOut; }));
                                 transactions.put(txId, trx);
                             };
                         };
@@ -628,9 +628,9 @@ module {
         };
 
         // --------------------------- remove limit order ------------------------------------
-        public func startRemoveLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat): Nat {
+        public func startRemoveLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token): Nat {
             let txId = getNextTxId();
-            let info = RemoveLimitOrder.start(positionId);
+            let info = RemoveLimitOrder.start(positionId, token0, token1);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
@@ -641,7 +641,7 @@ module {
             return txId;
         };
 
-        public func removeLimitOrderCompleted(txId: Nat): Nat {
+        public func removeLimitOrderDeleted(txId: Nat, token0AmountIn: Nat, token1AmountIn: Nat, tickLimit: Int): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -649,7 +649,25 @@ module {
                         case (#RemoveLimitOrder(info)) {
                             if (info.status == #Created) {
                                 let newInfo = RemoveLimitOrder.process(info);
-                                let trx = _copy(tx, #RemoveLimitOrder(newInfo));
+                                let trx = _copy(tx, #RemoveLimitOrder({ newInfo with token0AmountIn = token0AmountIn; token1AmountIn = token1AmountIn; tickLimit = tickLimit }));
+                                transactions.put(txId, trx);
+                            };
+                        };
+                        case(_) { assert(false) };
+                    };
+                };
+            };
+        };
+
+        public func removeLimitOrderCompleted(txId: Nat, token0AmountOut: Nat, token1AmountOut: Nat): Nat {
+            switch (transactions.get(txId)) {
+                case null { assert(false) };
+                case (?tx) {
+                    switch(tx.action) {
+                        case (#RemoveLimitOrder(info)) {
+                            if (info.status == #LimitOrderDeleted) {
+                                let newInfo = RemoveLimitOrder.process(info);
+                                let trx = _copy(tx, #RemoveLimitOrder({ newInfo with token0AmountOut = token0AmountOut; token1AmountOut = token1AmountOut; }));
                                 transactions.put(txId, trx);
                             };
                         };
@@ -660,7 +678,7 @@ module {
             txId
         };
 
-        public func removeLimitOrderFailed(txId: Nat, err: Types.Error): Nat {
+        public func removeLimitOrderFailed(txId: Nat, err: Types.Error): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -674,11 +692,10 @@ module {
                     };
                 };
             };
-            txId
         };
 
         // --------------------------- swap ------------------------------------
-        public func startSwap(owner: Principal, canisterId: Principal, tokenIn: Principal, tokenOut: Principal, amountIn: Nat): Nat {
+        public func startSwap(owner: Principal, canisterId: Principal, tokenIn: Token, tokenOut: Token, amountIn: Nat): Nat {
             let txId = getNextTxId();
             let info = Swap.start(tokenIn, tokenOut, amountIn);
             transactions.put(txId, {
@@ -731,8 +748,8 @@ module {
         public func startOneStepSwap(
             owner: Principal, 
             canisterId: Principal, 
-            tokenIn: Principal, 
-            tokenOut: Principal, 
+            tokenIn: Token, 
+            tokenOut: Token, 
             amountIn: Nat,
             amountOut: Nat,
             amountInFee: Nat, 

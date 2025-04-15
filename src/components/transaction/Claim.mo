@@ -1,10 +1,9 @@
 import Types "./Types";
-import Principal "mo:base/Principal";
 import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 
 module {
-    public func start(positionId: Nat, token0: Principal, token1: Principal): Types.ClaimInfo {
+    public func start(positionId: Nat, token0: Types.Token, token1: Types.Token): Types.ClaimInfo {
         return {
             positionId = positionId;
             token0 = token0;

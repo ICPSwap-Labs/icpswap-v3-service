@@ -8,6 +8,8 @@ module {
             positionId = positionId;
             from = from;
             to = to;
+            token0Amount = 0;
+            token1Amount = 0;
             status = #Created;
             err = null;
         };
@@ -20,6 +22,8 @@ module {
                     positionId = info.positionId;
                     from = info.from;
                     to = info.to;
+                    token0Amount = info.token0Amount;
+                    token1Amount = info.token1Amount;
                     status = #Completed;
                     err = null;
                 };
@@ -39,6 +43,8 @@ module {
             positionId = info.positionId;
             from = info.from;
             to = info.to;
+            token0Amount = info.token0Amount;
+            token1Amount = info.token1Amount;
             status = #Failed;
             err = ?error;
         };

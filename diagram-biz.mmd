@@ -1,0 +1,151 @@
+graph TD
+    %% Main Process Entry
+    Start[Start] --> Choose{Choose Operation}
+
+    %% Deposit Process
+    Choose -->|Deposit| DepositStart[Deposit Start]
+    DepositStart --> DepositTransfer[Deposit Transfer Token]
+    DepositTransfer --> DepositCredit[Deposit Credit Token]
+    DepositCredit --> DepositEnd[Deposit Complete]
+
+    %% Withdraw Process
+    Choose -->|Withdraw| WithdrawStart[Withdraw Start]
+    WithdrawStart --> WithdrawCredit[Withdraw Credit Token]
+    WithdrawCredit --> WithdrawTransfer[Withdraw Transfer Token]
+    WithdrawTransfer --> WithdrawEnd[Withdraw Complete]
+
+    %% Add Liquidity Process
+    Choose -->|Add Liquidity| AddLiqStart[Add Liquidity Start]
+    AddLiqStart --> AddLiqMint[Add Liquidity]
+    AddLiqMint --> AddLiqUnusedCheck{Check Unused Tokens}
+    AddLiqUnusedCheck -->|Has Unused| AddLiqRefundCredit[Refund Credit Token]
+    AddLiqUnusedCheck -->|No Unused| AddLiqEnd[Add Liquidity Complete]
+    AddLiqRefundCredit --> AddLiqRefundTransfer[Refund Transfer Token]
+    AddLiqRefundTransfer --> AddLiqEnd
+
+    %% Increase Liquidity Process
+    Choose -->|Increase Liquidity| IncLiqStart[Increase Liquidity Start]
+    IncLiqStart --> IncLiqIncrease[Increase Liquidity]
+    IncLiqIncrease --> IncLiqUnusedCheck{Check Unused Tokens}
+    IncLiqUnusedCheck -->|Has Unused| IncLiqRefundCredit[Refund Credit Token]
+    IncLiqUnusedCheck -->|No Unused| IncLiqEnd[Increase Liquidity Complete]
+    IncLiqRefundCredit --> IncLiqRefundTransfer[Refund Transfer Token]
+    IncLiqRefundTransfer --> IncLiqEnd
+
+    %% Decrease Liquidity Process
+    Choose -->|Decrease Liquidity| DecLiqStart[Decrease Liquidity Start]
+    DecLiqStart --> DecLiqDecrease[Decrease Liquidity]
+    DecLiqDecrease --> DecLiqClaim[Claim Fees]
+    DecLiqClaim --> DecLiqWithdrawCredit[Withdraw Tokens]
+    DecLiqWithdrawCredit --> DecLiqWithdrawTransfer[Withdraw Transfer Token]
+    DecLiqWithdrawTransfer --> DecLiqEnd[Remove Liquidity Complete]
+
+    %% Claim Process
+    Choose -->|Claim| ClaimStart[Claim Start]
+    ClaimStart --> ClaimFee[Claim Fees]
+    ClaimFee --> ClaimWithdrawCredit[Withdraw Credit Token]
+    ClaimWithdrawCredit --> ClaimWithdrawTransfer[Withdraw Transfer Token]
+    ClaimWithdrawTransfer --> ClaimEnd[Claim Complete]
+
+    %% Add Limit Order Process
+    Choose -->|Add Limit Order| AddLimitOrderStart[Add Limit Order Start]
+    AddLimitOrderStart --> AddLimitOrderPlace[Place Limit Order]
+    AddLimitOrderPlace --> AddLimitOrderEnd[Add Limit Order Complete]
+
+    %% Remove Limit Order Process
+    Choose -->|Remove Limit Order| RemoveLimitOrderStart[Remove Limit Order Start]
+    RemoveLimitOrderStart --> RemoveLimitOrderDelete[Delete Limit Order]
+    RemoveLimitOrderDelete --> RemoveLimitOrderDecrease[Decrease Liquidity]
+    RemoveLimitOrderDecrease --> RemoveLimitOrderWithdrawCredit[Withdraw Credit Token]
+    RemoveLimitOrderWithdrawCredit --> RemoveLimitOrderWithdrawTransfer[Withdraw Transfer Token]
+    RemoveLimitOrderWithdrawTransfer --> RemoveLimitOrderEnd[Remove Limit Order Complete]
+
+    %% Execute Limit Order Process
+    Choose -->|Execute Limit Order| ExecuteLimitOrderStart[Execute Limit Order Start]
+    ExecuteLimitOrderStart --> ExecuteLimitOrderDelete[Delete Limit Order]
+    ExecuteLimitOrderDelete --> ExecuteLimitOrderDecrease[Decrease Liquidity]
+    ExecuteLimitOrderDecrease --> ExecuteLimitOrderWithdrawCredit[Withdraw Credit Token]
+    ExecuteLimitOrderWithdrawCredit --> ExecuteLimitOrderWithdrawTransfer[Withdraw Transfer Token]
+    ExecuteLimitOrderWithdrawTransfer --> ExecuteLimitOrderEnd[Execute Limit Order Complete]
+
+    %% Transfer Position Process
+    Choose -->|Transfer Position| TransferPositionStart[Transfer Position Start]
+    TransferPositionStart --> TransferPositionTransfer[Transfer Position]
+    TransferPositionTransfer --> TransferPositionEnd[Transfer Position Complete]
+
+    %% Swap Process
+    Choose -->|Swap| SwapStart[Swap Start]
+    SwapStart --> SwapPreSwap[Pre Swap]
+    SwapPreSwap --> SwapSlippageCheck{Slippage Check}
+    SwapSlippageCheck -->|Failed| SwapEnd[Swap Complete]
+    SwapSlippageCheck -->|Success| SwapExecute[Execute Swap]
+    SwapExecute --> SwapSuccessCheck{Success Check}
+    SwapSuccessCheck -->|Success| SwapEnd
+    SwapSuccessCheck -->|Failed| SwapRollback[Rollback]
+    SwapRollback --> SwapEnd
+
+    %% OneStepSwap Process
+    Choose -->|OneStepSwap| OneStepSwapStart[OneStepSwap Start]
+    OneStepSwapStart --> OneStepSwapDepositTransfer[Deposit Transfer Token]
+    OneStepSwapDepositTransfer --> OneStepSwapDepositCredit[Deposit Credit Token]
+    OneStepSwapDepositCredit --> OneStepSwapPreSwap[Pre Swap]
+    OneStepSwapPreSwap --> OneStepSwapPreCheck{Slippage Check}
+    OneStepSwapPreCheck -->|Failed| OneStepSwapRefundCredit[Refund Credit Token]
+    OneStepSwapPreCheck -->|Success| OneStepSwapExecute[Execute Swap]
+    OneStepSwapExecute --> OneStepSwapSuccessCheck{Success Check}
+    OneStepSwapSuccessCheck -->|Success| OneStepSwapWithdrawCredit[Withdraw Credit Token]
+    OneStepSwapSuccessCheck -->|Failed| OneStepSwapRollback[Rollback]
+    OneStepSwapWithdrawCredit --> OneStepSwapWithdrawTransfer[Withdraw Transfer Token]
+    OneStepSwapWithdrawTransfer --> OneStepSwapUnusedCheck{Check Unused Tokens}
+    OneStepSwapRollback --> OneStepSwapEnd
+    OneStepSwapUnusedCheck -->|Has Unused| OneStepSwapRefundCredit
+    OneStepSwapUnusedCheck -->|No Unused| OneStepSwapEnd
+    OneStepSwapRefundCredit --> OneStepSwapRefundTransfer[Refund Transfer Token]
+    OneStepSwapRefundTransfer --> OneStepSwapEnd
+
+    %% Style Definitions
+    classDef startNode fill:#2196F3,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef endNode fill:#4CAF50,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef decisionNode fill:#FFC107,stroke:#fff,stroke-width:2px,color:#000;
+    classDef transferNode fill:#00BCD4,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef creditNode fill:#9C27B0,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef rollbackNode fill:#f44336,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef liquidityNode fill:#FF9800,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef swapNode fill:#795548,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef feeNode fill:#607D8B,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef limitOrderNode fill:#027A8B,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef transferPositionNode fill:#027A8B,stroke:#fff,stroke-width:2px,color:#fff;
+
+    %% Apply Styles
+    %% Start Nodes
+    class Start,DepositStart,WithdrawStart,AddLiqStart,IncLiqStart,DecLiqStart,ClaimStart,SwapStart,OneStepSwapStart,AddLimitOrderStart,RemoveLimitOrderStart,ExecuteLimitOrderStart,TransferPositionStart startNode;
+    
+    %% End Nodes
+    class DepositEnd,WithdrawEnd,AddLiqEnd,IncLiqEnd,DecLiqEnd,ClaimEnd,SwapEnd,OneStepSwapEnd,AddLimitOrderEnd,RemoveLimitOrderEnd,ExecuteLimitOrderEnd,TransferPositionEnd endNode;
+    
+    %% Decision Nodes
+    class Choose,SwapSlippageCheck,SwapSuccessCheck,OneStepSwapPreCheck,OneStepSwapSuccessCheck,OneStepSwapUnusedCheck,AddLiqUnusedCheck,IncLiqUnusedCheck decisionNode;
+    
+    %% Transfer Nodes
+    class DepositTransfer,WithdrawTransfer,RefundTransfer,AddLiqDeposit0Transfer,AddLiqDeposit1Transfer,IncLiqDeposit0Transfer,IncLiqDeposit1Transfer,DecLiqWithdrawTransfer,ClaimWithdrawTransfer,SwapDepositTransfer,SwapWithdrawTransfer,SwapRefundTransfer,OneStepSwapDepositTransfer,OneStepSwapWithdrawTransfer,OneStepSwapRefundTransfer,AddLimitOrderDepositTransfer,AddLimitOrderRefundTransfer,RemoveLimitOrderWithdrawTransfer,ExecuteLimitOrderWithdrawTransfer,AddLiqRefundTransfer,IncLiqRefundTransfer transferNode;
+    
+    %% Credit Nodes
+    class DepositCredit,WithdrawCredit,RefundCredit,AddLiqDeposit0Credit,AddLiqDeposit1Credit,IncLiqDeposit0Credit,IncLiqDeposit1Credit,DecLiqWithdrawCredit,ClaimWithdrawCredit,SwapDepositCredit,SwapWithdrawCredit,SwapRefundCredit,OneStepSwapDepositCredit,OneStepSwapWithdrawCredit,OneStepSwapRefundCredit,AddLimitOrderDepositCredit,AddLimitOrderRefundCredit,RemoveLimitOrderWithdrawCredit,ExecuteLimitOrderWithdrawCredit,AddLiqRefundCredit,IncLiqRefundCredit creditNode;
+    
+    %% Rollback Nodes
+    class SwapRollback,OneStepSwapRollback,RemoveLimitOrderRollback,ExecuteLimitOrderRollback,DecLiqRollback rollbackNode;
+    
+    %% Liquidity Nodes
+    class AddLiqMint,IncLiqIncrease,DecLiqDecrease,AddLiq,AddLimitOrderAddLiq,RemoveLimitOrderDecrease,ExecuteLimitOrderDecrease liquidityNode;
+    
+    %% Swap Nodes
+    class SwapPreSwap,SwapExecute,OneStepSwapPreSwap,OneStepSwapExecute swapNode;
+    
+    %% Fee Nodes
+    class ClaimFee,DecLiqClaim feeNode;
+    
+    %% Limit Order Nodes
+    class AddLimitOrderPlace,RemoveLimitOrderDelete,ExecuteLimitOrderDelete limitOrderNode;
+
+    %% Transfer Position Nodes
+    class TransferPositionTransfer transferPositionNode;

@@ -3,11 +3,18 @@ import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 
 module {
-    public func start(positionId: Nat): Types.RemoveLimitOrderInfo {
+    public func start(positionId: Nat, token0: Types.Token, token1: Types.Token): Types.RemoveLimitOrderInfo {
         return {
             positionId = positionId;
+            token0 = token0;
+            token1 = token1;
+            token0AmountIn = 0;
+            token1AmountIn = 0;
+            token0AmountOut = 0;
+            token1AmountOut = 0;
             status = #Created;
             err = null;
+            tickLimit = 0;
         };
     };
 
@@ -16,15 +23,29 @@ module {
             case (#Created) {
                 return {
                     positionId = info.positionId;
-                    status = #RemoveLimitOrderCompleted;
+                    token0 = info.token0;
+                    token1 = info.token1;
+                    token0AmountIn = info.token0AmountIn;
+                    token1AmountIn = info.token1AmountIn;
+                    token0AmountOut = info.token0AmountOut;
+                    token1AmountOut = info.token1AmountOut;
+                    status = #LimitOrderDeleted;
                     err = null;
+                    tickLimit = info.tickLimit;
                 };
             };
-            case (#RemoveLimitOrderCompleted) {
+            case (#LimitOrderDeleted) {
                 return {
                     positionId = info.positionId;
+                    token0 = info.token0;
+                    token1 = info.token1;
+                    token0AmountIn = info.token0AmountIn;
+                    token1AmountIn = info.token1AmountIn;
+                    token0AmountOut = info.token0AmountOut;
+                    token1AmountOut = info.token1AmountOut;
                     status = #Completed;
                     err = null;
+                    tickLimit = info.tickLimit;
                 };
             };
             case (#Completed) {
@@ -40,8 +61,15 @@ module {
         assert(info.status != #Completed);
         return {
             positionId = info.positionId;
+            token0 = info.token0;
+            token1 = info.token1;
+            token0AmountIn = info.token0AmountIn;
+            token1AmountIn = info.token1AmountIn;
+            token0AmountOut = info.token0AmountOut;
+            token1AmountOut = info.token1AmountOut;
             status = #Failed;
             err = ?error;
+            tickLimit = info.tickLimit;
         };
     };
 

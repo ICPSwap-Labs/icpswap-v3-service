@@ -1,12 +1,11 @@
 import Types "./Types";
-import Principal "mo:base/Principal";
 import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 
 module {
     public func start(
-        token0: Principal, 
-        token1: Principal, 
+        token0: Types.Token, 
+        token1: Types.Token, 
         amount0: Nat, 
         amount1: Nat,
         positionId: Nat

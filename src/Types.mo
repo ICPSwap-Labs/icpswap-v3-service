@@ -210,9 +210,6 @@ module {
     };
     public type DecreaseLimitOrderArgs = {
         isLimitOrder : Bool;
-        token0InAmount : Nat;
-        token1InAmount : Nat;
-        tickLimit : Int;
     };
     public type ClaimArgs = {
         positionId : Nat;
@@ -247,7 +244,6 @@ module {
         #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
     };
     public type SwapRecordInfo = {
-        poolId : Text;
         txInfo : TxTypes.Transaction;
         currentLiquidity : Nat;
         currentTick : Int;
@@ -256,6 +252,7 @@ module {
     public type TxStorage = actor {
         push : (SwapRecordInfo) -> async ();
         batchPush : ([SwapRecordInfo]) -> async ();
+        batchPushV2 : ([SwapRecordInfo]) -> async ();
         addClient : (Principal) -> async ();
     };
     public type PushError = {
@@ -390,6 +387,7 @@ module {
         #getCachedTokenFee : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
+        #getFailedTransactions : () -> ();
         #getFeeGrowthGlobal : () -> ();
         #getInitArgs : () -> ();
         #getJobs : () -> ();
