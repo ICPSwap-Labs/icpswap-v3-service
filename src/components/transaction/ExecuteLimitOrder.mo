@@ -3,18 +3,18 @@ import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 
 module {
-    public func start(positionId: Nat, token0: Types.Token, token1: Types.Token): Types.ExecuteLimitOrderInfo {
+    public func start(positionId: Nat, token0: Types.Token, token1: Types.Token, token0InAmount: Nat, token1InAmount: Nat, tickLimit: Int): Types.ExecuteLimitOrderInfo {
         return {
             positionId = positionId;
             token0 = token0;
             token1 = token1;
-            token0AmountIn = 0;
-            token1AmountIn = 0;
+            token0AmountIn = token0InAmount;
+            token1AmountIn = token1InAmount;
             token0AmountOut = 0;
             token1AmountOut = 0;
             status = #Created;
             err = null;
-            tickLimit = 0;
+            tickLimit = tickLimit;
         };
     };
 

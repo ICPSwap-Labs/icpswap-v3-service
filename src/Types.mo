@@ -244,7 +244,6 @@ module {
         #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
     };
     public type SwapRecordInfo = {
-        txIndex : Nat;
         txInfo : TxTypes.Transaction;
         currentLiquidity : Nat;
         currentTick : Int;

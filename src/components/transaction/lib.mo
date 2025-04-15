@@ -578,9 +578,9 @@ module {
         };
 
         // --------------------------- execute limit order ------------------------------------
-        public func startExecuteLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token): Nat {
+        public func startExecuteLimitOrder(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token, token0InAmount: Nat, token1InAmount: Nat, tickLimit: Int): Nat {
             let txId = getNextTxId();
-            let info = ExecuteLimitOrder.start(positionId, token0, token1);
+            let info = ExecuteLimitOrder.start(positionId, token0, token1, token0InAmount, token1InAmount, tickLimit);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
@@ -591,7 +591,7 @@ module {
             return txId;
         };
 
-        public func executeLimitOrderCompleted(txId: Nat, amount0: Nat, amount1: Nat): Nat {
+        public func executeLimitOrderCompleted(txId: Nat, token0AmountOut: Nat, token1AmountOut: Nat): Nat {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -599,7 +599,7 @@ module {
                         case (#ExecuteLimitOrder(info)) {
                             if (info.status == #Created) {
                                 let newInfo = ExecuteLimitOrder.process(info);
-                                let trx = _copy(tx, #ExecuteLimitOrder({ newInfo with amount0 = amount0; amount1 = amount1; }));
+                                let trx = _copy(tx, #ExecuteLimitOrder({ newInfo with token0AmountOut = token0AmountOut; token1AmountOut = token1AmountOut; }));
                                 transactions.put(txId, trx);
                             };
                         };
@@ -641,7 +641,7 @@ module {
             return txId;
         };
 
-        public func removeLimitOrderDeleted(txId: Nat): () {
+        public func removeLimitOrderDeleted(txId: Nat, token0AmountIn: Nat, token1AmountIn: Nat, tickLimit: Int): () {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -649,7 +649,7 @@ module {
                         case (#RemoveLimitOrder(info)) {
                             if (info.status == #Created) {
                                 let newInfo = RemoveLimitOrder.process(info);
-                                let trx = _copy(tx, #RemoveLimitOrder(newInfo));
+                                let trx = _copy(tx, #RemoveLimitOrder({ newInfo with token0AmountIn = token0AmountIn; token1AmountIn = token1AmountIn; tickLimit = tickLimit }));
                                 transactions.put(txId, trx);
                             };
                         };
@@ -659,7 +659,7 @@ module {
             };
         };
 
-        public func removeLimitOrderCompleted(txId: Nat, amount0: Nat, amount1: Nat): Nat {
+        public func removeLimitOrderCompleted(txId: Nat, token0AmountOut: Nat, token1AmountOut: Nat): Nat {
             switch (transactions.get(txId)) {
                 case null { assert(false) };
                 case (?tx) {
@@ -667,7 +667,7 @@ module {
                         case (#RemoveLimitOrder(info)) {
                             if (info.status == #LimitOrderDeleted) {
                                 let newInfo = RemoveLimitOrder.process(info);
-                                let trx = _copy(tx, #RemoveLimitOrder({ newInfo with amount0 = amount0; amount1 = amount1; }));
+                                let trx = _copy(tx, #RemoveLimitOrder({ newInfo with token0AmountOut = token0AmountOut; token1AmountOut = token1AmountOut; }));
                                 transactions.put(txId, trx);
                             };
                         };

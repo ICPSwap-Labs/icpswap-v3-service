@@ -212,7 +212,7 @@ shared (initMsg) actor class SwapPool(
                     case (#Upper) { if (_tick < key.tickLimit) { _upperLimitOrders.put(key, value); return; }; };
                 };
 
-                let txIndex = _txState.startExecuteLimitOrder(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal());
+                let txIndex = _txState.startExecuteLimitOrder(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), value.token0InAmount, value.token1InAmount, key.tickLimit);
                 let result = _decreaseLiquidity(
                     value.owner, 
                     { isLimitOrder = true; }, 
@@ -1121,13 +1121,11 @@ shared (initMsg) actor class SwapPool(
     };
 
     private func _pushSwapInfoCache(txIndex: Nat) : () {
-        var poolCid : Text = Principal.toText(_getCanisterId());
         let tx = _txState.getTransaction(txIndex);
         switch (tx) {
             case (null) { return };
             case (?tx) {
                 _swapRecordService.addRecord({
-                    txIndex = txIndex;
                     txInfo = tx;
                     currentLiquidity = _liquidity;
                     currentTick = _tick;
@@ -1579,12 +1577,10 @@ shared (initMsg) actor class SwapPool(
             // Check if there are unused tokens that need to be refunded
             if (amount0Desired.val() > addResult.amount0) {
                 let amount0Refund = amount0Desired.val() - addResult.amount0;
-                ignore _tokenHolderService.deposit(msg.caller, _token0, amount0Refund);
                 ignore _refund<system>(_token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount0Refund, token0Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
             };
             if (amount1Desired.val() > addResult.amount1) {
                 let amount1Refund = amount1Desired.val() - addResult.amount1;
-                ignore _tokenHolderService.deposit(msg.caller, _token1, amount1Refund);
                 ignore _refund<system>(_token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount1Refund, token1Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
             };
 
@@ -1654,7 +1650,7 @@ shared (initMsg) actor class SwapPool(
                 if (value.userPositionId == positionId) {
                     isPositionExisted := true;
                     _upperLimitOrders.delete(key);
-                    _txState.removeLimitOrderDeleted(txIndex);
+                    _txState.removeLimitOrderDeleted(txIndex, value.token0InAmount, value.token1InAmount, key.tickLimit);
                     break ul;
                 };
             };
@@ -1664,7 +1660,7 @@ shared (initMsg) actor class SwapPool(
                 if (value.userPositionId == positionId) {
                     isPositionExisted := true;
                     _lowerLimitOrders.delete(key);
-                    _txState.removeLimitOrderDeleted(txIndex);
+                    _txState.removeLimitOrderDeleted(txIndex, value.token0InAmount, value.token1InAmount, key.tickLimit);
                     break ll;
                 };
             };
@@ -1771,12 +1767,10 @@ shared (initMsg) actor class SwapPool(
             // Check if there are unused tokens that need to be refunded
             if (amount0Desired.val() > addResult.amount0) {
                 let amount0Refund = amount0Desired.val() - addResult.amount0;
-                ignore _tokenHolderService.deposit(msg.caller, _token0, amount0Refund);
                 ignore _refund<system>(_token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount0Refund, token0Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
             };
             if (amount1Desired.val() > addResult.amount1) {
                 let amount1Refund = amount1Desired.val() - addResult.amount1;
-                ignore _tokenHolderService.deposit(msg.caller, _token1, amount1Refund);
                 ignore _refund<system>(_token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount1Refund, token1Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
             };
             ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
