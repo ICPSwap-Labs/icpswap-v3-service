@@ -28,5 +28,6 @@
   },
   "defaults": { "build": { "packtool": "vessel sources" } },
   "networks": { "local": { "bind": "127.0.0.1:8000", "type": "ephemeral" } },
-  "version": 1
+  "version": 1,
+  "dfx": "0.24.3"
 }
