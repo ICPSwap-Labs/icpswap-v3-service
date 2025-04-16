@@ -5,7 +5,7 @@ import Text "mo:base/Text";
 import Blob "mo:base/Blob";
 
 module {
-    public func start(token: Principal, from: Types.Account, to: Types.Account, amount: Nat, fee: Nat, memo: ?Blob, failedIndex: Nat): Types.RefundInfo {
+    public func start(token: Principal, from: Types.Account, to: Types.Account, amount: Nat, fee: Nat, memo: ?Blob, failedIndex: Nat, standard: Text): Types.RefundInfo {
         return {
             status = #Created;
             transfer = {
@@ -16,6 +16,7 @@ module {
                 fee = fee;
                 memo = memo;
                 index = 0;
+                standard = standard;
             };
             failedIndex = failedIndex;
             err = null;

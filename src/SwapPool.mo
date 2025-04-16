@@ -224,11 +224,11 @@ shared (initMsg) actor class SwapPool(
                         let from = { owner = _getCanisterId(); subaccount = null; };
                         let to = { owner = value.owner; subaccount = null; };
                         if (res.amount0 > _token0Fee) {
-                            let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken0Principal(), from, to, res.amount0, _token0Fee);
+                            let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken0Principal(), from, to, res.amount0, _token0Fee, _token0.standard);
                             ignore await _withdraw(txIndex, _token0, _token0Act, value.owner, from, to, res.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
                         };
                         if (res.amount1 > _token1Fee) {
-                            let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken1Principal(), from, to, res.amount1, _token1Fee);
+                            let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken1Principal(), from, to, res.amount1, _token1Fee, _token1.standard);
                             ignore await _withdraw(txIndex, _token1, _token1Act, value.owner, from, to, res.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
                         };
                         ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
@@ -759,7 +759,7 @@ shared (initMsg) actor class SwapPool(
         };
 
         if (amount <= fee) { return #err(#InternalError("Amount less than fee")); };
-        let txIndex = _txState.startRefund(caller, _getCanisterId(), Principal.fromText(token.address), from, to, amount, fee, failedIndex);
+        let txIndex = _txState.startRefund(caller, _getCanisterId(), Principal.fromText(token.address), from, to, amount, fee, failedIndex, token.standard);
 
         if (_tokenHolderService.withdraw(to.owner, token, amount)) {
             _txState.refundCredited(txIndex);
@@ -1166,7 +1166,7 @@ shared (initMsg) actor class SwapPool(
         let from = { owner = canisterId; subaccount = subaccount; };
         let to = { owner = canisterId; subaccount = null }; 
 
-        let txIndex = _txState.startDeposit(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee);
+        let txIndex = _txState.startDeposit(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee, token.standard);
         return await _deposit(txIndex, token, tokenAct, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
     };
 
@@ -1190,7 +1190,7 @@ shared (initMsg) actor class SwapPool(
         let to = { owner = canisterId; subaccount = null }; 
         let amount = args.amount;
 
-        let txIndex = _txState.startDeposit(caller, canisterId, tokenPrincipal, from, to, amount, args.fee);
+        let txIndex = _txState.startDeposit(caller, canisterId, tokenPrincipal, from, to, amount, args.fee, token.standard);
         let memo = ?PoolUtils.natToBlob(txIndex);
         return await _depositFrom(txIndex, token, tokenAct, caller, from, to, amount, args.fee, memo);
     };
@@ -1217,7 +1217,7 @@ shared (initMsg) actor class SwapPool(
 
         let from = {owner = canisterId; subaccount = null;};
         let to = { owner = caller; subaccount = null }; 
-        let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee);
+        let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee, token.standard);
         return await _withdraw(txIndex, token,tokenAct, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
     };
     
@@ -1243,7 +1243,7 @@ shared (initMsg) actor class SwapPool(
         let from = {owner = canisterId; subaccount = null;};
         let to = { owner = caller; subaccount = ?args.subaccount }; 
 
-        let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee);
+        let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee, token.standard);
 
         return await _withdraw(txIndex, token, tokenAct, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
     };
@@ -1281,7 +1281,7 @@ shared (initMsg) actor class SwapPool(
 
         if (args.amount0 > 0) {
             if (args.amount0 > args.fee0) {
-                let txIndex = _txState.startDeposit(caller, canisterId, _getToken0Principal(), from, to, args.amount0, args.fee0);
+                let txIndex = _txState.startDeposit(caller, canisterId, _getToken0Principal(), from, to, args.amount0, args.fee0, _token0.standard);
                 let memo = ?PoolUtils.natToBlob(txIndex);
                 let result = await _deposit(txIndex, _token0, _token0Act, args.positionOwner, from, to, args.amount0, args.fee0, memo);
                 switch (result) {
@@ -1293,7 +1293,7 @@ shared (initMsg) actor class SwapPool(
 
         if (args.amount1 > 0) {
             if (args.amount1 > args.fee1) {
-                let txIndex = _txState.startDeposit(caller, canisterId, _getToken1Principal(), from, to, args.amount1, args.fee1);
+                let txIndex = _txState.startDeposit(caller, canisterId, _getToken1Principal(), from, to, args.amount1, args.fee1, _token1.standard);
                 let memo = ?PoolUtils.natToBlob(txIndex);
                 let result = await _deposit(txIndex, _token1, _token1Act, args.positionOwner, from, to, args.amount1, args.fee1, memo);
                 switch (result) {
@@ -1680,11 +1680,11 @@ shared (initMsg) actor class SwapPool(
                 _pushSwapInfoCache(_txState.removeLimitOrderCompleted(txIndex, result.amount0, result.amount1));
                 // auto withdraw
                 if(result.amount0 > _token0Fee){
-                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount0, _token0Fee);
+                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount0, _token0Fee, _token0.standard);
                     ignore await _withdraw(txIndex, _token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
                 };
                 if(result.amount1 > _token1Fee){
-                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount1, _token1Fee);
+                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount1, _token1Fee, _token1.standard);
                     ignore await _withdraw(txIndex, _token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
                 };
                 return #ok(true);
@@ -1799,11 +1799,11 @@ shared (initMsg) actor class SwapPool(
                 
                 // auto withdraw
                 if(res.amount0 > _token0Fee){
-                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount0, _token0Fee);
+                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount0, _token0Fee, _token0.standard);
                     ignore await _withdraw(txIndex, _token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
                 };
                 if(res.amount1 > _token1Fee){
-                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount1, _token1Fee);
+                    let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount1, _token1Fee, _token1.standard);
                     ignore await _withdraw(txIndex, _token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
                 };
             };
@@ -1844,11 +1844,11 @@ shared (initMsg) actor class SwapPool(
             
             // auto withdraw
             if(collectResult.amount0 > 0){
-                let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee);
+                let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee, _token0.standard);
                 ignore await _withdraw(txIndex, _token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
             };
             if(collectResult.amount1 > 0){
-                let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee);
+                let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee, _token1.standard);
                 ignore await _withdraw(txIndex, _token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
             };
         } catch (e) {
