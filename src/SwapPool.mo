@@ -223,13 +223,13 @@ shared (initMsg) actor class SwapPool(
                         _pushSwapInfoCache(_txState.executeLimitOrderCompleted(txIndex, res.amount0, res.amount1));
                         let from = { owner = _getCanisterId(); subaccount = null; };
                         let to = { owner = value.owner; subaccount = null; };
-                        if(res.amount0 > _token0Fee){
+                        if (res.amount0 > _token0Fee) {
                             let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken0Principal(), from, to, res.amount0, _token0Fee);
-                            ignore await _withdraw(txIndex, _token0, _token0Act, value.owner, from, to, res.amount0, _fee, ?PoolUtils.natToBlob(txIndex));
+                            ignore await _withdraw(txIndex, _token0, _token0Act, value.owner, from, to, res.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
                         };
-                        if(res.amount1 > _token1Fee){
+                        if (res.amount1 > _token1Fee) {
                             let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken1Principal(), from, to, res.amount1, _token1Fee);
-                            ignore await _withdraw(txIndex, _token1, _token1Act, value.owner, from, to, res.amount1, _fee, ?PoolUtils.natToBlob(txIndex));
+                            ignore await _withdraw(txIndex, _token1, _token1Act, value.owner, from, to, res.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
                         };
                         ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
                     };
