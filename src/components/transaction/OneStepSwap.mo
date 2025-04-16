@@ -25,6 +25,7 @@ module {
                     fee = amountInFee;
                     memo = null;
                     index = 0;
+                    standard = tokenIn.standard;
                 };
                 status = #Created;
                 err = null;
@@ -38,6 +39,7 @@ module {
                     fee = amountOutFee;
                     memo = null;
                     index = 0;
+                    standard = tokenOut.standard;
                 };
                 status = #Created;
                 err = null;

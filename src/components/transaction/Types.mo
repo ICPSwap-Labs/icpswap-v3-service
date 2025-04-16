@@ -122,6 +122,7 @@ module {
 
     public type Transfer = {
         token: Principal;
+        standard: Text;
         from: Account;
         to: Account;
         amount: Nat;

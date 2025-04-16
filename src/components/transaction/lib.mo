@@ -59,7 +59,7 @@ module {
         public func getTransactions(): [(Nat, Transaction)] { return Iter.toArray(transactions.entries()); };
         
         // --------------------------- deposit ------------------------------------
-        public func startDeposit(owner: Principal, canisterId: Principal, token: Principal, from: Account, to: Account, amount: Nat, fee: Nat): Nat {
+        public func startDeposit(owner: Principal, canisterId: Principal, token: Principal, from: Account, to: Account, amount: Nat, fee: Nat, standard: Text): Nat {
             let txId = getNextTxId();
             let memo = ?PoolUtils.natToBlob(txId);
             transactions.put(txId, {
@@ -67,7 +67,7 @@ module {
                 timestamp = Time.now();
                 owner = owner;
                 canisterId = canisterId;
-                action = #Deposit(Deposit.start(token, from, to, amount, fee, memo));
+                action = #Deposit(Deposit.start(token, from, to, amount, fee, memo, standard));
             });
             return txId;
         };
@@ -139,10 +139,10 @@ module {
         };
 
         // --------------------------- withdraw ------------------------------------
-        public func startWithdraw(owner: Principal, canisterId: Principal, token: Principal, from: Account, to: Account, amount: Nat, fee: Nat): Nat {
+        public func startWithdraw(owner: Principal, canisterId: Principal, token: Principal, from: Account, to: Account, amount: Nat, fee: Nat, standard: Text): Nat {
             let txId = getNextTxId();
             let memo = ?PoolUtils.natToBlob(txId);
-            let info = Withdraw.start(token, from, to, amount, fee, memo);
+            let info = Withdraw.start(token, from, to, amount, fee, memo, standard);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
@@ -227,10 +227,10 @@ module {
         };
 
         // --------------------------- refund ------------------------------------
-        public func startRefund(owner: Principal, canisterId: Principal, token: Principal, from: Account, to: Account, amount: Nat, fee: Nat, failedIndex: Nat): Nat {
+        public func startRefund(owner: Principal, canisterId: Principal, token: Principal, from: Account, to: Account, amount: Nat, fee: Nat, failedIndex: Nat, standard: Text): Nat {
             let txId = getNextTxId();
             let memo = ?PoolUtils.natToBlob(txId);
-            let info = Refund.start(token, from, to, amount, fee, memo, failedIndex);
+            let info = Refund.start(token, from, to, amount, fee, memo, failedIndex, standard);
             transactions.put(txId, {
                 id = txId;
                 timestamp = Time.now();
