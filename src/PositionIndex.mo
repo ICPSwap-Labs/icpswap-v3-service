@@ -10,7 +10,7 @@ import Iter "mo:base/Iter";
 import Result "mo:base/Result";
 import Bool "mo:base/Bool";
 import Prim "mo:⛔";
-
+import Error "mo:base/Error";
 import ListUtils "mo:commons/utils/ListUtils";
 import CollectionUtils "mo:commons/utils/CollectionUtils";
 import PrincipalUtils "mo:commons/utils/PrincipalUtils";
@@ -136,10 +136,11 @@ shared (initMsg) actor class PositionIndex(
         "https://nfid.one",
         "https://dev.nfid.one",
         "https://app.icpswap.com",
-        "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io"
+        "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io",
+        "https://oisy.com"
     ];
     public shared(msg) func setIcrc28TrustedOrigins(origins: [Text]) : async Result.Result<Bool, ()> {
-        assert(Prim.isController(msg.caller));
+        _checkAdminPermission(msg.caller);
         _icrc28_trusted_origins := origins;
         return #ok(true);
     };
@@ -151,6 +152,43 @@ shared (initMsg) actor class PositionIndex(
     };
     public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
         return ICRC21.icrc21_canister_call_consent_message(request);
+    };
+
+    // --------------------------- ACL ------------------------------------
+
+    private stable var _admins : [Principal] = [];
+    public shared (msg) func setAdmins(admins : [Principal]) : async () {
+        _checkPermission(msg.caller);
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) {
+                throw Error.reject("Anonymous principals cannot be pool admins");
+            };
+        };
+        _admins := admins;
+    };
+    public shared (msg) func setAdminsValidate(admins : [Principal]) : async { #Ok : Text; #Err : Text; } {
+        _checkPermission(msg.caller);
+        // Check for anonymous principals
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) {
+                return #Err("Anonymous principals cannot be pool admins");
+            };
+        };
+        return #Ok(debug_show (admins));
+    };
+
+    public query func getAdmins(): async [Principal] {
+        return _admins;
+    };
+    private func _checkAdminPermission(caller: Principal) {
+        assert(not Principal.isAnonymous(caller));
+        assert(CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller));
+    };
+    private func _checkPermission(caller : Principal) {
+        assert(_hasPermission(caller));
+    };
+    private func _hasPermission(caller: Principal): Bool {
+        return Prim.isController(caller);
     };
 
     // --------------------------- Version Control ------------------------------------

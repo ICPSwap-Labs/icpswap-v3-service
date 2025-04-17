@@ -2625,7 +2625,8 @@ shared (initMsg) actor class SwapPool(
         "https://nfid.one",
         "https://dev.nfid.one",
         "https://app.icpswap.com",
-        "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io"
+        "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io",
+        "https://oisy.com"
     ];
     public shared(msg) func setIcrc28TrustedOrigins(origins: [Text]) : async Result.Result<Bool, ()> {
         _assertAccessible(msg.caller);

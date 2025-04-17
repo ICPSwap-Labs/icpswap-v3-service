@@ -254,10 +254,11 @@ shared (initMsg) actor class SwapFactory(
         "https://nfid.one",
         "https://dev.nfid.one",
         "https://app.icpswap.com",
-        "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io"
+        "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io",
+        "https://oisy.com"
     ];
     public shared(msg) func setIcrc28TrustedOrigins(origins: [Text]) : async Result.Result<Bool, Types.Error> {
-        _checkPermission(msg.caller);
+        _checkAdminPermission(msg.caller);
         _icrc28_trusted_origins := origins;
         return #ok(true);
     };
