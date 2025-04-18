@@ -14,10 +14,10 @@ The code is written in Motoko and developed in the DFINITY command-line executio
 
 ## Local Testing
 
-Run the `test.sh` script to see how the whole swap process is working.
+Run the `test-data-accuracy.sh` script to see how the whole swap process is working.
 
 ```bash
-sh test.sh
+sh test-data-accuracy.sh
 ```
 
 In the script, we use some external canisters to make the whole swap process run.
@@ -37,7 +37,7 @@ Tool canister:
 
 Regarding these canisters, only the data collection canisters are self-developed by ICPSwap, the rest can be found in the current project, or other projects that have been open-sourced in IC ecosystem. We have a plan to open source this part of the code later, for now, please use the compiled wasm and did files in the current project.
 
-When running the `test.sh` script for the first time, a balance check error occurs after the 'step 10 decrease' step. That's because in ICPSwap, when the user withdraws the swap fee, 20% of the fee is kept in the SwapPool, but the check data in the test script doesn't include this difference. 
+When running the `test-data-accuracy.sh` script for the first time, a balance check error occurs after the 'step 10 decrease' step. That's because in ICPSwap, when the user withdraws the swap fee, 20% of the fee is kept in the SwapPool, but the check data in the test script doesn't include this difference. 
 
 So we can find the function *_distributeFee* in SwapPool.mo.
 
