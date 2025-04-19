@@ -617,8 +617,7 @@ shared (initMsg) actor class SwapPool(
 
     private func _deposit(txIndex: Nat, token: Types.Token, tokenAct: TokenAdapterTypes.TokenAdapter, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : async Result.Result<Nat, Types.Error> {
         func __deposit(): async Result.Result<Nat, Types.Error> {
-            // let amountDeposit = Nat.sub(amount, fee);
-            let amountDeposit = amount;
+            let amountDeposit = Nat.sub(amount, fee);
             switch (await tokenAct.transfer({from = from; from_subaccount = from.subaccount; to = to; amount = amountDeposit; fee = ?fee; memo = memo; created_at_time = null })) {
                 case (#Ok(index)) {
                     switch (_txState.getTransaction(txIndex)) {
