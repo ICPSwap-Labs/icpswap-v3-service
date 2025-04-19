@@ -155,10 +155,10 @@ fi
 token0Standard="ICRC1"
 token1Standard="ICRC2"
 echo "======================================="
-echo "=== token0: $token0"
-echo "=== token1: $token1"
-echo "=== token0Standard: $token0Standard"
-echo "=== token1Standard: $token1Standard"
+echo "== token0: $token0"
+echo "== token1: $token1"
+echo "== token0Standard: $token0Standard"
+echo "== token1Standard: $token1Standard"
 echo "======================================="
 
 subaccount=$(dfx canister call Test getSubaccount | grep -o 'blob "[^"]*"' | sed 's/blob "//;s/"//')
@@ -197,14 +197,14 @@ function create_pool() #sqrtPriceX96
 }
 
 function deposit() # token tokenAmount
-{   
+{
     echo "==> deposit: transfer to subaccount"
     result=`dfx canister call $1 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = $2:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"`
-    echo "deposit transfer result: $result"
+    subaccountBalance=`balanceOf $1 $poolId $MINTER_PRINCIPAL`
+    echo "subaccount balance: $subaccountBalance"
     
     depositAmount=$2
-    depositAmount=$((depositAmount - TRANS_FEE))
-    # echo "deposit amount: $depositAmount"
+    echo "deposit amount: $depositAmount"
 
     echo "==> pool deposit"
     result=`dfx canister call $poolId deposit "(record {token = \"$1\"; amount = $depositAmount: nat; fee = $TRANS_FEE: nat; })"`
@@ -252,7 +252,7 @@ function withdrawAll() #token amount
 
 function swap() #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96  token0BalanceAmount token1BalanceAmount zeroForOne
 {
-    echo "=== swap... ==="
+    echo "== swap... =="
     if [[ "$1" =~ "$token0" ]]; then
         result=`dfx canister call $poolId swap "(record { zeroForOne = true; amountIn = \"$2\"; amountOutMinimum = \"$3\"; })"`
     else
@@ -261,15 +261,15 @@ function swap() #depositToken depositAmount amountIn amountOutMinimum ### liquid
     echo "\033[32m swap success: $result \033[0m"
 }
 
-function oneStepSwap() #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96  token0BalanceAmount token1BalanceAmount zeroForOne
+function oneStepSwap()
 {
-    echo "=== swap... ==="
+    echo "== oneStepSwap... =="
     if [[ "$1" =~ "$token0" ]]; then
-        result=`dfx canister call $poolId depositFromAndSwap "(record { zeroForOne = true; amountIn = \"$3\"; amountOutMinimum = \"$4\"; tokenInFee = $TRANS_FEE: nat; tokenOutFee = $TRANS_FEE: nat; })"`
+        result=`dfx canister call $poolId depositAndSwap "(record { zeroForOne = true; amountIn = \"$2\"; amountOutMinimum = \"$3\"; tokenInFee = $TRANS_FEE: nat; tokenOutFee = $TRANS_FEE: nat; })"`
     else
-        result=`dfx canister call $poolId depositFromAndSwap "(record { zeroForOne = false; amountIn = \"$3\"; amountOutMinimum = \"$4\"; tokenInFee = $TRANS_FEE: nat; tokenOutFee = $TRANS_FEE: nat; })"`
+        result=`dfx canister call $poolId depositFromAndSwap "(record { zeroForOne = false; amountIn = \"$2\"; amountOutMinimum = \"$3\"; tokenInFee = $TRANS_FEE: nat; tokenOutFee = $TRANS_FEE: nat; })"`
     fi
-    echo "\033[32m swap success. \033[0m"
+    echo "\033[32m oneStepSwap success: $result \033[0m"
 }
 
 function checkUnusedBalance(){
@@ -309,8 +309,16 @@ function testBizFlow()
     deposit $token0 10000000000
     depositFrom $token1 10000000000
 
+    echo "==> step 1.1 balanceOf"
+    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+
+    checkUnusedBalance
+
     echo "==> step 2 withdraw all"
     withdrawAll
+
+    echo "==> step 2.1 balanceOf"
+    balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
     checkUnusedBalance
 
@@ -318,10 +326,13 @@ function testBizFlow()
     deposit $token0 100000000000
     depositFrom $token1 100000000000
     
+    echo "==> step 3.1 balanceOf"
+    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+
     checkUnusedBalance
 
     # tickLower tickUpper amount0Desired amount1Desired
-    mint -887220 887220 99800000000 100000000000 
+    mint -887220 887220 99900000000 100000000000 
 
     checkUnusedBalance
 
@@ -333,21 +344,37 @@ function testBizFlow()
       deposit $token0 1000000000
       depositFrom $token1 1000000000
       # current tick 24850
-      mint 24900 36060 800000000 1000000000 
+      mint 24900 36060 900000000 1000000000 
 
       dfx canister call $poolId addLimitOrder "(record { positionId = $positionId :nat; tickLimit = 36060 :int; })"
     done
 
+    echo "==> step 4.1 balanceOf"
+    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+
+    checkUnusedBalance
+
     echo "==> step 5 remove limit order"
     dfx canister call $poolId removeLimitOrder "(2:nat)"
 
-    echo "==> step 6 swap"
+    echo "==> step 6 swap 1->0"
     depositFrom $token1 200000000000
     swap $token1 200000000000 0
     withdrawAll
 
     checkUnusedBalance
 
+    echo "==> step 7 swap 0->1"
+    quote=`dfx canister call $poolId quote "(record { zeroForOne = true; amountIn = \"99900000000\"; amountOutMinimum = \"0\"; })" | sed 's/.*ok = \([0-9_]*\).*/\1/' | tr -d '_'`
+    echo "quote result: $quote"
+
+    result=`dfx canister call $token0 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = 100000000000:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"`
+    oneStepSwap $token0 100000000000 $quote
+
+    echo "==> step 7.1 balanceOf"
+    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+
+    checkUnusedBalance
 };
 
 testBizFlow
