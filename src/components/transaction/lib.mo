@@ -427,6 +427,31 @@ module {
             txId
         };
 
+        // --------------------------- create completed decrease liquidity ------------------------------------
+        public func createCompletedDecreaseLiquidity(
+            owner: Principal, 
+            canisterId: Principal, 
+            positionId: Nat, 
+            token0: Token, 
+            token1: Token, 
+            liquidity: Nat,
+            amount0: Nat,
+            amount1: Nat
+        ): Nat {
+            let txId = getNextTxId();
+            let info = DecreaseLiquidity.start(positionId, token0, token1, liquidity);
+            let completedInfo = DecreaseLiquidity.process(info);
+            let finalInfo = { completedInfo with amount0 = amount0; amount1 = amount1; };
+            transactions.put(txId, {
+                id = txId;
+                timestamp = Time.now();
+                owner = owner;
+                canisterId = canisterId;
+                action = #DecreaseLiquidity(finalInfo);
+            });
+            return txId;
+        };
+
         // --------------------------- claim ------------------------------------
         public func startClaim(owner: Principal, canisterId: Principal, positionId: Nat, token0: Token, token1: Token): Nat {
             let txId = getNextTxId();

@@ -221,6 +221,7 @@ shared (initMsg) actor class SwapPool(
                 switch (result) {
                     case (#ok(res)) {
                         _pushSwapInfoCache(_txState.executeLimitOrderCompleted(txIndex, res.amount0, res.amount1));
+                        _pushSwapInfoCache(_txState.createCompletedDecreaseLiquidity(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), userPositionInfo.liquidity, res.amount0, res.amount1));
                         let from = { owner = _getCanisterId(); subaccount = null; };
                         let to = { owner = value.owner; subaccount = null; };
                         if (res.amount0 > _token0Fee) {
@@ -1470,7 +1471,8 @@ shared (initMsg) actor class SwapPool(
         let depositTo = { owner = canisterId; subaccount = null };
         let memo = ?PoolUtils.natToBlob(txIndex);
         
-        switch(await _deposit(txIndex, tokenIn, tokenInAct, caller, depositFrom, depositTo, amountIn, feeIn, memo)) {
+        let amountInDeposit: Nat = amountIn + feeIn;
+        switch(await _deposit(txIndex, tokenIn, tokenInAct, caller, depositFrom, depositTo, amountInDeposit, feeIn, memo)) {
             case (#ok(depositAmount)) {
                 let swapArgs = { amountIn = Nat.toText(depositAmount); amountOutMinimum = args.amountOutMinimum; zeroForOne = args.zeroForOne; };
                 // If slippage is over range, refund the token
@@ -1678,6 +1680,7 @@ shared (initMsg) actor class SwapPool(
         )) {
             case (#ok(result)) {
                 _pushSwapInfoCache(_txState.removeLimitOrderCompleted(txIndex, result.amount0, result.amount1));
+                _pushSwapInfoCache(_txState.createCompletedDecreaseLiquidity(msg.caller, _getCanisterId(), positionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), userPositionInfo.liquidity, result.amount0, result.amount1));
                 // auto withdraw
                 if(result.amount0 > _token0Fee){
                     let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount0, _token0Fee, _token0.standard);
