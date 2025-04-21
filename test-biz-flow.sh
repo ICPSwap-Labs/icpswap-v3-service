@@ -309,7 +309,7 @@ function testBizFlow()
     deposit $token0 10000000000
     depositFrom $token1 10000000000
 
-    echo "==> step 1.1 balanceOf"
+    echo "==> step 1.1 balanceOf subaccount"
     balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
     checkUnusedBalance
@@ -317,7 +317,7 @@ function testBizFlow()
     echo "==> step 2 withdraw all"
     withdrawAll
 
-    echo "==> step 2.1 balanceOf"
+    echo "==> step 2.1 balanceOf subaccount"
     balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
     checkUnusedBalance
@@ -326,7 +326,7 @@ function testBizFlow()
     deposit $token0 100000000000
     depositFrom $token1 100000000000
     
-    echo "==> step 3.1 balanceOf"
+    echo "==> step 3.1 balanceOf subaccount"
     balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
     checkUnusedBalance
@@ -349,7 +349,7 @@ function testBizFlow()
       dfx canister call $poolId addLimitOrder "(record { positionId = $positionId :nat; tickLimit = 36060 :int; })"
     done
 
-    echo "==> step 4.1 balanceOf"
+    echo "==> step 4.1 balanceOf subaccount"
     balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
     checkUnusedBalance
@@ -365,13 +365,13 @@ function testBizFlow()
     checkUnusedBalance
 
     echo "==> step 7 swap 0->1"
-    quote=`dfx canister call $poolId quote "(record { zeroForOne = true; amountIn = \"99900000000\"; amountOutMinimum = \"0\"; })" | sed 's/.*ok = \([0-9_]*\).*/\1/' | tr -d '_'`
+    quote=`dfx canister call $poolId quote "(record { zeroForOne = true; amountIn = \"100000000000\"; amountOutMinimum = \"0\"; })" | sed 's/.*ok = \([0-9_]*\).*/\1/' | tr -d '_'`
     echo "quote result: $quote"
 
-    result=`dfx canister call $token0 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = 100000000000:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"`
+    result=`dfx canister call $token0 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = 100100000000:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"`
     oneStepSwap $token0 100000000000 $quote
 
-    echo "==> step 7.1 balanceOf"
+    echo "==> step 7.1 balanceOf subaccount"
     balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
     checkUnusedBalance
@@ -379,7 +379,7 @@ function testBizFlow()
 
 testBizFlow
 
-sleep 300
+sleep 600
 
 dfx stop
 mv dfx.json.bak dfx.json
