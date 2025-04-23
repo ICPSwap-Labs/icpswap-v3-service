@@ -5,11 +5,11 @@ import Types "./Types";
 import IC0Utils "mo:commons/utils/IC0Utils";
 import SwapPool "./SwapPool";
 import Prim "mo:⛔";
-import Debug "mo:base/Debug";
 
 actor class SwapPoolInstaller(
     factoryId: Principal,
-    governanceId: Principal
+    governanceId: Principal,
+    positionIndexCid: Principal
 ) = this {
     public type Error = {
         #Unauthorized;
@@ -25,13 +25,14 @@ actor class SwapPoolInstaller(
         token1: Types.Token, 
         infoCid: Principal, 
         feeReceiverCid: Principal, 
-        trustedCanisterManagerCid: Principal
+        trustedCanisterManagerCid: Principal,
+        positionIndexCid: Principal
     ) : async Principal {
         assert (_hasPermission(caller));
         let createCanisterResult = await IC0Utils.create_canister(null, null, _initCycles);
         let canisterId = createCanisterResult.canister_id;
         await IC0Utils.deposit_cycles(canisterId, _initTopUpCycles);
-        let _ = await (system SwapPool.SwapPool)(#install canisterId)(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+        let _ = await (system SwapPool.SwapPool)(#install canisterId)(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
         await IC0Utils.update_settings_add_controller(canisterId, [factoryId, governanceId]);
         return canisterId;
     };
@@ -46,10 +47,11 @@ actor class SwapPoolInstaller(
         };
     };
 
-    public query func getInitArgs() : async Result.Result<{ factoryId: Principal; governanceId: Principal; }, Types.Error> {
+    public query func getInitArgs() : async Result.Result<{ factoryId: Principal; governanceId: Principal; positionIndexCid: Principal; }, Types.Error> {
         return #ok({
             factoryId = factoryId;
             governanceId = governanceId;
+            positionIndexCid = positionIndexCid;
         });
     };
 
@@ -61,7 +63,7 @@ actor class SwapPoolInstaller(
     };
     
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.5.8";
+    private var _version : Text = "3.6.0";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {

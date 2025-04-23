@@ -60,6 +60,7 @@ shared (initMsg) actor class SwapPool(
     infoCid : Principal,
     feeReceiverCid : Principal,
     trustedCanisterManagerCid : Principal,
+    positionIndexCid : Principal
 ) = this {
 
     private stable var _inited : Bool = false;
@@ -142,7 +143,8 @@ shared (initMsg) actor class SwapPool(
     private var _token0Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token0.address, _token0.standard);
     private var _token1Act : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(_token1.address, _token1.standard);
     private let _trustAct = actor (Principal.toText(trustedCanisterManagerCid)) : actor { isCanisterTrusted : shared query (Principal) -> async Bool; };
-
+    private let _positionIndexAct = actor (Principal.toText(positionIndexCid)) : Types.PositionIndexActor;
+    
     // --------------------------- limit order ------------------------------------
     private stable var _isLimitOrderAvailable = true;
     public shared (msg) func setLimitOrderAvailable(available : Bool) : async () {
@@ -352,6 +354,11 @@ shared (initMsg) actor class SwapPool(
     private func _checkUserPositionLimit() : Bool {
         if (_positionTickService.getUserPositions().size() >= _positionLimit) { return false; };
         return true;
+    };
+
+    private func _hasUserPosition(owner: Principal) : Bool {
+        let positionIds = _positionTickService.getUserPositionIdsByOwner(PrincipalUtils.toAddress(owner));
+        return positionIds.size() > 0;
     };
 
     private func _getCanisterId() : Principal {
@@ -1586,6 +1593,7 @@ shared (initMsg) actor class SwapPool(
                 ignore _refund<system>(_token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, amount1Refund, token1Fee, ?PoolUtils.natToBlob(txIndex), txIndex);
             };
 
+            ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { ignore await _positionIndexAct.addPoolToUser(msg.caller); });
             ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
             return #ok(positionId);
         } catch (e) {
@@ -1812,7 +1820,8 @@ shared (initMsg) actor class SwapPool(
             };
             case (#err(err)) { ignore _txState.decreaseLiquidityFailed(txIndex, debug_show(err)); };
         };
-        
+
+        ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { if (not _hasUserPosition(msg.caller)) { ignore await _positionIndexAct.removePoolFromUser(msg.caller); } });
         ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
         return result;
     };
@@ -1945,6 +1954,13 @@ shared (initMsg) actor class SwapPool(
                     _positionTickService.deleteAllowancedUserPosition(positionId);
 
                     _pushSwapInfoCache(_txState.transferPositionCompleted(txIndex));
+                    
+                    // Update the user pool cache
+                    ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { 
+                        if (not _hasUserPosition(from)) { ignore await _positionIndexAct.updateUserPool(to, ?from); } 
+                        else { ignore await _positionIndexAct.updateUserPool(to, null); }; 
+                    });
+                    // Active the jobs
                     ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { _jobService.onActivity<system>(); });
                     return #ok(true);
                 } else {
@@ -2429,6 +2445,7 @@ shared (initMsg) actor class SwapPool(
         infoCid : Principal;
         feeReceiverCid : Principal;
         trustedCanisterManagerCid : Principal;
+        positionIndexCid : Principal;
     }, Types.Error> {
         return #ok({
             token0 = token0;
@@ -2436,6 +2453,7 @@ shared (initMsg) actor class SwapPool(
             infoCid = infoCid;
             feeReceiverCid = feeReceiverCid;
             trustedCanisterManagerCid = trustedCanisterManagerCid;
+            positionIndexCid = positionIndexCid;
         });
     };
 

@@ -57,9 +57,9 @@ module UpgradeTask {
         };
     };
 
-    public func stepUpgrade(task: Types.PoolUpgradeTask, infoCid : Principal, feeReceiverCid : Principal, trustedCanisterManagerCid : Principal,) : async Types.PoolUpgradeTask {
+    public func stepUpgrade(task: Types.PoolUpgradeTask, infoCid : Principal, feeReceiverCid : Principal, trustedCanisterManagerCid : Principal, positionIndexCid : Principal) : async Types.PoolUpgradeTask {
         let oldPool = actor (Principal.toText(task.poolData.canisterId)) : actor {};
-        let _ = await (system SwapPool.SwapPool)(#upgrade oldPool)(task.poolData.token0, task.poolData.token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+        let _ = await (system SwapPool.SwapPool)(#upgrade oldPool)(task.poolData.token0, task.poolData.token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
         // for testing
         // let _ = await (system SwapPoolTest.SwapPoolTest)(#upgrade oldPool)(task.poolData.token0, task.poolData.token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
         {
