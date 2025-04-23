@@ -583,7 +583,13 @@ module {
         removeBackupData : (Principal) -> async Result.Result<(), Error>;
     };
     public type SwapPoolInstaller = actor {
-        install : (Token, Token, Principal, Principal, Principal) -> async Principal;
+        install : (Token, Token, Principal, Principal, Principal, Principal) -> async Principal;
         getCycleInfo : () -> async Result.Result<CycleInfo, Error>;
+    };
+    public type PositionIndexActor = actor {
+        updatePoolIds : () -> async ();
+        updateUserPool : (Principal, ?Principal) -> async Result.Result<Bool, Error>;
+        addPoolToUser : (Principal) -> async Result.Result<Bool, Error>;
+        removePoolFromUser : (Principal) -> async Result.Result<Bool, Error>;
     };
 };
