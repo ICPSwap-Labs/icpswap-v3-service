@@ -112,7 +112,7 @@ dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx ca
 echo "==> install SwapDataBackup"
 dfx canister install SwapDataBackup --argument="(principal \"$(dfx canister id SwapFactory)\", null)"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", opt principal \"$MINTER_PRINCIPAL\")"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", opt principal \"$MINTER_PRINCIPAL\", principal \"$(dfx canister id PositionIndex)\")"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
@@ -130,7 +130,7 @@ echo "==> positionIndexId (\"$positionIndexId\")"
 echo "==> swapFeeReceiverId (\"$swapFeeReceiverId\")"
 
 echo "==> install SwapPoolInstaller"
-dfx deploy SwapPoolInstaller --argument="(principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id SwapFactory)\")"
+dfx deploy SwapPoolInstaller --argument="(principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id PositionIndex)\")"
 # dfx canister status SwapPoolInstaller
 dfx canister update-settings SwapPoolInstaller --add-controller "$swapFactoryId"
 dfx canister update-settings SwapPoolInstaller --remove-controller "$MINTER_WALLET"
@@ -142,6 +142,11 @@ dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = prin
 dfx canister call SwapFactory removePoolInstaller "(principal \"$(dfx canister id SwapPoolInstaller)\")" 
 dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})" 
 # dfx canister call SwapFactory getPoolInstallers
+
+testAccount=`dfx canister call Test getAccount "(principal \"$testId\")" | sed 's/[()]//g' | sed 's/"//g'`
+echo "testAccount: $testAccount"
+currentAccount=`dfx canister call Test getAccount "(principal \"$MINTER_PRINCIPAL\")" | sed 's/[()]//g' | sed 's/"//g'`
+echo "currentAccount: $currentAccount"
 
 dfx canister call base_index addClient "(principal \"$swapFactoryId\")"
 
@@ -190,7 +195,7 @@ function create_pool() #sqrtPriceX96
     # dfx canister call $tokenAId approve "(principal \"$poolId\", $TOTAL_SUPPLY)"
     dfx canister call $token1 icrc2_approve "(record{amount=$TOTAL_SUPPLY;created_at_time=null;expected_allowance=null;expires_at=null;fee=opt $TRANS_FEE;from_subaccount=null;memo=null;spender=record {owner= principal \"$poolId\";subaccount=null;}})"
 
-    dfx canister call PositionIndex updatePoolIds 
+    # dfx canister call PositionIndex updatePoolIds 
     
     dfx canister call PasscodeManager transferValidate "(principal \"$poolId\", 100000000)"
     dfx canister call PasscodeManager transfer "(principal \"$poolId\", 100000000)"
@@ -224,7 +229,7 @@ function mint(){ #tickLower tickUpper amount0Desired amount1Desired
     result=`dfx canister call $poolId mint "(record { token0 = \"$token0\"; token1 = \"$token1\"; fee = 3000: nat; tickLower = $1: int; tickUpper = $2: int; amount0Desired = \"$3\"; amount1Desired = \"$4\"; })"`
     echo "\033[32m mint success: $result \033[0m"
 
-    dfx canister call PositionIndex addPoolId "(\"$poolId\")"
+    # dfx canister call PositionIndex addPoolId "(\"$poolId\")"
 }
 
 function withdrawAll() #token amount
@@ -375,6 +380,26 @@ function testBizFlow()
     balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
     checkUnusedBalance
+
+    echo "==> step 8 transfer position"
+
+    echo "==> step 8.1 position index data"
+    testPools=`dfx canister call PositionIndex getUserPools "(\"$testAccount\")"`
+    echo "testPools: $testPools"
+    currentPools=`dfx canister call PositionIndex getUserPools "(\"$currentAccount\")"`
+    echo "currentPools: $currentPools"
+
+    echo "==> step 8.2 transfer position"
+    dfx canister call $poolId transferPosition "(principal \"$MINTER_PRINCIPAL\", principal \"$testId\", 1:nat)"
+
+    sleep 5
+
+    echo "==> step 8.3 position index data"
+    testPools=`dfx canister call PositionIndex getUserPools "(\"$testAccount\")"`
+    echo "testPools: $testPools"
+    currentPools=`dfx canister call PositionIndex getUserPools "(\"$currentAccount\")"`
+    echo "currentPools: $currentPools"
+    
 };
 
 testBizFlow
