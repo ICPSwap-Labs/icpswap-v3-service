@@ -14,23 +14,6 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
 
     private var _factoryAct = actor (Principal.toText(factoryCid)) : Types.SwapFactoryActor;
 
-    public shared ({ caller }) func clearRemovedPoolValidate(canisterId : Principal) : async Result {
-        assert (Principal.equal(caller, governanceCid));
-        switch (await _factoryAct.getRemovedPools()) {
-            case (#ok(pools)) {
-                for (it in pools.vals()) {
-                    if (Principal.equal(canisterId, it.canisterId)) {
-                        return #Ok(debug_show (canisterId));
-                    };
-                };
-                return #Err(Principal.toText(canisterId) # " doesn't exist.");
-            };
-            case (#err(msg)) {
-                return #Err(debug_show (msg));
-            };
-        };
-    };
-
     public shared ({ caller }) func batchClearRemovedPoolValidate(poolCids : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _factoryAct.getRemovedPools()) {
@@ -45,18 +28,6 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
                     if (not existingFlag) { return #Err(Principal.toText(poolCid) # " doesn't exist."); };
                 };
                 return #Ok(debug_show (poolCids));
-            };
-            case (#err(msg)) {
-                return #Err(debug_show (msg));
-            };
-        };
-    };
-
-    public shared ({ caller }) func removePoolValidate(args : Types.GetPoolArgs) : async Result {
-        assert (Principal.equal(caller, governanceCid));
-        switch (await _factoryAct.getPool(args)) {
-            case (#ok(_)) {
-                return #Ok(debug_show (args));
             };
             case (#err(msg)) {
                 return #Err(debug_show (msg));
@@ -85,82 +56,6 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         };
     };
 
-    public shared ({ caller }) func upgradePoolTokenStandardValidate(poolCid : Principal, tokenCid : Principal) : async Result {
-        assert (Principal.equal(caller, governanceCid));
-        if (not (await _checkPool(poolCid))) {
-            return #Err(Principal.toText(poolCid) # " doesn't exist.");
-        };
-        var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
-        switch (await poolAct.metadata()) {
-            case (#ok(metadata)) {
-                let token = if (Text.equal(Principal.toText(tokenCid), metadata.token0.address)) {
-                    metadata.token0;
-                } else if (Text.equal(Principal.toText(tokenCid), metadata.token1.address)) {
-                    metadata.token1;
-                } else {
-                    return #Err("Token not found in pool");
-                };
-                let tokenAct = actor (token.address) : actor {
-                    icrc1_supported_standards : query () -> async [{
-                        url : Text;
-                        name : Text;
-                    }];
-                };
-                try {
-                    var supportStandards = await tokenAct.icrc1_supported_standards();
-                    var isICRC2Supported = false;
-                    label l {
-                        for (supportStandard in supportStandards.vals()) {
-                            if (Text.equal("ICRC-2", supportStandard.name)) {
-                                isICRC2Supported := true;
-                                break l;
-                            };
-                        };
-                    };
-                    if (isICRC2Supported) {
-                        return #Ok(debug_show (poolCid) # ", " # debug_show (tokenCid));
-                    } else {
-                        return #Err("Check icrc1_supported_standards failed");
-                    };
-                } catch (e) {
-                    return #Err("Get icrc1_supported_standards failed: " # Error.message(e));
-                };
-            };
-            case (#err(code)) {
-                return #Err("Get pool metadata failed: " # debug_show (code));
-            };
-        };
-    };
-
-    public shared ({ caller }) func addPoolControllersValidate(poolCid : Principal, controllers : [Principal]) : async Result {
-        assert (Principal.equal(caller, governanceCid));
-        if ((not (await _checkPool(poolCid))) and (not (await _checkRemovedPool(poolCid)))) {
-            return #Err(Principal.toText(poolCid) # " doesn't exist.");
-        };
-        return #Ok(debug_show (poolCid) # ", " # debug_show (controllers));
-    };
-
-    public shared ({ caller }) func removePoolControllersValidate(poolCid : Principal, controllers : [Principal]) : async Result {
-        assert (Principal.equal(caller, governanceCid));
-        if (not (await _checkPool(poolCid))) {
-            return #Err(Principal.toText(poolCid) # " doesn't exist.");
-        };
-        for (it in controllers.vals()) {
-            if (Principal.equal(it, factoryCid)) {
-                return #Err("SwapFactory must be the controller of SwapPool");
-            };
-        };
-        return #Ok(debug_show (poolCid) # ", " # debug_show (controllers));
-    };
-
-    public shared ({ caller }) func setPoolAvailableValidate(poolCid : Principal, available : Bool) : async Result {
-        assert (Principal.equal(caller, governanceCid));
-        if (not (await _checkPool(poolCid))) {
-            return #Err(Principal.toText(poolCid) # " doesn't exist.");
-        };
-        return #Ok(debug_show (poolCid) # ", " # debug_show (available));
-    };
-
     public shared ({ caller }) func batchSetPoolAvailableValidate(poolCids : [Principal], available : Bool) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {
@@ -175,20 +70,6 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
             case (#ok(_)) { return #Ok(debug_show (poolCids) # ", " # debug_show (available)); };
             case (#err(msg)) { return #Err(debug_show (msg)); };
         };
-    };
-
-    public shared ({ caller }) func setPoolAdminsValidate(poolCid : Principal, admins : [Principal]) : async Result {
-        assert (Principal.equal(caller, governanceCid));
-        if (not (await _checkPool(poolCid))) {
-            return #Err(Principal.toText(poolCid) # " doesn't exist.");
-        };
-        // Check for anonymous principals
-        for (admin in admins.vals()) {
-            if (Principal.isAnonymous(admin)) {
-                return #Err("Anonymous principals cannot be pool admins");
-            };
-        };
-        return #Ok(debug_show (poolCid) # ", " # debug_show (admins));
     };
 
     public shared ({ caller }) func setAdminsValidate(admins : [Principal]) : async Result {

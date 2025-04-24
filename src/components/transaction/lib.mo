@@ -29,15 +29,32 @@ module {
     public type Account = Types.Account;
     public type Amount = Types.Amount;
     public type Token = Types.Token;
-    func _hash(n: Nat) : Hash.Hash { return Prim.natToNat32(n); };
-    func _copy(tx: Transaction, action: Types.Action): Transaction {
-        return {
+
+    private func _hash(n: Nat) : Hash.Hash { Prim.natToNat32(n) };
+
+    private func _copy(tx: Transaction, action: Types.Action): Transaction {
+        {
             id = tx.id;
             timestamp = tx.timestamp;
             owner = tx.owner;
             canisterId = tx.canisterId;
             action = action;
-        };
+        }
+    };
+
+    private func _updateTransaction(txId: Nat, tx: Transaction, newAction: Types.Action, transactions: HashMap.HashMap<Nat, Transaction>): () {
+        transactions.put(txId, _copy(tx, newAction))
+    };
+
+    private func _getTransaction(txId: Nat, transactions: HashMap.HashMap<Nat, Transaction>): ?Transaction {
+        transactions.get(txId)
+    };
+
+    private func _assertTransactionExists(tx: ?Transaction): Transaction {
+        switch (tx) {
+            case null { assert(false); loop {} };
+            case (?tx) tx;
+        }
     };
 
     public class State(
@@ -46,17 +63,17 @@ module {
     ) {
         public var index: Nat = initialIndex;
         public var transactions = HashMap.fromIter<Nat, Transaction>(initialTransactions.vals(), initialTransactions.size(), Nat.equal, _hash);
-        public func getIndex() : Nat { return index; };
+
+        public func getIndex() : Nat { index };
         public func getNextTxId() : Nat {
             let id = index;
             index := index + 1;
-            return id;
+            id
         };
-        public func get(txId: Nat) : ?Transaction { return transactions.get(txId); };
-        public func delete(txId: Nat) : () { transactions.delete(txId); };
-
-        public func getTransaction(txId: Nat): ?Transaction { return transactions.get(txId); };
-        public func getTransactions(): [(Nat, Transaction)] { return Iter.toArray(transactions.entries()); };
+        public func get(txId: Nat) : ?Transaction { _getTransaction(txId, transactions) };
+        public func delete(txId: Nat) : () { transactions.delete(txId) };
+        public func getTransaction(txId: Nat): ?Transaction { _getTransaction(txId, transactions) };
+        public func getTransactions(): [(Nat, Transaction)] { Iter.toArray(transactions.entries()) };
         
         // --------------------------- deposit ------------------------------------
         public func startDeposit(owner: Principal, canisterId: Principal, token: Principal, from: Account, to: Account, amount: Nat, fee: Nat, standard: Text): Nat {
@@ -69,72 +86,55 @@ module {
                 canisterId = canisterId;
                 action = #Deposit(Deposit.start(token, from, to, amount, fee, memo, standard));
             });
-            return txId;
+            txId
         };
 
         public func depositTransferred(txId: Nat, txIndex: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Deposit(deposit)) {
-                            if (deposit.status == #Created) {
-                                let newDeposit = Deposit.process(deposit);
-                                let trx = _copy(tx, #Deposit({ newDeposit with transfer = { newDeposit.transfer with index = txIndex } }));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(#OneStepSwap(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap({ newInfo with deposit = { newInfo.deposit with transfer = { newInfo.deposit.transfer with index = txIndex } } }));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Deposit(deposit)) {
+                    if (deposit.status == #Created) {
+                        let newDeposit = Deposit.process(deposit);
+                        _updateTransaction(txId, tx, #Deposit({ newDeposit with transfer = { newDeposit.transfer with index = txIndex } }), transactions);
                     };
                 };
+                case(#OneStepSwap(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap({ newInfo with deposit = { newInfo.deposit with transfer = { newInfo.deposit.transfer with index = txIndex } } }), transactions);
+                    };
+                };
+                case(_) { assert(false) };
             };
         };
 
         public func depositCredited(txId: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Deposit(deposit)) {
-                            if (deposit.status == #TransferCompleted) {
-                                let newDeposit = Deposit.process(deposit);
-                                let trx = _copy(tx, #Deposit(newDeposit));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case (#OneStepSwap(info)) {
-                            if (info.status == #DepositTransferCompleted) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap(newInfo));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Deposit(deposit)) {
+                    if (deposit.status == #TransferCompleted) {
+                        let newDeposit = Deposit.process(deposit);
+                        _updateTransaction(txId, tx, #Deposit(newDeposit), transactions);
                     };
                 };
+                case (#OneStepSwap(info)) {
+                    if (info.status == #DepositTransferCompleted) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                    };
+                };
+                case(_) { assert(false) };
             };
         };
 
         public func depositFailed(txId: Nat, err: Types.Error): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Deposit(deposit)) {
-                            let newDeposit = Deposit.fail(deposit, err);
-                            let trx = _copy(tx, #Deposit(newDeposit));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Deposit(deposit)) {
+                    let newDeposit = Deposit.fail(deposit, err);
+                    _updateTransaction(txId, tx, #Deposit(newDeposit), transactions);
                 };
+                case(_) { assert(false) };
             };
         };
 
@@ -150,78 +150,61 @@ module {
                 canisterId = canisterId;
                 action = #Withdraw(info);
             });
-            return txId;
+            txId
         };
 
         public func withdrawCredited(txId: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Withdraw(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = Withdraw.process(info);
-                                let trx = _copy(tx, #Withdraw(newInfo));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(#OneStepSwap(info)) {
-                            if (info.status == #SwapCompleted) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap(newInfo));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Withdraw(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = Withdraw.process(info);
+                        _updateTransaction(txId, tx, #Withdraw(newInfo), transactions);
                     };
                 };
+                case(#OneStepSwap(info)) {
+                    if (info.status == #SwapCompleted) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                    };
+                };
+                case(_) { assert(false) };
             };
         };
 
         public func withdrawCompleted(txId: Nat, txIndex: ?Nat): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {    
-                    switch(tx.action) {
-                        case (#Withdraw(info)) {
-                            if (info.status == #CreditCompleted) {
-                                let newInfo = Withdraw.process(info);
-                                let trx = _copy(tx, #Withdraw(
-                                    switch(txIndex) {
-                                        case null { newInfo };
-                                        case (?index) { { newInfo with transfer = { newInfo.transfer with index = index } } };
-                                    }
-                                ));
-                                transactions.put(txId, trx);    
-                            };
-                        };
-                        case(#OneStepSwap(info)) {
-                            if (info.status == #WithdrawCreditCompleted) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap(newInfo));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Withdraw(info)) {
+                    if (info.status == #CreditCompleted) {
+                        let newInfo = Withdraw.process(info);
+                        _updateTransaction(txId, tx, #Withdraw(
+                            switch(txIndex) {
+                                case null { newInfo };
+                                case (?index) { { newInfo with transfer = { newInfo.transfer with index = index } } };
+                            }
+                        ), transactions);
                     };
                 };
+                case(#OneStepSwap(info)) {
+                    if (info.status == #WithdrawCreditCompleted) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                    };
+                };
+                case(_) { assert(false) };
             };
             txId
         };
 
         public func withdrawFailed(txId: Nat, err: Types.Error): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Withdraw(info)) {
-                            let newInfo = Withdraw.fail(info, err); 
-                            let trx = _copy(tx, #Withdraw(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Withdraw(info)) {
+                    let newInfo = Withdraw.fail(info, err);
+                    _updateTransaction(txId, tx, #Withdraw(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
             txId
         };
@@ -238,83 +221,66 @@ module {
                 canisterId = canisterId;
                 action = #Refund(info);
             });
-            return txId;
+            txId
         };
 
         public func refundCredited(txId: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Refund(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = Refund.process(info);
-                                let trx = _copy(tx, #Refund(newInfo));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Refund(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = Refund.process(info);
+                        _updateTransaction(txId, tx, #Refund(newInfo), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
         };
 
         public func refundCompleted(txId: Nat, txIndex: Nat): (Nat, ?Nat) {
-            switch (transactions.get(txId)) {
-                case null { assert(false); (0, null) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Refund(info)) {
-                            if (info.status == #CreditCompleted) {
-                                let newInfo = Refund.process(info);
-                                let trx = _copy(tx, #Refund({ newInfo with transfer = { newInfo.transfer with index = txIndex; } }));
-                                transactions.put(txId, trx);
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Refund(info)) {
+                    if (info.status == #CreditCompleted) {
+                        let newInfo = Refund.process(info);
+                        _updateTransaction(txId, tx, #Refund({ newInfo with transfer = { newInfo.transfer with index = txIndex; } }), transactions);
 
-                                switch (transactions.get(newInfo.failedIndex)) {
-                                    case null { (txId, null) };
-                                    case (?failedTx) {
-                                        switch(failedTx.action) {
-                                            case (#Withdraw(failedInfo)) {
-                                                let failedTrx = _copy(failedTx, #Withdraw({ failedInfo with status = #Completed; }));
-                                                transactions.put(newInfo.failedIndex, failedTrx);
-                                                (txId, ?newInfo.failedIndex)
-                                            };
-                                            case (#OneStepSwap(failedInfo)) {
-                                                let failedTrx = _copy(failedTx, #OneStepSwap({ 
-                                                    failedInfo with status = #Completed; 
-                                                    withdraw = { failedInfo.withdraw with status = #Failed; }; 
-                                                    swap = { failedInfo.swap with status = #Failed; }; 
-                                                }));
-                                                transactions.put(newInfo.failedIndex, failedTrx);
-                                                (txId, ?newInfo.failedIndex)
-                                            };
-                                            case(_) { assert(false); (0, null) };
-                                        };
+                        switch (_getTransaction(newInfo.failedIndex, transactions)) {
+                            case null { (txId, null) };
+                            case (?failedTx) {
+                                switch(failedTx.action) {
+                                    case (#Withdraw(failedInfo)) {
+                                        _updateTransaction(newInfo.failedIndex, failedTx, #Withdraw({ failedInfo with status = #Completed; }), transactions);
+                                        (txId, ?newInfo.failedIndex)
                                     };
+                                    case (#OneStepSwap(failedInfo)) {
+                                        _updateTransaction(newInfo.failedIndex, failedTx, #OneStepSwap({ 
+                                            failedInfo with status = #Completed; 
+                                            withdraw = { failedInfo.withdraw with status = #Failed; }; 
+                                            swap = { failedInfo.swap with status = #Failed; }; 
+                                        }), transactions);
+                                        (txId, ?newInfo.failedIndex)
+                                    };
+                                    case(_) { assert(false); (0, null) };
                                 };
-                            } else {
-                                (txId, ?info.failedIndex)
-                            }
+                            };
                         };
-                        case(_) { assert(false); (0, null) };
-                    };
+                    } else {
+                        (txId, ?info.failedIndex)
+                    }
                 };
+                case(_) { assert(false); (0, null) };
             };
         };
 
         public func refundFailed(txId: Nat, err: Types.Error): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Refund(info)) {
-                            let newInfo = Refund.fail(info, err);
-                            let trx = _copy(tx, #Refund(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Refund(info)) {
+                    let newInfo = Refund.fail(info, err);
+                    _updateTransaction(txId, tx, #Refund(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
             txId
         };
@@ -338,41 +304,31 @@ module {
                 canisterId = canisterId;
                 action = #AddLiquidity(info);
             });
-            return txId;
+            txId
         };
 
         public func addLiquidityCompleted(txId: Nat, amount0: Nat, amount1: Nat, liquidity: Nat): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#AddLiquidity(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = AddLiquidity.process(info);
-                                let trx = _copy(tx, #AddLiquidity({ newInfo with amount0 = amount0; amount1 = amount1; liquidity = liquidity; }));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#AddLiquidity(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = AddLiquidity.process(info);
+                        _updateTransaction(txId, tx, #AddLiquidity({ newInfo with amount0 = amount0; amount1 = amount1; liquidity = liquidity; }), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
             txId
         };
 
         public func addLiquidityFailed(txId: Nat, err: Types.Error): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#AddLiquidity(info)) {
-                            let newInfo = AddLiquidity.fail(info, err);
-                            let trx = _copy(tx, #AddLiquidity(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#AddLiquidity(info)) {
+                    let newInfo = AddLiquidity.fail(info, err);
+                    _updateTransaction(txId, tx, #AddLiquidity(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
             txId
         };
@@ -388,41 +344,31 @@ module {
                 canisterId = canisterId;
                 action = #DecreaseLiquidity(info);
             });
-            return txId;
+            txId
         };
 
         public func decreaseLiquidityCompleted(txId: Nat, amount0: Nat, amount1: Nat): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#DecreaseLiquidity(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = DecreaseLiquidity.process(info);
-                                let trx = _copy(tx, #DecreaseLiquidity({ newInfo with amount0 = amount0; amount1 = amount1; }));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#DecreaseLiquidity(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = DecreaseLiquidity.process(info);
+                        _updateTransaction(txId, tx, #DecreaseLiquidity({ newInfo with amount0 = amount0; amount1 = amount1; }), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
             txId
         };
 
         public func decreaseLiquidityFailed(txId: Nat, err: Types.Error): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#DecreaseLiquidity(info)) {
-                            let newInfo = DecreaseLiquidity.fail(info, err);
-                            let trx = _copy(tx, #DecreaseLiquidity(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#DecreaseLiquidity(info)) {
+                    let newInfo = DecreaseLiquidity.fail(info, err);
+                    _updateTransaction(txId, tx, #DecreaseLiquidity(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
             txId
         };
@@ -449,7 +395,7 @@ module {
                 canisterId = canisterId;
                 action = #DecreaseLiquidity(finalInfo);
             });
-            return txId;
+            txId
         };
 
         // --------------------------- claim ------------------------------------
@@ -463,41 +409,31 @@ module {
                 canisterId = canisterId;
                 action = #Claim(info);
             });
-            return txId;
+            txId
         };
 
         public func claimCompleted(txId: Nat, amount0: Nat, amount1: Nat): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Claim(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = Claim.process(info);
-                                let trx = _copy(tx, #Claim({ newInfo with amount0 = amount0; amount1 = amount1; }));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Claim(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = Claim.process(info);
+                        _updateTransaction(txId, tx, #Claim({ newInfo with amount0 = amount0; amount1 = amount1; }), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
             txId
         };
 
         public func claimFailed(txId: Nat, err: Types.Error): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Claim(info)) {
-                            let newInfo = Claim.fail(info, err);
-                            let trx = _copy(tx, #Claim(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Claim(info)) {
+                    let newInfo = Claim.fail(info, err);
+                    _updateTransaction(txId, tx, #Claim(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
             txId
         };
@@ -513,41 +449,31 @@ module {
                 canisterId = canisterId;
                 action = #TransferPosition(info);
             });
-            return txId;
+            txId
         };
 
         public func transferPositionCompleted(txId: Nat): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#TransferPosition(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = TransferPosition.process(info);
-                                let trx = _copy(tx, #TransferPosition(newInfo));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#TransferPosition(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = TransferPosition.process(info);
+                        _updateTransaction(txId, tx, #TransferPosition(newInfo), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
             txId
         };
 
         public func transferPositionFailed(txId: Nat, err: Types.Error): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#TransferPosition(info)) {
-                            let newInfo = TransferPosition.fail(info, err);
-                            let trx = _copy(tx, #TransferPosition(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#TransferPosition(info)) {
+                    let newInfo = TransferPosition.fail(info, err);
+                    _updateTransaction(txId, tx, #TransferPosition(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
             txId
         };
@@ -563,41 +489,31 @@ module {
                 canisterId = canisterId;
                 action = #AddLimitOrder(info);
             });
-            return txId;
+            txId
         };
 
         public func addLimitOrderCompleted(txId: Nat): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#AddLimitOrder(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = AddLimitOrder.process(info);
-                                let trx = _copy(tx, #AddLimitOrder(newInfo));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#AddLimitOrder(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = AddLimitOrder.process(info);
+                        _updateTransaction(txId, tx, #AddLimitOrder(newInfo), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
             txId
         };
 
         public func addLimitOrderFailed(txId: Nat, err: Types.Error): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#AddLimitOrder(info)) {
-                            let newInfo = AddLimitOrder.fail(info, err);
-                            let trx = _copy(tx, #AddLimitOrder(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#AddLimitOrder(info)) {
+                    let newInfo = AddLimitOrder.fail(info, err);
+                    _updateTransaction(txId, tx, #AddLimitOrder(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
             txId
         };
@@ -613,41 +529,31 @@ module {
                 canisterId = canisterId;
                 action = #ExecuteLimitOrder(info);
             });
-            return txId;
+            txId
         };
 
         public func executeLimitOrderCompleted(txId: Nat, token0AmountOut: Nat, token1AmountOut: Nat): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#ExecuteLimitOrder(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = ExecuteLimitOrder.process(info);
-                                let trx = _copy(tx, #ExecuteLimitOrder({ newInfo with token0AmountOut = token0AmountOut; token1AmountOut = token1AmountOut; }));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#ExecuteLimitOrder(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = ExecuteLimitOrder.process(info);
+                        _updateTransaction(txId, tx, #ExecuteLimitOrder({ newInfo with token0AmountOut = token0AmountOut; token1AmountOut = token1AmountOut; }), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
             txId
         };
 
         public func executeLimitOrderFailed(txId: Nat, err: Types.Error): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#ExecuteLimitOrder(info)) {
-                            let newInfo = ExecuteLimitOrder.fail(info, err);
-                            let trx = _copy(tx, #ExecuteLimitOrder(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#ExecuteLimitOrder(info)) {
+                    let newInfo = ExecuteLimitOrder.fail(info, err);
+                    _updateTransaction(txId, tx, #ExecuteLimitOrder(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
             txId
         };
@@ -663,59 +569,44 @@ module {
                 canisterId = canisterId;
                 action = #RemoveLimitOrder(info);
             });
-            return txId;
+            txId
         };
 
         public func removeLimitOrderDeleted(txId: Nat, token0AmountIn: Nat, token1AmountIn: Nat, tickLimit: Int): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#RemoveLimitOrder(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = RemoveLimitOrder.process(info);
-                                let trx = _copy(tx, #RemoveLimitOrder({ newInfo with token0AmountIn = token0AmountIn; token1AmountIn = token1AmountIn; tickLimit = tickLimit }));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#RemoveLimitOrder(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = RemoveLimitOrder.process(info);
+                        _updateTransaction(txId, tx, #RemoveLimitOrder({ newInfo with token0AmountIn = token0AmountIn; token1AmountIn = token1AmountIn; tickLimit = tickLimit }), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
         };
 
         public func removeLimitOrderCompleted(txId: Nat, token0AmountOut: Nat, token1AmountOut: Nat): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#RemoveLimitOrder(info)) {
-                            if (info.status == #LimitOrderDeleted) {
-                                let newInfo = RemoveLimitOrder.process(info);
-                                let trx = _copy(tx, #RemoveLimitOrder({ newInfo with token0AmountOut = token0AmountOut; token1AmountOut = token1AmountOut; }));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#RemoveLimitOrder(info)) {
+                    if (info.status == #LimitOrderDeleted) {
+                        let newInfo = RemoveLimitOrder.process(info);
+                        _updateTransaction(txId, tx, #RemoveLimitOrder({ newInfo with token0AmountOut = token0AmountOut; token1AmountOut = token1AmountOut; }), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
             txId
         };
 
         public func removeLimitOrderFailed(txId: Nat, err: Types.Error): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#RemoveLimitOrder(info)) {
-                            let newInfo = RemoveLimitOrder.fail(info, err);
-                            let trx = _copy(tx, #RemoveLimitOrder(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#RemoveLimitOrder(info)) {
+                    let newInfo = RemoveLimitOrder.fail(info, err);
+                    _updateTransaction(txId, tx, #RemoveLimitOrder(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
         };
 
@@ -730,41 +621,31 @@ module {
                 canisterId = canisterId;
                 action = #Swap(info);
             });
-            return txId;
+            txId
         };
 
         public func swapCompleted(txId: Nat, amountOut: Nat): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Swap(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = Swap.process(info);
-                                let trx = _copy(tx, #Swap({ newInfo with amountOut = amountOut }));
-                                transactions.put(txId, trx);
-                            };
-                        };
-                        case(_) { assert(false) };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Swap(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = Swap.process(info);
+                        _updateTransaction(txId, tx, #Swap({ newInfo with amountOut = amountOut }), transactions);
                     };
                 };
+                case(_) { assert(false) };
             };
             txId
         };
 
         public func swapFailed(txId: Nat, err: Types.Error): Nat {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#Swap(info)) {
-                            let newInfo = Swap.fail(info, err);
-                            let trx = _copy(tx, #Swap(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Swap(info)) {
+                    let newInfo = Swap.fail(info, err);
+                    _updateTransaction(txId, tx, #Swap(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
             txId
         };
@@ -791,137 +672,101 @@ module {
                 canisterId = canisterId;
                 action = #OneStepSwap(info);
             });
-            return txId;
+            txId
         };
 
         public func oneStepSwapDepositTransferred(txId: Nat, txIndex: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) { 
-                        case (#OneStepSwap(info)) {
-                            if (info.status == #Created) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap({ newInfo with deposit = { info.deposit with transfer = { info.deposit.transfer with index = txIndex } } }));
-                                transactions.put(txId, trx);
-                            };  
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) { 
+                case (#OneStepSwap(info)) {
+                    if (info.status == #Created) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap({ newInfo with deposit = { info.deposit with transfer = { info.deposit.transfer with index = txIndex } } }), transactions);
+                    };  
                 };
+                case(_) { assert(false) };
             };
         };
 
         public func oneStepSwapDepositCredited(txId: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) { 
-                        case (#OneStepSwap(info)) {
-                            if (info.status == #DepositTransferCompleted) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap(newInfo));
-                                transactions.put(txId, trx);
-                            };  
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) { 
+                case (#OneStepSwap(info)) {
+                    if (info.status == #DepositTransferCompleted) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                    };  
                 };
+                case(_) { assert(false) };
             };
         };
 
         public func oneStepSwapPreSwapCompleted(txId: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) { 
-                        case (#OneStepSwap(info)) {
-                            if (info.status == #DepositCreditCompleted) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap(newInfo));
-                                transactions.put(txId, trx);
-                            };  
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) { 
+                case (#OneStepSwap(info)) {
+                    if (info.status == #DepositCreditCompleted) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                    };  
                 };
+                case(_) { assert(false) };
             };
         };
 
         public func oneStepSwapSwapCompleted(txId: Nat, amountOut: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) { 
-                        case (#OneStepSwap(info)) {
-                            if (info.status == #PreSwapCompleted) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap({ newInfo with swap = { info.swap with amountOut = amountOut; status = #Completed } }));
-                                transactions.put(txId, trx);
-                            };  
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) { 
+                case (#OneStepSwap(info)) {
+                    if (info.status == #PreSwapCompleted) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap({ newInfo with swap = { info.swap with amountOut = amountOut; status = #Completed } }), transactions);
+                    };  
                 };
+                case(_) { assert(false) };
             };
         };
 
         public func oneStepSwapWithdrawCredited(txId: Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) { 
-                        case (#OneStepSwap(info)) {
-                            if (info.status == #SwapCompleted) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap(newInfo));
-                                transactions.put(txId, trx);
-                            };  
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) { 
+                case (#OneStepSwap(info)) {
+                    if (info.status == #SwapCompleted) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                    };  
                 };
+                case(_) { assert(false) };
             };
         };
 
         public func oneStepSwapWithdrawCompleted(txId: Nat, txIndex: ?Nat): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) { 
-                        case (#OneStepSwap(info)) {
-                            if (info.status == #WithdrawCreditCompleted) {
-                                let newInfo = OneStepSwap.process(info);
-                                let trx = _copy(tx, #OneStepSwap(
-                                    switch(txIndex) {
-                                        case null { newInfo };
-                                        case (?index) { { newInfo with withdraw = { info.withdraw with transfer = { info.withdraw.transfer with index = index } } } };
-                                    }
-                                ));
-                                transactions.put(txId, trx);
-                            };  
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) { 
+                case (#OneStepSwap(info)) {
+                    if (info.status == #WithdrawCreditCompleted) {
+                        let newInfo = OneStepSwap.process(info);
+                        _updateTransaction(txId, tx, #OneStepSwap(
+                            switch(txIndex) {
+                                case null { newInfo };
+                                case (?index) { { newInfo with withdraw = { info.withdraw with transfer = { info.withdraw.transfer with index = index } } } };
+                            }
+                        ), transactions);
+                    };  
                 };
+                case(_) { assert(false) };
             };
         };
 
         public func oneStepSwapFailed(txId: Nat, err: Types.Error): () {
-            switch (transactions.get(txId)) {
-                case null { assert(false) };
-                case (?tx) {
-                    switch(tx.action) {
-                        case (#OneStepSwap(info)) {
-                            let newInfo = OneStepSwap.fail(info, err);
-                            let trx = _copy(tx, #OneStepSwap(newInfo));
-                            transactions.put(txId, trx);
-                        };
-                        case(_) { assert(false) };
-                    };
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#OneStepSwap(info)) {
+                    let newInfo = OneStepSwap.fail(info, err);
+                    _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
                 };
+                case(_) { assert(false) };
             };
         };
-
     };
 };

@@ -5,8 +5,16 @@ import Text "mo:base/Text";
 import Blob "mo:base/Blob";
 
 module {
+    private func _updateStatus(deposit: Types.DepositInfo, status: Types.DepositStatus, err: ?Text): Types.DepositInfo {
+        {
+            transfer = deposit.transfer;
+            status = status;
+            err = err;
+        }
+    };
+
     public func start(token: Principal, from: Types.Account, to: Types.Account, amount: Nat, fee: Nat, memo: ?Blob, standard: Text): Types.DepositInfo {
-        return {
+        _updateStatus({
             status = #Created;
             transfer = {
                 token = token;
@@ -19,48 +27,25 @@ module {
                 standard = standard;
             };
             err = null;
-        };
+        }, #Created, null)
     };
 
     public func process(deposit: Types.DepositInfo): Types.DepositInfo {
         switch (deposit.status) {
             case (#Created) {
                 if (deposit.transfer.amount == 0) {
-                    return {
-                        transfer = deposit.transfer;
-                        status = #Completed;
-                        err = null;
-                    };
-                };
-                return {
-                    transfer = deposit.transfer;
-                    status = #TransferCompleted;
-                    err = null;
-                };
+                    _updateStatus(deposit, #Completed, null)
+                } else {
+                    _updateStatus(deposit, #TransferCompleted, null)
+                }
             };
-            case (#TransferCompleted) {
-                return {
-                    transfer = deposit.transfer;
-                    status = #Completed;
-                    err = null;
-                };
-            };
-            case (#Completed) {
-                return deposit;
-            };
-            case (#Failed) {
-                return deposit;
-            };
-        };
+            case (#TransferCompleted) _updateStatus(deposit, #Completed, null);
+            case (#Completed or #Failed) deposit;
+        }
     };
 
     public func fail(deposit: Types.DepositInfo, error: Text): Types.DepositInfo {
         assert(deposit.status != #Completed);
-        return {
-            transfer = deposit.transfer;
-            status = #Failed;
-            err = ?error;
-        };
+        _updateStatus(deposit, #Failed, ?error)
     };
-    
 };
