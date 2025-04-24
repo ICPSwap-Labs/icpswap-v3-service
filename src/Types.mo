@@ -436,6 +436,7 @@ module {
         #sumTick : () -> ();
         #swap : () -> SwapArgs;
         #transferPosition : () -> (Principal, Principal, Nat);
+        #updateTokenFee : () -> ();
         #upgradeTokenStandard : () -> Principal;
         #withdraw : () -> WithdrawArgs;
         #withdrawMistransferBalance : () -> Token;

@@ -2046,6 +2046,12 @@ shared (initMsg) actor class SwapPool(
             #err(#InternalError("This token does not support ICRC-2"))
         };
     };
+    
+    public shared (msg) func updateTokenFee() : async () {
+        _checkAdminPermission(msg.caller);
+        _token0Fee := await _token0Act.fee();
+        _token1Fee := await _token1Act.fee();
+    };
 
     public query (msg) func quote(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
         return _preSwap(args, msg.caller);

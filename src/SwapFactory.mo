@@ -18,18 +18,21 @@ import Result "mo:base/Result";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
 import Option "mo:base/Option";
+
 import SafeUint "mo:commons/math/SafeUint";
 import TextUtils "mo:commons/utils/TextUtils";
 import IC0Utils "mo:commons/utils/IC0Utils";
 import CollectionUtils "mo:commons/utils/CollectionUtils";
-import PoolUtils "./utils/PoolUtils";
+
+import ICRC21 "./components/ICRC21";
 import PoolData "./components/PoolData";
 import UpgradeTask "./components/UpgradeTask";
+import BlockTimestamp "./libraries/BlockTimestamp";
+import PoolUtils "./utils/PoolUtils";
+
+import ICRCTypes "./ICRCTypes";
 import SwapPool "./SwapPool";
 import Types "./Types";
-import ICRCTypes "./ICRCTypes";
-import ICRC21 "./components/ICRC21";
-import BlockTimestamp "./libraries/BlockTimestamp";
 
 shared (initMsg) actor class SwapFactory(
     infoCid : Principal,
@@ -287,7 +290,7 @@ shared (initMsg) actor class SwapFactory(
     };
 
     // ---------------        Factory Admin Functions              ----------------------
-    
+
     public shared (msg) func upgradePoolTokenStandard(poolCid : Principal, tokenCid : Principal) : async Result.Result<Text, Types.Error> {
         _checkAdminPermission(msg.caller);
         var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
@@ -419,12 +422,6 @@ shared (initMsg) actor class SwapFactory(
 
     // ---------------       Factory Governance Functions              ----------------------
 
-    public shared (msg) func removePool(args : Types.GetPoolArgs) : async Text {
-        _checkPermission(msg.caller);
-        let poolKey : Text = PoolUtils.getPoolKey(args.token0, args.token1, args.fee);
-        _poolDataService.removePool(poolKey);
-    };
-
     public shared (msg) func batchRemovePools(poolCids : [Principal]) : async Result.Result<(), Types.Error> {
         _checkPermission(msg.caller);
         // Check if all cids are SwapPools
@@ -491,12 +488,6 @@ shared (initMsg) actor class SwapFactory(
         return #ok();
     };
 
-    public shared (msg) func clearRemovedPool(canisterId : Principal) : async Text {
-        _checkPermission(msg.caller);
-        await _addPoolControllers(canisterId, [feeReceiverCid]);
-        _poolDataService.deletePool(Principal.toText(canisterId));
-    };
-
     public shared (msg) func batchClearRemovedPool(poolCids : [Principal]) : async () {
         _checkPermission(msg.caller);
         for (poolCid in poolCids.vals()) { await _addPoolControllers(poolCid, [feeReceiverCid]); };
@@ -504,40 +495,6 @@ shared (initMsg) actor class SwapFactory(
     };
 
     // ---------------        Pool Governance Functions        ----------------------
-    
-    // public shared (msg) func removePoolErrorTransferLog(poolCid : Principal, id : Nat, rollback : Bool) : async Result.Result<(), Types.Error> {
-    //     _checkPermission(msg.caller);
-    //     var poolAct = actor (Principal.toText(poolCid)) : Types.SwapPoolActor;
-    //     try {
-    //         await poolAct.removeErrorTransferLog(id, rollback);
-    //         return #ok(());
-    //     } catch (e) {
-    //         return #err(#InternalError("Remove withdraw error log failed: " # Error.message(e)));
-    //     }
-    // };
-
-    public shared (msg) func setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
-        _checkPermission(msg.caller);
-        await _setPoolAdmins(poolCid, admins);
-    };
-
-    public shared (msg) func setPoolAvailable(poolCid : Principal, available : Bool) : async () {
-        _checkPermission(msg.caller);
-        await _setPoolAvailable(poolCid, available);
-    };
-
-    public shared (msg) func addPoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
-        _checkPermission(msg.caller);
-        await _addPoolControllers(poolCid, controllers);
-    };
-
-    public shared (msg) func removePoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
-        _checkPermission(msg.caller);
-        if (not _checkPoolControllers(controllers)){
-            throw Error.reject("SwapFactory must be the controller of SwapPool");
-        };
-        await _removePoolControllers(poolCid, controllers);
-    };
 
     public shared (msg) func batchSetPoolAdmins(poolCids : [Principal], admins : [Principal]) : async () {
         _checkPermission(msg.caller);
