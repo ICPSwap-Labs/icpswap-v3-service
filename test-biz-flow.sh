@@ -150,7 +150,6 @@ dfx canister deposit-cycles 50698725619460 SwapPoolInstaller
 
 # Upload WASM to both SwapFactory and SwapPoolInstaller
 echo "==> Uploading WASM to SwapFactory and SwapPoolInstaller..."
-echo "This step requires sudo privileges. Please enter your password when prompted."
 
 # Check if upload_pool_wasm.sh exists and has execute permission
 if [ ! -f "./upload_pool_wasm.sh" ]; then
