@@ -1,10 +1,20 @@
+import Blob "mo:base/Blob";
+import Error "mo:base/Error";
 import Result "mo:base/Result";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
-import Types "./Types";
-import IC0Utils "mo:commons/utils/IC0Utils";
-import SwapPool "./SwapPool";
 import Prim "mo:⛔";
+
+import Arg "mo:candid/Arg";
+import Type "mo:candid/Type";
+import CandidEncoder "mo:candid/Encoder";
+
+import CollectionUtils "mo:commons/utils/CollectionUtils";
+import IC0Utils "mo:commons/utils/IC0Utils";
+
+import Types "./Types";
+import SwapPool "./SwapPool";
+import WasmManager "./components/WasmManager";
 
 actor class SwapPoolInstaller(
     factoryId: Principal,
@@ -16,8 +26,53 @@ actor class SwapPoolInstaller(
     };
     private stable var _initCycles : Nat = 1860000000000;
     private stable var _initTopUpCycles : Nat = 500000000000;
+
+    private stable var _activeWasmBlob = Blob.fromArray([]);
+    private var _wasmManager = WasmManager.Service(_activeWasmBlob);
+    private stable var _admins : [Principal] = [];
+
     private func _hasPermission(caller: Principal): Bool {
         return Prim.isController(caller) or Principal.equal(caller, factoryId) or Principal.equal(caller, governanceId);
+    };
+
+    private func _checkAdminPermission(caller: Principal) {
+        assert(not Principal.isAnonymous(caller));
+        assert(CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller));
+    };
+
+    private func _getInitArgs(
+        token0: Types.Token, 
+        token1: Types.Token, 
+        infoCid: Principal, 
+        feeReceiverCid: Principal, 
+        trustedCanisterManagerCid: Principal,
+        positionIndexCid: Principal
+    ) : Blob {
+        let argToken0 : Arg.Arg = {
+            type_ = #record([
+                { tag = #name("address"); type_ = #text; },
+                { tag = #name("standard"); type_ = #text; }
+            ]);
+            value = #record([
+                { tag = #name("address"); value = #text(token0.address); },
+                { tag = #name("standard"); value = #text(token0.standard); }
+            ]);
+        };
+        let argToken1 : Arg.Arg = {
+            type_ = #record([
+                { tag = #name("address"); type_ = #text; },
+                { tag = #name("standard"); type_ = #text; }
+            ]);
+            value = #record([
+                { tag = #name("address"); value = #text(token1.address); },
+                { tag = #name("standard"); value = #text(token1.standard); }
+            ]);
+        };
+        let argInfoCid : Arg.Arg = { type_ = #principal; value = #principal(infoCid); };
+        let argFeeReceiverCid : Arg.Arg = { type_ = #principal; value = #principal(feeReceiverCid); };
+        let argTrustedCanisterManagerCid : Arg.Arg = { type_ = #principal; value = #principal(trustedCanisterManagerCid); };
+        let argPositionIndexCid : Arg.Arg = { type_ = #principal; value = #principal(positionIndexCid); };
+        return CandidEncoder.encode([argToken0, argToken1, argInfoCid, argFeeReceiverCid, argTrustedCanisterManagerCid, argPositionIndexCid]);
     };
 
     public shared ({ caller }) func install(
@@ -32,7 +87,8 @@ actor class SwapPoolInstaller(
         let createCanisterResult = await IC0Utils.create_canister(null, null, _initCycles);
         let canisterId = createCanisterResult.canister_id;
         await IC0Utils.deposit_cycles(canisterId, _initTopUpCycles);
-        let _ = await (system SwapPool.SwapPool)(#install canisterId)(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
+        // let _ = await (system SwapPool.SwapPool)(#install canisterId)(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
+        await IC0Utils.install_code(canisterId, _getInitArgs(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _activeWasmBlob, #install);
         await IC0Utils.update_settings_add_controller(canisterId, [factoryId, governanceId]);
         return canisterId;
     };
@@ -60,6 +116,54 @@ actor class SwapPoolInstaller(
             balance = Cycles.balance();
             available = Cycles.available();
         });
+    };
+
+    // --------------------------- Admin Management Functions -------------------------------
+    public shared (msg) func setAdmins(admins : [Principal]) : async () {
+        assert(_hasPermission(msg.caller));
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) {
+                throw Error.reject("Anonymous principals cannot be admins");
+            };
+        };
+        _admins := admins;
+    };
+
+    public query func getAdmins(): async [Principal] {
+        return _admins;
+    };
+
+    // --------------------------- WasmManager Functions -------------------------------
+    public shared (msg) func uploadWasmChunk(chunk : [Nat8]) : async Nat {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.uploadChunk(chunk);
+    };
+
+    public shared (msg) func combineWasmChunks() : async () {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.combineChunks();
+    };
+
+    public shared (msg) func activateWasm() : async () {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.activateWasm();
+    };
+
+    public shared (msg) func removeWasmChunk(chunkId : Nat) : async () {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.removeChunk(chunkId);
+    };
+
+    public query func getStagingWasm() : async Blob {
+        _wasmManager.getStagingWasm();
+    };
+
+    public query func getActiveWasm() : async Blob {
+        _wasmManager.getActiveWasm();
+    };
+
+    public query func getActiveWasmSize() : async Nat {
+        _wasmManager.getActiveWasm().size();
     };
     
     // --------------------------- Version Control      -------------------------------

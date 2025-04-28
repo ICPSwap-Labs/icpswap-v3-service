@@ -19,7 +19,7 @@ let
       ,{ dependencies = [ "base" ]
       , name = "commons"
       , repo = "git@github.com:ICPSwap-Labs/ic-commons-v2.git"
-      , version = "v0.0.9"
+      , version = "v0.0.11"
       }
       ,{ dependencies = [] : List Text
       , name = "token-adapter"

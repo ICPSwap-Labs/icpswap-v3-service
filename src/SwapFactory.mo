@@ -29,6 +29,7 @@ import PoolData "./components/PoolData";
 import UpgradeTask "./components/UpgradeTask";
 import BlockTimestamp "./libraries/BlockTimestamp";
 import PoolUtils "./utils/PoolUtils";
+import WasmManager "./components/WasmManager";
 
 import ICRCTypes "./ICRCTypes";
 import SwapPool "./SwapPool";
@@ -77,6 +78,10 @@ shared (initMsg) actor class SwapFactory(
     private stable var _createPoolRecords: List.List<Types.CreatePoolRecord> = List.nil<Types.CreatePoolRecord>();
     // position index
     private stable var _positionIndexAct = actor (Principal.toText(positionIndexCid)) : Types.PositionIndexActor;
+
+    // Add WasmManager state
+    private stable var _activeWasmBlob = Blob.fromArray([]);
+    private var _wasmManager = WasmManager.Service(_activeWasmBlob);
 
     public shared (msg) func createPool(args : Types.CreatePoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
         if (not _validatePasscode(msg.caller, args)) { return #err(#InternalError("Please pay the fee for creating SwapPool.")); };
@@ -1007,13 +1012,6 @@ shared (initMsg) actor class SwapFactory(
     }) : Bool {
         return switch (msg) {
             // Controller   
-            case (#clearRemovedPool _)                   { _hasPermission(caller) };
-            case (#removePool _)                         { _hasPermission(caller) };
-            // case (#removePoolErrorTransferLog _)         { _hasPermission(caller) };
-            case (#addPoolControllers _)                 { _hasPermission(caller) };
-            case (#removePoolControllers _)              { _hasPermission(caller) };
-            case (#setPoolAdmins _)                      { _hasPermission(caller) };
-            case (#setPoolAvailable _)                   { _hasPermission(caller) };
             case (#setUpgradePoolList _)                 { _hasPermission(caller) };
             case (#setAdmins _)                          { _hasPermission(caller) };
             case (#setIcrc28TrustedOrigins _)            { _hasPermission(caller) };
@@ -1033,8 +1031,52 @@ shared (initMsg) actor class SwapFactory(
             case (#clearPoolUpgradeTaskHis _)            { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
             case (#clearUpgradeFailedPoolList _)         { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
             case (#batchSetPoolIcrc28TrustedOrigins _)   { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
+            case (#uploadWasmChunk _)                    { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
+            case (#combineWasmChunks _)                  { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
+            case (#activateWasm _)                       { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
+            case (#removeWasmChunk _)                    { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
             // Anyone
             case (_)                                     { true };
         };
+    };
+
+    public shared (msg) func uploadWasmChunk(chunk : [Nat8]) : async Nat {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.uploadChunk(chunk);
+    };
+
+    public shared (msg) func combineWasmChunks() : async () {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.combineChunks();
+    };
+
+    public shared (msg) func activateWasm() : async () {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.activateWasm();
+    };
+
+    public shared (msg) func removeWasmChunk(chunkId : Nat) : async () {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.removeChunk(chunkId);
+    };
+
+    public query func getStagingWasm() : async Blob {
+        _wasmManager.getStagingWasm();
+    };
+
+    public query func getActiveWasm() : async Blob {
+        _wasmManager.getActiveWasm();
+    };
+
+    public query func getNat8ArrayFromHex(hex : Text) : async [Nat8] {
+        PoolUtils.hexToNat8Array(hex);
+    };
+
+    public query func getStagingWasmSHA256() : async [Nat8] {
+        _wasmManager.getStagingWasmSHA256();
+    };
+
+    public query func getActiveWasmSHA256() : async [Nat8] {
+        _wasmManager.getActiveWasmSHA256();
     };
 };

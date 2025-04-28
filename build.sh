@@ -29,8 +29,11 @@ cat <<< $(jq '.canisters={
   },
   "PositionIndex": {
     "main": "./src/PositionIndex.mo",
-    "type": "motoko",
-    "dependencies": ["SwapFactory"]
+    "type": "motoko"
+  },
+  "SwapPoolInstaller": {
+    "main": "./src/SwapPoolInstaller.mo",
+    "type": "motoko"
   }
 }' dfx.json) > dfx.json
 dfx start --background

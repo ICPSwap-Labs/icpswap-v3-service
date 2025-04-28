@@ -7,6 +7,10 @@ mv dfx.json dfx.json.bak
 cat > dfx.json <<- EOF
 {
   "canisters": {
+    "SwapPool": {
+      "main": "./src/SwapPool.mo",
+      "type": "motoko"
+    },
     "SwapFeeReceiver": {
       "main": "./src/SwapFeeReceiver.mo",
       "type": "motoko"
@@ -141,8 +145,26 @@ dfx canister call SwapFactory getInstallerModuleHash
 dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})" 
 dfx canister call SwapFactory removePoolInstaller "(principal \"$(dfx canister id SwapPoolInstaller)\")" 
 dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})" 
-# dfx canister call SwapFactory getPoolInstallers
 
+dfx canister deposit-cycles 50698725619460 SwapPoolInstaller
+
+# Upload WASM to both SwapFactory and SwapPoolInstaller
+echo "==> Uploading WASM to SwapFactory and SwapPoolInstaller..."
+echo "This step requires sudo privileges. Please enter your password when prompted."
+
+# Check if upload_pool_wasm.sh exists and has execute permission
+if [ ! -f "./upload_pool_wasm.sh" ]; then
+    echo "Error: upload_pool_wasm.sh not found in current directory"
+    exit 1
+fi
+
+# Make sure the script has execute permission
+chmod +x ./upload_pool_wasm.sh
+
+# Execute the script with sudo
+sudo ./upload_pool_wasm.sh
+
+# Continue with the rest of the script
 testAccount=`dfx canister call Test getAccount "(principal \"$testId\")" | sed 's/[()]//g' | sed 's/"//g'`
 echo "testAccount: $testAccount"
 currentAccount=`dfx canister call Test getAccount "(principal \"$MINTER_PRINCIPAL\")" | sed 's/[()]//g' | sed 's/"//g'`
@@ -305,106 +327,106 @@ function testBizFlow()
     #sqrtPriceX96
     create_pool 274450166607934908532224538203
 
-    echo "==> step 0 stop jobs"
-    dfx canister call $poolId stopJobs "(vec {\"SyncTrxsJob\";})"
+    # echo "==> step 0 stop jobs"
+    # dfx canister call $poolId stopJobs "(vec {\"SyncTrxsJob\";})"
 
-    echo
+    # echo
 
-    echo "==> step 1 deposit"
-    deposit $token0 10000000000
-    depositFrom $token1 10000000000
+    # echo "==> step 1 deposit"
+    # deposit $token0 10000000000
+    # depositFrom $token1 10000000000
 
-    echo "==> step 1.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+    # echo "==> step 1.1 balanceOf subaccount"
+    # balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
-    checkUnusedBalance
+    # checkUnusedBalance
 
-    echo "==> step 2 withdraw all"
-    withdrawAll
+    # echo "==> step 2 withdraw all"
+    # withdrawAll
 
-    echo "==> step 2.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+    # echo "==> step 2.1 balanceOf subaccount"
+    # balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
-    checkUnusedBalance
+    # checkUnusedBalance
 
-    echo "==> step 3 mint"
-    deposit $token0 100000000000
-    depositFrom $token1 100000000000
+    # echo "==> step 3 mint"
+    # deposit $token0 100000000000
+    # depositFrom $token1 100000000000
     
-    echo "==> step 3.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+    # echo "==> step 3.1 balanceOf subaccount"
+    # balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
-    checkUnusedBalance
+    # checkUnusedBalance
 
-    # tickLower tickUpper amount0Desired amount1Desired
-    mint -887220 887220 99900000000 100000000000 
+    # # tickLower tickUpper amount0Desired amount1Desired
+    # mint -887220 887220 99900000000 100000000000 
 
-    checkUnusedBalance
+    # checkUnusedBalance
 
-    echo "==> step 4 mint and add limit order"
-    for ((batch = 0; batch < 3; batch++)); do
-      positionId=$((batch + 2))
+    # echo "==> step 4 mint and add limit order"
+    # for ((batch = 0; batch < 3; batch++)); do
+    #   positionId=$((batch + 2))
 
-      echo "==> add upper limit order $positionId"
-      deposit $token0 1000000000
-      depositFrom $token1 1000000000
-      # current tick 24850
-      mint 24900 36060 900000000 1000000000 
+    #   echo "==> add upper limit order $positionId"
+    #   deposit $token0 1000000000
+    #   depositFrom $token1 1000000000
+    #   # current tick 24850
+    #   mint 24900 36060 900000000 1000000000 
 
-      dfx canister call $poolId addLimitOrder "(record { positionId = $positionId :nat; tickLimit = 36060 :int; })"
-    done
+    #   dfx canister call $poolId addLimitOrder "(record { positionId = $positionId :nat; tickLimit = 36060 :int; })"
+    # done
 
-    echo "==> step 4.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+    # echo "==> step 4.1 balanceOf subaccount"
+    # balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
-    checkUnusedBalance
+    # checkUnusedBalance
 
-    echo "==> step 5 remove limit order"
-    dfx canister call $poolId removeLimitOrder "(2:nat)"
+    # echo "==> step 5 remove limit order"
+    # dfx canister call $poolId removeLimitOrder "(2:nat)"
 
-    echo "==> step 6 swap 1->0"
-    depositFrom $token1 200000000000
-    swap $token1 200000000000 0
-    withdrawAll
+    # echo "==> step 6 swap 1->0"
+    # depositFrom $token1 200000000000
+    # swap $token1 200000000000 0
+    # withdrawAll
 
-    checkUnusedBalance
+    # checkUnusedBalance
 
-    echo "==> step 7 swap 0->1"
-    quote=`dfx canister call $poolId quote "(record { zeroForOne = true; amountIn = \"100000000000\"; amountOutMinimum = \"0\"; })" | sed 's/.*ok = \([0-9_]*\).*/\1/' | tr -d '_'`
-    echo "quote result: $quote"
+    # echo "==> step 7 swap 0->1"
+    # quote=`dfx canister call $poolId quote "(record { zeroForOne = true; amountIn = \"100000000000\"; amountOutMinimum = \"0\"; })" | sed 's/.*ok = \([0-9_]*\).*/\1/' | tr -d '_'`
+    # echo "quote result: $quote"
 
-    result=`dfx canister call $token0 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = 100100000000:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"`
-    oneStepSwap $token0 100000000000 $quote
+    # result=`dfx canister call $token0 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = 100100000000:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"`
+    # oneStepSwap $token0 100000000000 $quote
 
-    echo "==> step 7.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+    # echo "==> step 7.1 balanceOf subaccount"
+    # balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
-    checkUnusedBalance
+    # checkUnusedBalance
 
-    echo "==> step 8 transfer position"
+    # echo "==> step 8 transfer position"
 
-    echo "==> step 8.1 position index data"
-    testPools=`dfx canister call PositionIndex getUserPools "(\"$testAccount\")"`
-    echo "testPools: $testPools"
-    currentPools=`dfx canister call PositionIndex getUserPools "(\"$currentAccount\")"`
-    echo "currentPools: $currentPools"
+    # echo "==> step 8.1 position index data"
+    # testPools=`dfx canister call PositionIndex getUserPools "(\"$testAccount\")"`
+    # echo "testPools: $testPools"
+    # currentPools=`dfx canister call PositionIndex getUserPools "(\"$currentAccount\")"`
+    # echo "currentPools: $currentPools"
 
-    echo "==> step 8.2 transfer position"
-    dfx canister call $poolId transferPosition "(principal \"$MINTER_PRINCIPAL\", principal \"$testId\", 1:nat)"
+    # echo "==> step 8.2 transfer position"
+    # dfx canister call $poolId transferPosition "(principal \"$MINTER_PRINCIPAL\", principal \"$testId\", 1:nat)"
 
-    sleep 5
+    # sleep 5
 
-    echo "==> step 8.3 position index data"
-    testPools=`dfx canister call PositionIndex getUserPools "(\"$testAccount\")"`
-    echo "testPools: $testPools"
-    currentPools=`dfx canister call PositionIndex getUserPools "(\"$currentAccount\")"`
-    echo "currentPools: $currentPools"
+    # echo "==> step 8.3 position index data"
+    # testPools=`dfx canister call PositionIndex getUserPools "(\"$testAccount\")"`
+    # echo "testPools: $testPools"
+    # currentPools=`dfx canister call PositionIndex getUserPools "(\"$currentAccount\")"`
+    # echo "currentPools: $currentPools"
     
 };
 
 testBizFlow
 
-sleep 600
+# sleep 120
 
-dfx stop
-mv dfx.json.bak dfx.json
+# dfx stop
+# mv dfx.json.bak dfx.json

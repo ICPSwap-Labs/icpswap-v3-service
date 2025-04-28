@@ -1437,7 +1437,7 @@ shared (initMsg) actor class SwapPool(
                         _txState.oneStepSwapSwapCompleted(txIndex, amount);
 
                         switch(await _withdraw(txIndex, tokenOut, tokenOutAct, caller,{ owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amount, feeOut, memo)) {
-                            case (#ok(amount)) { return #ok(amount); };
+                            case (#ok(_)) { return #ok(amount); };
                             case (#err(e)) { return #err(e); };
                         };
                     };
@@ -1507,7 +1507,7 @@ shared (initMsg) actor class SwapPool(
                     case (#ok(amount)) {
                         _txState.oneStepSwapSwapCompleted(txIndex, amount);
                         switch(await _withdraw(txIndex, tokenOut, tokenOutAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amount, feeOut, memo)) {
-                            case (#ok(amount)) { return #ok(amount); };
+                            case (#ok(_)) { return #ok(amount); };
                             case (#err(e)) { return #err(e); };
                         };
                     };
