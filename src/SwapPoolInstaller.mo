@@ -3,6 +3,7 @@ import Error "mo:base/Error";
 import Result "mo:base/Result";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
+import Debug "mo:base/Debug";
 import Prim "mo:⛔";
 
 import Arg "mo:candid/Arg";
@@ -88,7 +89,8 @@ actor class SwapPoolInstaller(
         let canisterId = createCanisterResult.canister_id;
         await IC0Utils.deposit_cycles(canisterId, _initTopUpCycles);
         // let _ = await (system SwapPool.SwapPool)(#install canisterId)(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
-        await IC0Utils.install_code(canisterId, _getInitArgs(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _activeWasmBlob, #install);
+        Debug.print("SwapPoolInstaller install");
+        await IC0Utils.install_code(canisterId, to_candid(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
         await IC0Utils.update_settings_add_controller(canisterId, [factoryId, governanceId]);
         return canisterId;
     };
@@ -147,6 +149,7 @@ actor class SwapPoolInstaller(
     public shared (msg) func activateWasm() : async () {
         _checkAdminPermission(msg.caller);
         _wasmManager.activateWasm();
+        _activeWasmBlob := _wasmManager.getActiveWasm();
     };
 
     public shared (msg) func removeWasmChunk(chunkId : Nat) : async () {
