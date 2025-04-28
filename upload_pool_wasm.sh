@@ -1,5 +1,106 @@
 #!/bin/bash
 
+# Create or update wasm_checker project
+echo "Setting up wasm_checker project..."
+if [ ! -d "wasm_checker" ]; then
+    mkdir -p wasm_checker
+    cd wasm_checker
+    cargo init --bin
+else
+    cd wasm_checker
+fi
+
+# Update Cargo.toml for wasm_checker
+echo "Updating wasm_checker dependencies..."
+cat > Cargo.toml << 'EOF'
+[package]
+name = "wasm_checker"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+# Update main.rs for wasm_checker
+echo "Updating wasm_checker code..."
+cat > src/main.rs << 'EOF'
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+
+#[derive(Debug)]
+enum WasmEncoding {
+    Wasm,
+    Gzip,
+}
+
+#[derive(Debug)]
+enum WasmValidationError {
+    DecodingError(String),
+    IoError(std::io::Error),
+}
+
+impl From<std::io::Error> for WasmValidationError {
+    fn from(err: std::io::Error) -> Self {
+        WasmValidationError::IoError(err)
+    }
+}
+
+fn wasm_encoding_and_size(module_bytes: &[u8]) -> Result<(WasmEncoding, usize), WasmValidationError> {
+    // \0asm is WebAssembly module magic bytes
+    if module_bytes.starts_with(b"\x00asm") {
+        return Ok((WasmEncoding::Wasm, module_bytes.len()));
+    }
+
+    // 1f 8b is GZIP magic number, 08 is DEFLATE algorithm
+    if module_bytes.starts_with(b"\x1f\x8b\x08") {
+        if module_bytes.len() < 16 {
+            return Err(WasmValidationError::DecodingError(
+                "invalid Wasm module: gzip stream is too short".to_string(),
+            ));
+        }
+
+        let mut isize_bytes = [0u8; 4];
+        isize_bytes.copy_from_slice(&module_bytes[module_bytes.len() - 4..module_bytes.len()]);
+        let uncompressed_size = u32::from_le_bytes(isize_bytes) as usize;
+        return Ok((WasmEncoding::Gzip, uncompressed_size));
+    }
+
+    Err(WasmValidationError::DecodingError(
+        "unsupported canister module format".to_string(),
+    ))
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() != 2 {
+        eprintln!("Usage: {} <wasm_file_path>", args[0]);
+        std::process::exit(1);
+    }
+
+    let path = Path::new(&args[1]);
+    let mut file = File::open(path)?;
+    let mut wasm_data = Vec::new();
+    file.read_to_end(&mut wasm_data)?;
+
+    match wasm_encoding_and_size(&wasm_data) {
+        Ok((encoding, size)) => {
+            println!("WASM file encoding: {:?}", encoding);
+            println!("Size: {} bytes", size);
+        }
+        Err(e) => {
+            eprintln!("Error: {:?}", e);
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+EOF
+
+# Build wasm_checker
+echo "Building wasm_checker..."
+cargo build --release
+cd ..
+
 # Check if Rust is installed
 if ! command -v rustc &> /dev/null; then
     echo "Installing Rust..."
@@ -136,6 +237,12 @@ dfx canister call SwapFactory combineWasmChunks
 dfx canister call SwapPoolInstaller activateWasm
 dfx canister call SwapFactory activateWasm
 
+# Check WASM encoding and size
+echo "Checking WASM encoding and size..."
+cd ..
+./wasm_checker/target/release/wasm_checker .dfx/local/canisters/SwapPool/SwapPool.wasm
+cd upload_pool_wasm
+
 # Verify WASM hash
 echo "Verifying WASM hash..."
 # Get local wasm hash
@@ -146,10 +253,19 @@ echo "Local WASM SHA256: $LOCAL_WASM_HASH"
 cd upload_pool_wasm
 # Get active WASM from SwapPoolInstaller and calculate its hash
 dfx canister call SwapPoolInstaller getActiveWasm | sed 's/blob "//;s/"//g' | xxd -r -p > installer_active.wasm
+echo "Checking SwapPoolInstaller WASM encoding and size..."
+cd ..
+./wasm_checker/target/release/wasm_checker upload_pool_wasm/installer_active.wasm
+cd upload_pool_wasm
 INSTALLER_WASM_HASH=$(sha256sum installer_active.wasm | awk '{print $1}')
 echo "SwapPoolInstaller WASM SHA256: $INSTALLER_WASM_HASH"
+
 # Get active WASM from SwapFactory and calculate its hash
 dfx canister call SwapFactory getActiveWasm | sed 's/blob "//;s/"//g' | xxd -r -p > factory_active.wasm
+echo "Checking SwapFactory WASM encoding and size..."
+cd ..
+./wasm_checker/target/release/wasm_checker upload_pool_wasm/factory_active.wasm
+cd upload_pool_wasm
 FACTORY_WASM_HASH=$(sha256sum factory_active.wasm | awk '{print $1}')
 echo "SwapFactory WASM SHA256: $FACTORY_WASM_HASH"
 
@@ -157,5 +273,6 @@ echo "SwapFactory WASM SHA256: $FACTORY_WASM_HASH"
 echo "Cleaning up..."
 cd ..
 rm -rf upload_pool_wasm
+rm -rf wasm_checker
 
 echo "WASM upload completed successfully!" 
