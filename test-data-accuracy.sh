@@ -150,17 +150,17 @@ dfx canister deposit-cycles 50698725619460 SwapPoolInstaller
 # Upload WASM to both SwapFactory and SwapPoolInstaller
 echo "==> Uploading WASM to SwapFactory and SwapPoolInstaller..."
 
-# Check if upload_pool_wasm.sh exists and has execute permission
-if [ ! -f "./upload_pool_wasm.sh" ]; then
-    echo "Error: upload_pool_wasm.sh not found in current directory"
+# Check if upload-pool-wasm.sh exists and has execute permission
+if [ ! -f "./upload-pool-wasm.sh" ]; then
+    echo "Error: upload-pool-wasm.sh not found in current directory"
     exit 1
 fi
 
 # Make sure the script has execute permission
-chmod +x ./upload_pool_wasm.sh
+chmod +x ./upload-pool-wasm.sh
 
 # Execute the script
-sh ./upload_pool_wasm.sh
+sh ./upload-pool-wasm.sh
 
 dfx canister call base_index addClient "(principal \"$swapFactoryId\")"
 
