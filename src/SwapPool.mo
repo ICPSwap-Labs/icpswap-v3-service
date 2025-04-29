@@ -1997,9 +1997,9 @@ shared (initMsg) actor class SwapPool(
                         if (Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
                             return #err(#InternalError("Transaction is not expired"));
                         };
+                        _pushSwapInfoCache(txId);
                     };  
                 };
-                _txState.delete(txId);
                 return #ok(true);
             };
             case (_) { return #err(#InternalError("Transaction not found")); };
@@ -2445,7 +2445,7 @@ shared (initMsg) actor class SwapPool(
             errors = swapRecordState.errors;
         });
     };
-    
+
     public query func getInitArgs() : async Result.Result<Types.PoolInitArgs, Types.Error> {
         return #ok({
             token0 = token0;

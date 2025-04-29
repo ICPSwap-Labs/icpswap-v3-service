@@ -250,12 +250,12 @@ module {
                             case (?failedTx) {
                                 switch(failedTx.action) {
                                     case (#Withdraw(failedInfo)) {
-                                        _updateTransaction(newInfo.failedIndex, failedTx, #Withdraw({ failedInfo with status = #Completed; }), transactions);
+                                        _updateTransaction(newInfo.failedIndex, failedTx, #Withdraw({ failedInfo with status = #Failed; }), transactions);
                                         (txId, ?newInfo.failedIndex)
                                     };
                                     case (#OneStepSwap(failedInfo)) {
                                         _updateTransaction(newInfo.failedIndex, failedTx, #OneStepSwap({ 
-                                            failedInfo with status = #Completed; 
+                                            failedInfo with status = #Failed; 
                                             withdraw = { failedInfo.withdraw with status = #Failed; }; 
                                             swap = { failedInfo.swap with status = #Failed; }; 
                                         }), transactions);
