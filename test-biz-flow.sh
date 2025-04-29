@@ -160,10 +160,9 @@ fi
 # Make sure the script has execute permission
 chmod +x ./upload_pool_wasm.sh
 
-# Execute the script with sudo
+# Execute the script
 sh ./upload_pool_wasm.sh
 
-# Continue with the rest of the script
 testAccount=`dfx canister call Test getAccount "(principal \"$testId\")" | sed 's/[()]//g' | sed 's/"//g'`
 echo "testAccount: $testAccount"
 currentAccount=`dfx canister call Test getAccount "(principal \"$MINTER_PRINCIPAL\")" | sed 's/[()]//g' | sed 's/"//g'`
