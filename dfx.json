@@ -24,6 +24,10 @@
     "TrustedCanisterManager": {
       "main": "./src/TrustedCanisterManager.mo",
       "type": "motoko"
+    },
+    "SwapDataBackup": {
+      "main": "./src/SwapDataBackup.mo",
+      "type": "motoko"
     }
   },
   "defaults": { "build": { "packtool": "vessel sources" } },
