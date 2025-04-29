@@ -5,7 +5,6 @@ import Buffer "mo:base/Buffer";
 import HashMap "mo:base/HashMap";
 import Prim "mo:⛔";
 import Iter "mo:base/Iter";
-import SHA256 "mo:sha256/SHA256";
 
 module {
     public type Chunk = [Nat8];
@@ -64,8 +63,10 @@ module {
             nextChunkID := 0;
         };
 
-        public func removeChunk(chunkId : Nat) : () {
-            ignore chunksMap.remove(chunkId);
+        /// Clear all chunks
+        public func clearChunks() : () {
+            chunksMap := HashMap.HashMap<Nat, Chunk>(1, Nat.equal, _hash);
+            nextChunkID := 0;
         };
 
         /// Get the current staging WASM blob
@@ -76,14 +77,6 @@ module {
         /// Get the currently active WASM blob
         public func getActiveWasm() : Blob {
             activeWasmBlob;
-        };
-
-        public func getStagingWasmSHA256() : [Nat8] {
-            SHA256.sha256(Blob.toArray(stagingWasmBlob));
-        };
-
-        public func getActiveWasmSHA256() : [Nat8] {
-            SHA256.sha256(Blob.toArray(activeWasmBlob));
         };
 
     };

@@ -32,7 +32,6 @@ import PoolUtils "./utils/PoolUtils";
 import WasmManager "./components/WasmManager";
 
 import ICRCTypes "./ICRCTypes";
-import SwapPool "./SwapPool";
 import Types "./Types";
 
 shared (initMsg) actor class SwapFactory(
@@ -106,10 +105,9 @@ shared (initMsg) actor class SwapFactory(
             case (?pool) { pool };
             case (_) {
                 try {
-                    if(not _deletePasscode(msg.caller, { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; })) {
-                        return #err(#InternalError("Passcode is not existed."));
-                    };
-                    // let pool = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+                    let passcode = { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; };
+                    if(not _deletePasscode(msg.caller, passcode)) { return #err(#InternalError("Passcode is not existed.")); };
+
                     let pool: Types.SwapPoolActor = await installFunc(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
                     await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
                     await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), [initMsg.caller]);
@@ -129,6 +127,8 @@ shared (initMsg) actor class SwapFactory(
 
                     poolData;
                 } catch (_e) {
+                    // Rollback passcode if pool creation fails
+                    _rollbackPasscode(msg.caller, { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; });
                     throw Error.reject("Create pool failed: " # Error.message(_e));
                 };
             };
@@ -646,24 +646,41 @@ shared (initMsg) actor class SwapFactory(
         };
     };
 
+    private func _rollbackPasscode(principal: Principal, passcode: Types.Passcode) {
+        switch (_principalPasscodeMap.get(principal)) {
+            case (?passcodes) {
+                // Check if passcode already exists
+                if (CollectionUtils.arrayContains<Types.Passcode>(passcodes, passcode, _passcodeEqual)) {
+                    return;
+                };
+                var passcodeList : List.List<Types.Passcode> = List.fromArray(passcodes);
+                passcodeList := List.push(passcode, passcodeList);
+                _principalPasscodeMap.put(principal, List.toArray(passcodeList));
+            };
+            case (_) {
+                var passcodeList = List.nil<Types.Passcode>();
+                passcodeList := List.push(passcode, passcodeList);
+                _principalPasscodeMap.put(principal, List.toArray(passcodeList));
+            };
+        };
+    };
+
     private func _passcodeEqual(p1 : Types.Passcode, p2 : Types.Passcode) : Bool { 
         Principal.equal(p1.token0, p2.token0) and  Principal.equal(p1.token1, p2.token1) and Nat.equal(p1.fee, p2.fee)
     };
     
     private func _checkStandard(standard : Text) : Bool {
-        if (
-            Text.notEqual(standard, "DIP20") 
-            and Text.notEqual(standard, "DIP20-WICP") 
-            and Text.notEqual(standard, "DIP20-XTC") 
-            and Text.notEqual(standard, "EXT") 
-            and Text.notEqual(standard, "ICRC1") 
-            and Text.notEqual(standard, "ICRC2") 
-            and Text.notEqual(standard, "ICRC3") 
-            and Text.notEqual(standard, "ICP")
-        ) {
-            return false;
-        };
-        return true;
+        let supportedStandards = [
+            "DIP20",
+            "DIP20-WICP",
+            "DIP20-XTC",
+            "EXT",
+            "ICRC1",
+            "ICRC2",
+            "ICRC3",
+            "ICP"
+        ];
+        return Option.isSome(Array.find<Text>(supportedStandards, func(s) = Text.equal(s, standard)));
     };
 
     private func _setNextUpgradeTask() : ?Types.PoolUpgradeTask {
@@ -795,7 +812,7 @@ shared (initMsg) actor class SwapFactory(
                         _currentUpgradeTask := ?currentTask;
                         ignore Timer.setTimer<system>(#seconds (5), _execUpgrade);
                     } else if (not task.upgrade.isDone) {
-                        var currentTask = await UpgradeTask.stepUpgrade(task, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
+                        var currentTask = await UpgradeTask.stepUpgrade(task, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid, _wasmManager.getActiveWasm());
                         _currentUpgradeTask := ?currentTask;
                         ignore Timer.setTimer<system>(#seconds (5), _execUpgrade);
                     } else if (not task.start.isDone) {
@@ -914,8 +931,11 @@ shared (initMsg) actor class SwapFactory(
             case (?#Local) {
                 let fun = func (token0: Types.Token, token1: Types.Token, infoCid: Principal, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal, positionIndexCid: Principal) : async Types.SwapPoolActor {
                     Cycles.add<system>(_initCycles);
-                    let poolAct = await SwapPool.SwapPool(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
-                    return actor(Principal.toText(Principal.fromActor(poolAct))) : Types.SwapPoolActor;
+                    let createCanisterResult = await IC0Utils.create_canister(null, null, _initCycles);
+                    let canisterId = createCanisterResult.canister_id;
+                    await IC0Utils.deposit_cycles(canisterId, _initCycles);
+                    await IC0Utils.install_code(canisterId, to_candid(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
+                    return actor(Principal.toText(canisterId)) : Types.SwapPoolActor;
                 };
                 return Option.make(fun);
             };
@@ -962,6 +982,37 @@ shared (initMsg) actor class SwapFactory(
     };
     public query func getPoolInstallers() : async [Types.PoolInstaller] { _poolInstallers };
     
+    // --------------------------- WasmManager Functions -------------------------------
+    
+    public shared (msg) func uploadWasmChunk(chunk : [Nat8]) : async Nat {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.uploadChunk(chunk);
+    };
+
+    public shared (msg) func combineWasmChunks() : async () {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.combineChunks();
+    };
+
+    public shared (msg) func activateWasm() : async () {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.activateWasm();
+        _activeWasmBlob := _wasmManager.getActiveWasm();
+    };
+
+    public shared (msg) func clearChunks() : async () {
+        _checkAdminPermission(msg.caller);
+        _wasmManager.clearChunks();
+    };
+
+    public query func getStagingWasm() : async Blob {
+        _wasmManager.getStagingWasm();
+    };
+
+    public query func getActiveWasm() : async Blob {
+        _wasmManager.getActiveWasm();
+    };
+
     // --------------------------- ACL ------------------------------------
 
     private stable var _admins : [Principal] = [];
@@ -1038,45 +1089,5 @@ shared (initMsg) actor class SwapFactory(
             // Anyone
             case (_)                                     { true };
         };
-    };
-
-    public shared (msg) func uploadWasmChunk(chunk : [Nat8]) : async Nat {
-        _checkAdminPermission(msg.caller);
-        _wasmManager.uploadChunk(chunk);
-    };
-
-    public shared (msg) func combineWasmChunks() : async () {
-        _checkAdminPermission(msg.caller);
-        _wasmManager.combineChunks();
-    };
-
-    public shared (msg) func activateWasm() : async () {
-        _checkAdminPermission(msg.caller);
-        _wasmManager.activateWasm();
-    };
-
-    public shared (msg) func removeWasmChunk(chunkId : Nat) : async () {
-        _checkAdminPermission(msg.caller);
-        _wasmManager.removeChunk(chunkId);
-    };
-
-    public query func getStagingWasm() : async Blob {
-        _wasmManager.getStagingWasm();
-    };
-
-    public query func getActiveWasm() : async Blob {
-        _wasmManager.getActiveWasm();
-    };
-
-    public query func getNat8ArrayFromHex(hex : Text) : async [Nat8] {
-        PoolUtils.hexToNat8Array(hex);
-    };
-
-    public query func getStagingWasmSHA256() : async [Nat8] {
-        _wasmManager.getStagingWasmSHA256();
-    };
-
-    public query func getActiveWasmSHA256() : async [Nat8] {
-        _wasmManager.getActiveWasmSHA256();
     };
 };

@@ -461,13 +461,13 @@ module {
           () -> (poolCids : [Principal], origins : [Text]);
         #batchSetPoolLimitOrderAvailable :
           () -> (poolCids : [Principal], available : Bool);
+        #clearChunks : () -> ();
         #clearPoolUpgradeTaskHis : () -> ();
         #clearUpgradeFailedPoolList : () -> ();
         #combineWasmChunks : () -> ();
         #createPool : () -> (args : CreatePoolArgs);
         #deletePasscode : () -> (principal : Principal, passcode : Passcode);
         #getActiveWasm : () -> ();
-        #getActiveWasmSHA256 : () -> ();
         #getAdmins : () -> ();
         #getCreatePoolRecords : () -> ();
         #getCreatePoolRecordsByCaller : () -> (caller : Principal);
@@ -476,7 +476,6 @@ module {
         #getGovernanceCid : () -> ();
         #getInitArgs : () -> ();
         #getInstallerModuleHash : () -> ();
-        #getNat8ArrayFromHex : () -> (hex : Text);
         #getNextPoolVersion : () -> ();
         #getPasscodesByPrincipal : () -> (principal : Principal);
         #getPendingUpgradePoolList : () -> ();
@@ -488,23 +487,23 @@ module {
         #getPrincipalPasscodes : () -> ();
         #getRemovedPools : () -> ();
         #getStagingWasm : () -> ();
-        #getStagingWasmSHA256 : () -> ();
         #getUpgradeFailedPoolList : () -> ();
         #getVersion : () -> ();
         #icrc10_supported_standards : () -> ();
-        #icrc21_canister_call_consent_message : () -> (request : ICRCTypes.Icrc21ConsentMessageRequest);
+        #icrc21_canister_call_consent_message :
+          () -> (request : ICRCTypes.Icrc21ConsentMessageRequest);
         #icrc28_trusted_origins : () -> ();
         #removePoolInstaller : () -> (canisterId : Principal);
         #removePoolInstallerValidate : () -> (canisterId : Principal);
-        #removeWasmChunk : () -> (chunkId : Nat);
         #retryAllFailedUpgrades : () -> ();
         #setAdmins : () -> (admins : [Principal]);
         #setIcrc28TrustedOrigins : () -> (origins : [Text]);
         #setInstallerModuleHash : () -> (moduleHash : Blob);
         #setInstallerModuleHashValidate : () -> (moduleHash : Blob);
         #setUpgradePoolList : () -> (args : UpgradePoolArgs);
-        #upgradePoolTokenStandard : () -> (poolCid : Principal, tokenCid : Principal);
-        #uploadWasmChunk : () -> (chunk : [Nat8])
+        #upgradePoolTokenStandard :
+          () -> (poolCid : Principal, tokenCid : Principal);
+        #uploadWasmChunk : () -> (chunk : [Nat8]);
     };
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();

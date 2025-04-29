@@ -6,15 +6,10 @@ import Cycles "mo:base/ExperimentalCycles";
 import Debug "mo:base/Debug";
 import Prim "mo:⛔";
 
-import Arg "mo:candid/Arg";
-import Type "mo:candid/Type";
-import CandidEncoder "mo:candid/Encoder";
-
 import CollectionUtils "mo:commons/utils/CollectionUtils";
 import IC0Utils "mo:commons/utils/IC0Utils";
 
 import Types "./Types";
-import SwapPool "./SwapPool";
 import WasmManager "./components/WasmManager";
 
 actor class SwapPoolInstaller(
@@ -41,41 +36,6 @@ actor class SwapPoolInstaller(
         assert(CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller));
     };
 
-    private func _getInitArgs(
-        token0: Types.Token, 
-        token1: Types.Token, 
-        infoCid: Principal, 
-        feeReceiverCid: Principal, 
-        trustedCanisterManagerCid: Principal,
-        positionIndexCid: Principal
-    ) : Blob {
-        let argToken0 : Arg.Arg = {
-            type_ = #record([
-                { tag = #name("address"); type_ = #text; },
-                { tag = #name("standard"); type_ = #text; }
-            ]);
-            value = #record([
-                { tag = #name("address"); value = #text(token0.address); },
-                { tag = #name("standard"); value = #text(token0.standard); }
-            ]);
-        };
-        let argToken1 : Arg.Arg = {
-            type_ = #record([
-                { tag = #name("address"); type_ = #text; },
-                { tag = #name("standard"); type_ = #text; }
-            ]);
-            value = #record([
-                { tag = #name("address"); value = #text(token1.address); },
-                { tag = #name("standard"); value = #text(token1.standard); }
-            ]);
-        };
-        let argInfoCid : Arg.Arg = { type_ = #principal; value = #principal(infoCid); };
-        let argFeeReceiverCid : Arg.Arg = { type_ = #principal; value = #principal(feeReceiverCid); };
-        let argTrustedCanisterManagerCid : Arg.Arg = { type_ = #principal; value = #principal(trustedCanisterManagerCid); };
-        let argPositionIndexCid : Arg.Arg = { type_ = #principal; value = #principal(positionIndexCid); };
-        return CandidEncoder.encode([argToken0, argToken1, argInfoCid, argFeeReceiverCid, argTrustedCanisterManagerCid, argPositionIndexCid]);
-    };
-
     public shared ({ caller }) func install(
         token0: Types.Token, 
         token1: Types.Token, 
@@ -89,7 +49,6 @@ actor class SwapPoolInstaller(
         let canisterId = createCanisterResult.canister_id;
         await IC0Utils.deposit_cycles(canisterId, _initTopUpCycles);
         // let _ = await (system SwapPool.SwapPool)(#install canisterId)(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
-        Debug.print("SwapPoolInstaller install");
         await IC0Utils.install_code(canisterId, to_candid(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
         await IC0Utils.update_settings_add_controller(canisterId, [factoryId, governanceId]);
         return canisterId;
@@ -152,9 +111,9 @@ actor class SwapPoolInstaller(
         _activeWasmBlob := _wasmManager.getActiveWasm();
     };
 
-    public shared (msg) func removeWasmChunk(chunkId : Nat) : async () {
+    public shared (msg) func clearChunks() : async () {
         _checkAdminPermission(msg.caller);
-        _wasmManager.removeChunk(chunkId);
+        _wasmManager.clearChunks();
     };
 
     public query func getStagingWasm() : async Blob {
@@ -163,10 +122,6 @@ actor class SwapPoolInstaller(
 
     public query func getActiveWasm() : async Blob {
         _wasmManager.getActiveWasm();
-    };
-
-    public query func getActiveWasmSize() : async Nat {
-        _wasmManager.getActiveWasm().size();
     };
     
     // --------------------------- Version Control      -------------------------------
