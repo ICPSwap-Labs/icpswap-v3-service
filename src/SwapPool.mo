@@ -2445,14 +2445,8 @@ shared (initMsg) actor class SwapPool(
             errors = swapRecordState.errors;
         });
     };
-    public query func getInitArgs() : async Result.Result<{
-        token0 : Types.Token;
-        token1 : Types.Token;
-        infoCid : Principal;
-        feeReceiverCid : Principal;
-        trustedCanisterManagerCid : Principal;
-        positionIndexCid : Principal;
-    }, Types.Error> {
+    
+    public query func getInitArgs() : async Result.Result<Types.PoolInitArgs, Types.Error> {
         return #ok({
             token0 = token0;
             token1 = token1;

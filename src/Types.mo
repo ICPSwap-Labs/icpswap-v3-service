@@ -30,6 +30,14 @@ module {
         #address : AccountIdentifier;
         #account : Account;
     };
+    public type PoolInitArgs = {
+        token0 : Token;
+        token1 : Token;
+        infoCid : Principal;
+        feeReceiverCid : Principal;
+        trustedCanisterManagerCid : Principal;
+        positionIndexCid : Principal;
+    };
     public type PoolMetadata = {
         key : Text;
         token0 : Token;
@@ -565,7 +573,7 @@ module {
         getVersion : query () -> async Text;
         getTickBitmaps : query () -> async Result.Result<[(Int, Nat)], Error>;
         getFeeGrowthGlobal : query () -> async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Error>;
-        getInitArgs : query () -> async Result.Result<{ token0 : Token; token1 : Token; infoCid : Principal; feeReceiverCid : Principal; trustedCanisterManagerCid : Principal; }, Error>;
+        getInitArgs : query () -> async Result.Result<PoolInitArgs, Error>;
         setIcrc28TrustedOrigins : shared ([Text]) -> async Result.Result<Bool, ()>;
         recoverUserPositions : shared ([UserPositionInfoWithId]) -> async ();
         recoverPositions : shared ([PositionInfoWithId]) -> async ();
