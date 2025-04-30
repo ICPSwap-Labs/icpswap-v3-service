@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Check if Rust is installed
+if ! command -v rustc &> /dev/null; then
+    echo "Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    # Add Rust to current shell environment
+    source "$HOME/.cargo/env"
+else
+    echo "Rust is already installed"
+fi
+
 # Create or update wasm_checker project
 echo "Setting up wasm_checker project..."
 if [ ! -d "wasm_checker" ]; then
@@ -101,17 +111,7 @@ echo "Building wasm_checker..."
 cargo build --release
 cd ..
 
-# Check if Rust is installed
-if ! command -v rustc &> /dev/null; then
-    echo "Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    # Add Rust to current shell environment
-    source "$HOME/.cargo/env"
-else
-    echo "Rust is already installed"
-fi
-
-# Create or update Rust project
+# Create or update upload_pool_wasm project
 echo "Setting up Rust project..."
 if [ ! -d "upload_pool_wasm" ]; then
     mkdir -p upload_pool_wasm
