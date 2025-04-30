@@ -51,7 +51,6 @@ module SwapRecord {
 
         public func getState() : State {
             return {
-                infoCid = _infoCid;
                 records = Buffer.toArray(_swapRecordCache);
                 retryCount = _retryCount;
                 errors = _errors.toArray();

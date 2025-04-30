@@ -1,6 +1,5 @@
 import Array "mo:base/Array";
 import Text "mo:base/Text";
-import Error "mo:base/Error";
 import Bool "mo:base/Bool";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";

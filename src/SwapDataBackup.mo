@@ -257,7 +257,6 @@ shared (initMsg) actor class SwapDataBackup(
                 token0 = { address = ""; standard = "" };
                 token1 = { address = ""; standard = "" };
                 fee = 0;
-                tickSpacing = 0;
                 sqrtPriceX96 = 0;
                 key = "";
                 liquidity = 0;
