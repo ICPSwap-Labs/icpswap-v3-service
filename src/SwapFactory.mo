@@ -79,10 +79,12 @@ shared (initMsg) actor class SwapFactory(
     private stable var _positionIndexAct = actor (Principal.toText(positionIndexCid)) : Types.PositionIndexActor;
 
     // Add WasmManager state
+    private stable var _isWasmActive = false;
     private stable var _activeWasmBlob = Blob.fromArray([]);
     private var _wasmManager = WasmManager.Service(_activeWasmBlob);
 
     public shared (msg) func createPool(args : Types.CreatePoolArgs) : async Result.Result<Types.PoolData, Types.Error> {
+        if (not _isWasmActive) { return #err(#InternalError("Wasm of SwapPool is not ready yet, please contact the administrator.")); };
         if (not _validatePasscode(msg.caller, args)) { return #err(#InternalError("Please pay the fee for creating SwapPool.")); };
         if (Text.equal(args.token0.address, args.token1.address)) { return #err(#InternalError("Can not use the same token")); };
         if (not _checkStandard(args.token0.standard)) { return #err(#UnsupportedToken("Wrong token0 standard.")); };
@@ -998,6 +1000,7 @@ shared (initMsg) actor class SwapFactory(
         _checkAdminPermission(msg.caller);
         _wasmManager.activateWasm();
         _activeWasmBlob := _wasmManager.getActiveWasm();
+        _isWasmActive := true;
     };
 
     public shared (msg) func clearChunks() : async () {
@@ -1085,7 +1088,6 @@ shared (initMsg) actor class SwapFactory(
             case (#uploadWasmChunk _)                    { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
             case (#combineWasmChunks _)                  { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
             case (#activateWasm _)                       { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
-            case (#removeWasmChunk _)                    { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or _hasPermission(caller) };
             // Anyone
             case (_)                                     { true };
         };
