@@ -3,7 +3,7 @@ import Error "mo:base/Error";
 import Result "mo:base/Result";
 import Principal "mo:base/Principal";
 import Cycles "mo:base/ExperimentalCycles";
-import Debug "mo:base/Debug";
+// import Debug "mo:base/Debug";
 import Prim "mo:⛔";
 
 import CollectionUtils "mo:commons/utils/CollectionUtils";
