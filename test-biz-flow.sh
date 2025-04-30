@@ -424,7 +424,5 @@ function testBizFlow()
 
 testBizFlow
 
-sleep 120
-
 dfx stop
 mv dfx.json.bak dfx.json
