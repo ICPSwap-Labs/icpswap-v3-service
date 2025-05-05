@@ -10,11 +10,11 @@ module {
             transfer = refund.transfer;
             status = status;
             err = err;
-            failedIndex = refund.failedIndex;
+            relatedIndex = refund.relatedIndex;
         }
     };
 
-    public func start(token: Principal, from: Types.Account, to: Types.Account, amount: Nat, fee: Nat, memo: ?Blob, failedIndex: Nat, standard: Text): Types.RefundInfo {
+    public func start(token: Principal, from: Types.Account, to: Types.Account, amount: Nat, fee: Nat, memo: ?Blob, relatedIndex: Nat, standard: Text): Types.RefundInfo {
         _updateStatus({
             status = #Created;
             transfer = {
@@ -27,7 +27,7 @@ module {
                 index = 0;
                 standard = standard;
             };
-            failedIndex = failedIndex;
+            relatedIndex = relatedIndex;
             err = null;
         }, #Created, null)
     };

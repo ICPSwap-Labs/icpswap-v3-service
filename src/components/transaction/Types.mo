@@ -144,7 +144,7 @@ module {
     };
 
     public type RefundInfo = {
-        failedIndex: Nat;
+        relatedIndex: Nat;
         transfer: Transfer;
         status: RefundStatus;
         err: ?Error;

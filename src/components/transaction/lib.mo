@@ -134,6 +134,10 @@ module {
                     let newDeposit = Deposit.fail(deposit, err);
                     _updateTransaction(txId, tx, #Deposit(newDeposit), transactions);
                 };
+                case(#OneStepSwap(info)) {
+                    let newInfo = OneStepSwap.fail(info, err);
+                    _updateTransaction(txId, tx, #OneStepSwap({ newInfo with deposit = { newInfo.deposit with status = #Failed; err = ?err; } }), transactions);
+                };
                 case(_) { assert(false) };
             };
         };
@@ -204,6 +208,10 @@ module {
                     let newInfo = Withdraw.fail(info, err);
                     _updateTransaction(txId, tx, #Withdraw(newInfo), transactions);
                 };
+                case(#OneStepSwap(info)) {
+                    let newInfo = OneStepSwap.fail(info, err);
+                    _updateTransaction(txId, tx, #OneStepSwap({ newInfo with withdraw = { newInfo.withdraw with status = #Failed; err = ?err; } }), transactions);
+                };
                 case(_) { assert(false) };
             };
             txId
@@ -244,30 +252,8 @@ module {
                     if (info.status == #CreditCompleted) {
                         let newInfo = Refund.process(info);
                         _updateTransaction(txId, tx, #Refund({ newInfo with transfer = { newInfo.transfer with index = txIndex; } }), transactions);
-
-                        switch (_getTransaction(newInfo.failedIndex, transactions)) {
-                            case null { (txId, null) };
-                            case (?failedTx) {
-                                switch(failedTx.action) {
-                                    case (#Withdraw(failedInfo)) {
-                                        _updateTransaction(newInfo.failedIndex, failedTx, #Withdraw({ failedInfo with status = #Failed; }), transactions);
-                                        (txId, ?newInfo.failedIndex)
-                                    };
-                                    case (#OneStepSwap(failedInfo)) {
-                                        _updateTransaction(newInfo.failedIndex, failedTx, #OneStepSwap({ 
-                                            failedInfo with status = #Failed; 
-                                            withdraw = { failedInfo.withdraw with status = #Failed; }; 
-                                            swap = { failedInfo.swap with status = #Failed; }; 
-                                        }), transactions);
-                                        (txId, ?newInfo.failedIndex)
-                                    };
-                                    case(_) { assert(false); (0, null) };
-                                };
-                            };
-                        };
-                    } else {
-                        (txId, ?info.failedIndex)
-                    }
+                    };
+                    (txId, ?info.relatedIndex)
                 };
                 case(_) { assert(false); (0, null) };
             };
@@ -758,15 +744,16 @@ module {
             };
         };
 
-        public func oneStepSwapFailed(txId: Nat, err: Types.Error): () {
+        public func oneStepSwapSwapFailed(txId: Nat, err: Types.Error): () {
             let tx = _assertTransactionExists(_getTransaction(txId, transactions));
             switch(tx.action) {
                 case (#OneStepSwap(info)) {
                     let newInfo = OneStepSwap.fail(info, err);
-                    _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                    _updateTransaction(txId, tx, #OneStepSwap({ newInfo with swap = { newInfo.swap with status = #Failed; err = ?err; } }), transactions);
                 };
                 case(_) { assert(false) };
             };
         };
+
     };
 };
