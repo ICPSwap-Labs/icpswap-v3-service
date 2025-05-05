@@ -753,16 +753,16 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
-    private func _refund(token: Types.Token, tokenAct: TokenAdapterTypes.TokenAdapter, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob, failedIndex: Nat): async Result.Result<Nat, Types.Error> {
+    private func _refund(token: Types.Token, tokenAct: TokenAdapterTypes.TokenAdapter, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob, relatedIndex: Nat): async Result.Result<Nat, Types.Error> {
         func __refund<system>() {
             ignore Timer.setTimer<system>(#nanoseconds(0), func (): async () {
                 try {
                     let amountOut = Nat.sub(amount, fee);
                     switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amountOut; fee = ?fee; memo = memo; created_at_time = null})) {
                         case (#Ok(index)) {
-                            let (refundTxIndex, failedTxIndex) = _txState.refundCompleted(txIndex, index);
+                            let (refundTxIndex, relatedTxIndex) = _txState.refundCompleted(txIndex, index);
                             _pushSwapInfoCache(refundTxIndex);
-                            switch (failedTxIndex) { case (?failedTxIndex) { _pushSwapInfoCache(failedTxIndex) }; case (_) { }; };
+                            switch (relatedTxIndex) { case (?relatedTxIndex) { _pushSwapInfoCache(relatedTxIndex) }; case (_) { }; };
                         };
                         case (#Err(e)) {
                             ignore _txState.refundFailed(txIndex, debug_show(e));
@@ -775,7 +775,7 @@ shared (initMsg) actor class SwapPool(
         };
 
         if (amount <= fee) { return #err(#InternalError("Amount less than fee")); };
-        let txIndex = _txState.startRefund(caller, _getCanisterId(), Principal.fromText(token.address), from, to, amount, fee, failedIndex, token.standard);
+        let txIndex = _txState.startRefund(caller, _getCanisterId(), Principal.fromText(token.address), from, to, amount, fee, relatedIndex, token.standard);
 
         if (_tokenHolderService.withdraw(to.owner, token, amount)) {
             _txState.refundCredited(txIndex);
@@ -2016,20 +2016,21 @@ shared (initMsg) actor class SwapPool(
                     case (#Withdraw(info)) {
                         let (token, tokenAct) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act) } else { (_token1, _token1Act) };
                         ignore _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount);
-                        ignore _refund<system>(token, tokenAct, msg.caller, info.transfer.from, info.transfer.to, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
+                        ignore _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
                     };
                     case (#Refund(info)) {
                         let (token, tokenAct) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act) } else { (_token1, _token1Act) };
                         ignore _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount);
-                        ignore _refund<system>(token, tokenAct, msg.caller, info.transfer.from, info.transfer.to, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), info.relatedIndex);
+                        ignore _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), info.relatedIndex);
                     };
                     case (#OneStepSwap(info)) {
                         if (info.deposit.status == #Completed and info.withdraw.status == #Created) {
                             let (token, tokenAct) = if (Principal.equal(info.deposit.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act) } else { (_token1, _token1Act) };
-                            ignore _refund<system>(token, tokenAct, msg.caller, info.deposit.transfer.from, info.deposit.transfer.to, info.deposit.transfer.amount, info.deposit.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
+                            ignore _refund<system>(token, tokenAct, transaction.owner, { owner = _getCanisterId(); subaccount = null }, { owner = transaction.owner; subaccount = null }, info.deposit.transfer.amount, info.deposit.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
                         } else if (info.deposit.status == #Completed and info.swap.status == #Completed and info.withdraw.status != #Created) {
                             let (token, tokenAct) = if (Principal.equal(info.withdraw.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act) } else { (_token1, _token1Act) };
-                            ignore _refund<system>(token, tokenAct, msg.caller, info.withdraw.transfer.from, info.withdraw.transfer.to, info.withdraw.transfer.amount, info.withdraw.transfer.fee, ?PoolUtils.natToBlob(txId), txId)
+                            ignore _tokenHolderService.deposit(info.withdraw.transfer.to.owner, token, info.withdraw.transfer.amount);
+                            ignore _refund<system>(token, tokenAct, transaction.owner, info.withdraw.transfer.from, info.withdraw.transfer.to, info.withdraw.transfer.amount, info.withdraw.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
                         };
                     };
                     case (_) {
