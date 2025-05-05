@@ -195,6 +195,10 @@ module {
                         let newInfo = OneStepSwap.process(info);
                         _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
                     };
+                    if (info.status == #SwapCompleted and txIndex == null) {
+                        let newInfo = OneStepSwap.process({ info with status = #WithdrawCreditCompleted; withdraw = { info.withdraw with transfer = { info.withdraw.transfer with amount = 0 } } });
+                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                    };
                 };
                 case(_) { assert(false) };
             };
@@ -700,44 +704,13 @@ module {
             };
         };
 
-        public func oneStepSwapSwapCompleted(txId: Nat, amountOut: Nat): () {
+        public func oneStepSwapSwapCompleted(txId: Nat, amountOut: Nat, amountInEffective: Nat): () {
             let tx = _assertTransactionExists(_getTransaction(txId, transactions));
             switch(tx.action) { 
                 case (#OneStepSwap(info)) {
                     if (info.status == #PreSwapCompleted) {
                         let newInfo = OneStepSwap.process(info);
-                        _updateTransaction(txId, tx, #OneStepSwap({ newInfo with swap = { info.swap with amountOut = amountOut; status = #Completed } }), transactions);
-                    };  
-                };
-                case(_) { assert(false) };
-            };
-        };
-
-        public func oneStepSwapWithdrawCredited(txId: Nat): () {
-            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
-            switch(tx.action) { 
-                case (#OneStepSwap(info)) {
-                    if (info.status == #SwapCompleted) {
-                        let newInfo = OneStepSwap.process(info);
-                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
-                    };  
-                };
-                case(_) { assert(false) };
-            };
-        };
-
-        public func oneStepSwapWithdrawCompleted(txId: Nat, txIndex: ?Nat): () {
-            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
-            switch(tx.action) { 
-                case (#OneStepSwap(info)) {
-                    if (info.status == #WithdrawCreditCompleted) {
-                        let newInfo = OneStepSwap.process(info);
-                        _updateTransaction(txId, tx, #OneStepSwap(
-                            switch(txIndex) {
-                                case null { newInfo };
-                                case (?index) { { newInfo with withdraw = { info.withdraw with transfer = { info.withdraw.transfer with index = index } } } };
-                            }
-                        ), transactions);
+                        _updateTransaction(txId, tx, #OneStepSwap({ newInfo with swap = { info.swap with amountOut = amountOut; amountIn = amountInEffective; status = #Completed } }), transactions);
                     };  
                 };
                 case(_) { assert(false) };

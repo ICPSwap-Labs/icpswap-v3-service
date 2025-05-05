@@ -661,7 +661,11 @@ shared (initMsg) actor class SwapPool(
             };
         };
 
-        if (amount <= fee) { return #err(#InternalError("Amount less than fee")); };
+        if (amount <= fee) {
+            let errorMsg = "Amount less than fee";
+            _txState.depositFailed(txIndex, errorMsg);
+            return #err(#InternalError(errorMsg));
+        };
         switch (_txState.getTransaction(txIndex)) {
             case (?tx) {
                 switch (tx.action) {
@@ -706,8 +710,8 @@ shared (initMsg) actor class SwapPool(
         };
 
         if (amount <= fee) {
-            _txState.delete(txIndex);
-            return #err(#InternalError("AmountOut less than fee"));
+            _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, null));
+            return #ok(0);
         };
         if (_tokenHolderService.withdraw(caller, token, amount)) {
             _txState.withdrawCredited(txIndex);
@@ -1445,17 +1449,13 @@ shared (initMsg) actor class SwapPool(
                 
                 switch(await _swap(caller, swapArgs)) {
                     case (#ok(swapResult)) {
-                        _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount);
+                        _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
 
-                        switch(await _withdraw(txIndex, tokenOut, tokenOutAct, caller,{ owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo)) {
-                            case (#ok(_)) {
-                                if(amountIn > swapResult.effectiveAmount) {
-                                    ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn - swapResult.effectiveAmount, feeIn, memo, txIndex);
-                                };
-                                return #ok(swapResult.swapAmount);
-                            };
-                            case (#err(e)) { return #err(e); };
+                        let withdrawResult = await _withdraw(txIndex, tokenOut, tokenOutAct, caller,{ owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
+                        if(amountIn > swapResult.effectiveAmount) {
+                            ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn - swapResult.effectiveAmount, feeIn, memo, txIndex);
                         };
+                        return withdrawResult;
                     };
                     case (#err(e)) {
                         _txState.oneStepSwapSwapFailed(txIndex, "Swap failed:" # debug_show(e));
@@ -1521,16 +1521,12 @@ shared (initMsg) actor class SwapPool(
 
                 switch(await _swap(caller, swapArgs)) {
                     case (#ok(swapResult)) {
-                        _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount);
-                        switch(await _withdraw(txIndex, tokenOut, tokenOutAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo)) {
-                            case (#ok(_)) {
-                                if(amountIn > swapResult.effectiveAmount) {
-                                    ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn - swapResult.effectiveAmount, feeIn, memo, txIndex);
-                                };
-                                return #ok(swapResult.swapAmount);
-                            };
-                            case (#err(e)) { return #err(e); };
+                        _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
+                        let withdrawResult = await _withdraw(txIndex, tokenOut, tokenOutAct, caller,{ owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
+                        if(amountIn > swapResult.effectiveAmount) {
+                            ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn - swapResult.effectiveAmount, feeIn, memo, txIndex);
                         };
+                        return withdrawResult;
                     };
                     case (#err(e)) {
                         _txState.oneStepSwapSwapFailed(txIndex, "Swap failed:" # debug_show(e));
