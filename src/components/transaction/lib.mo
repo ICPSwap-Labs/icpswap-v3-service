@@ -257,7 +257,20 @@ module {
                         let newInfo = Refund.process(info);
                         _updateTransaction(txId, tx, #Refund({ newInfo with transfer = { newInfo.transfer with index = txIndex; } }), transactions);
                     };
-                    (txId, ?info.relatedIndex)
+                    switch(_getTransaction(info.relatedIndex, transactions)) {
+                        case null { (txId, null) };
+                        case (?tx) {
+                            switch(tx.action) {
+                                case (#OneStepSwap(relatedInfo)) {
+                                    if (relatedInfo.status != #Completed) {
+                                        _updateTransaction(info.relatedIndex, tx, #OneStepSwap({ relatedInfo with status = #Failed; }), transactions);
+                                    };
+                                };
+                                case (_) { };
+                            };
+                            (txId, ?info.relatedIndex) 
+                        };
+                    }
                 };
                 case(_) { assert(false); (0, null) };
             };
@@ -710,7 +723,10 @@ module {
                 case (#OneStepSwap(info)) {
                     if (info.status == #PreSwapCompleted) {
                         let newInfo = OneStepSwap.process(info);
-                        _updateTransaction(txId, tx, #OneStepSwap({ newInfo with swap = { info.swap with amountOut = amountOut; amountIn = amountInEffective; status = #Completed } }), transactions);
+                        _updateTransaction(txId, tx, #OneStepSwap({
+                            newInfo with swap = { info.swap with amountOut = amountOut; amountIn = amountInEffective; status = #Completed };
+                            withdraw = { info.withdraw with transfer = { info.withdraw.transfer with amount = amountOut } };
+                        }), transactions);
                     };  
                 };
                 case(_) { assert(false) };
