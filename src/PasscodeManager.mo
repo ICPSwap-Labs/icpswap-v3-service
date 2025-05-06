@@ -259,7 +259,7 @@ actor class PasscodeManager(
             case (#ok()) {
                 _addLog(
                     caller,
-                    "FACTORY.deletePasscode " # Principal.toText(token0) # " " # Principal.toText(token1) # " " # debug_show (fee) # " ok",
+                    "FACTORY.deletePasscode: " # Principal.toText(token0) # "_" # Principal.toText(token1) # "_" # Nat.toText(fee) # " ok",
                     ?passcodePrice,
                 );
                 _walletDeposit(caller, passcodePrice);
@@ -373,7 +373,7 @@ actor class PasscodeManager(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.5.0";
+    private var _version : Text = "3.6.0";
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {
