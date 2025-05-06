@@ -166,8 +166,13 @@ module {
     };
     public type CreatePoolRecord = {
         caller: Principal;
-        poolId: Principal;
         timestamp: Int;
+        token0: Token;
+        token1: Token;
+        fee: Nat;
+        poolId: ?Principal;
+        status: Text;
+        err: ?Text;
     };
     public type GetPoolArgs = {
         token0 : Token;
