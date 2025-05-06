@@ -2531,11 +2531,13 @@ shared (initMsg) actor class SwapPool(
                 case (#DecreaseLiquidity(info)) { if (info.status == #Failed) { failedTransactions.add((txId, tx)); }; };
                 case (#Claim(info)) { if (info.status == #Failed) { failedTransactions.add((txId, tx)); }; };
                 case (#Swap(info)) { if (info.status == #Failed) { failedTransactions.add((txId, tx)); }; };
-                case (#OneStepSwap(info)) { if (info.status == #Failed) { failedTransactions.add((txId, tx)); }; };
                 case (#TransferPosition(info)) { if (info.status == #Failed) { failedTransactions.add((txId, tx)); }; };
                 case (#AddLimitOrder(info)) { if (info.status == #Failed) { failedTransactions.add((txId, tx)); }; };
                 case (#RemoveLimitOrder(info)) { if (info.status == #Failed) { failedTransactions.add((txId, tx)); }; };
                 case (#ExecuteLimitOrder(info)) { if (info.status == #Failed) { failedTransactions.add((txId, tx)); }; };
+                case (#OneStepSwap(info)) {
+                    if (info.status == #Failed or info.deposit.status == #Failed or info.swap.status == #Failed or info.withdraw.status == #Failed) { failedTransactions.add((txId, tx)); };
+                };
             };
         };
         return #ok(Buffer.toArray(failedTransactions));
@@ -2725,9 +2727,10 @@ shared (initMsg) actor class SwapPool(
         for((index, transaction) in _txState.getTransactions().vals()) {
             Debug.print("now: " # debug_show(Time.now()));
             Debug.print("transaction.timestamp: " # debug_show(transaction.timestamp));
-            // 30 days in nanoseconds = 30 * 24 * 60 * 60 * 1_000_000_000
+            // 30 days in nanoseconds
             if (Int.abs(Time.now() - transaction.timestamp) > 30 * 24 * 60 * 60 * 1000000000) {
-                _txState.delete(index);
+                _pushSwapInfoCache(_txState.setFailed(index, "Manually set as expired"));
+                // _txState.delete(index);
             };
         };
     };
