@@ -216,7 +216,7 @@ actor class PasscodeManager(
                     case (#ok()) {
                         _addLog(
                             caller,
-                            "FACTORY.addPasscode " # Principal.toText(sortedToken0) # " " # Principal.toText(sortedToken1) # " " # debug_show (fee) # " ok",
+                            "FACTORY.addPasscode: " # Principal.toText(sortedToken0) # "_" # Principal.toText(sortedToken1) # "_" # Nat.toText(fee) # " ok",
                             ?passcodePrice,
                         );
                         return #ok("ok")
