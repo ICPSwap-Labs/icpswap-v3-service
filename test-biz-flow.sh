@@ -325,6 +325,8 @@ function testBizFlow()
     #sqrtPriceX96
     create_pool 274450166607934908532224538203
 
+    dfx canister call $poolId setAdmins "(vec {principal \"$MINTER_PRINCIPAL\"})"
+
     echo "==> step 0 stop jobs"
     dfx canister call $poolId stopJobs "(vec {\"SyncTrxsJob\";})"
 
@@ -419,6 +421,25 @@ function testBizFlow()
     echo "testPools: $testPools"
     currentPools=`dfx canister call PositionIndex getUserPools "(\"$currentAccount\")"`
     echo "currentPools: $currentPools"
+
+    # ---check refund of ineffective amount---
+    # echo "==> step 9 mint"
+    # deposit $token0 1000000000
+    # depositFrom $token1 1000000000
+    
+    # echo "==> step 9.1 balanceOf subaccount"
+    # balanceOf $token0 $poolId $MINTER_PRINCIPAL
+
+    # checkUnusedBalance
+
+    # mint 24000 24900 900000000 1000000000 
+
+    # checkUnusedBalance
+
+    # echo "==> step 9 swap 1->0"
+    # oneStepSwap $token1 200000000000 0
+
+    # checkUnusedBalance
     
 };
 
