@@ -92,7 +92,7 @@ shared (initMsg) actor class SwapFactory(
         let installer: ?InstallerFunc = _getInstallFunc(args.subnet);
         let installFunc : InstallerFunc = switch (installer) {
             case (?_installer) { _installer };
-            case (_) { throw Error.reject("Installer not found"); };
+            case (_) { return #err(#InternalError("Installer not found")); };
         };
         var tickSpacing = switch (_feeTickSpacingMap.get(args.fee)) {
             case (?feeAmountTickSpacingFee) { feeAmountTickSpacingFee };
@@ -125,13 +125,32 @@ shared (initMsg) actor class SwapFactory(
                     _poolDataService.putPool(poolKey, poolData);
 
                     // Add creation record
-                    _addCreatePoolRecord(msg.caller, Principal.fromActor(pool));
+                    _addCreatePoolRecord({
+                        caller = msg.caller;
+                        poolId = ?Principal.fromActor(pool);
+                        timestamp = Time.now();
+                        token0 = token0;
+                        token1 = token1;
+                        fee = args.fee;
+                        status = "success";
+                        err = null;
+                    });
 
                     poolData;
-                } catch (_e) {
+                } catch (e) {
                     // Rollback passcode if pool creation fails
                     _rollbackPasscode(msg.caller, { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; });
-                    throw Error.reject("Create pool failed: " # Error.message(_e));
+                    _addCreatePoolRecord({
+                        caller = msg.caller;
+                        poolId = null;
+                        timestamp = Time.now();
+                        token0 = token0;
+                        token1 = token1;
+                        fee = args.fee;
+                        status = "failed";
+                        err = ?Error.message(e);
+                    });
+                    return #err(#InternalError("Create pool failed: " # Error.message(e)));
                 };
             };
         };
@@ -554,12 +573,8 @@ shared (initMsg) actor class SwapFactory(
         _lockState := { locked = false; time = 0};
     };
 
-    private func _addCreatePoolRecord(caller: Principal, poolId: Principal) {
-        _createPoolRecords := List.push<Types.CreatePoolRecord>({
-            caller;
-            poolId;
-            timestamp = Time.now();
-        }, _createPoolRecords);
+    private func _addCreatePoolRecord(record: Types.CreatePoolRecord) {
+        _createPoolRecords := List.push<Types.CreatePoolRecord>(record, _createPoolRecords);
     };
 
     private func _setPoolAdmins(poolCid : Principal, admins : [Principal]) : async () {
