@@ -263,7 +263,14 @@ module {
                             switch(tx.action) {
                                 case (#OneStepSwap(relatedInfo)) {
                                     if (relatedInfo.status != #Completed) {
-                                        _updateTransaction(info.relatedIndex, tx, #OneStepSwap({ relatedInfo with status = #Failed; }), transactions);
+                                        _updateTransaction(info.relatedIndex, tx, #OneStepSwap(
+                                            {
+                                                relatedInfo with status = #Failed;
+                                                err = ?("Manually set as an exception");
+                                                swap = { relatedInfo.swap with status = if (relatedInfo.swap.status != #Completed) { #Failed } else { relatedInfo.swap.status }; };
+                                                withdraw = { relatedInfo.withdraw with status = if (relatedInfo.withdraw.status != #Completed) { #Failed } else { relatedInfo.withdraw.status }; };
+                                            }
+                                        ), transactions);
                                     };
                                 };
                                 case (_) { };
@@ -744,5 +751,75 @@ module {
             };
         };
 
+        public func setFailed(txId: Nat, err: Types.Error): Nat {
+            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
+            switch(tx.action) {
+                case (#Deposit(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #Deposit({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#Withdraw(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #Withdraw({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#Refund(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #Refund({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#AddLiquidity(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #AddLiquidity({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#DecreaseLiquidity(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #DecreaseLiquidity({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#Claim(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #Claim({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#TransferPosition(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #TransferPosition({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#AddLimitOrder(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #AddLimitOrder({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#ExecuteLimitOrder(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #ExecuteLimitOrder({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#RemoveLimitOrder(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #RemoveLimitOrder({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#Swap(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
+                        _updateTransaction(txId, tx, #Swap({ info with status = #Failed; err = ?err }), transactions);
+                    };
+                };
+                case (#OneStepSwap(info)) {
+                        _updateTransaction(txId, tx, #OneStepSwap({
+                            info with status = if (info.status != #Completed and info.status != #Failed) { #Failed } else { info.status };
+                            err = ?err;
+                            withdraw = { info.withdraw with status = if (info.withdraw.status != #Completed and info.withdraw.status != #Failed) { #Failed } else { info.withdraw.status }; };
+                            swap = { info.swap with status = if (info.swap.status != #Completed and info.swap.status != #Failed) { #Failed } else { info.swap.status }; };
+                            deposit = { info.deposit with status = if (info.deposit.status != #Completed and info.deposit.status != #Failed) { #Failed } else { info.deposit.status }; };
+                        }), transactions);
+                };
+            };
+            return txId;
+        };
     };
 };

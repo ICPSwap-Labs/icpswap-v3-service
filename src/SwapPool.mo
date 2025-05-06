@@ -2009,7 +2009,7 @@ shared (initMsg) actor class SwapPool(
             case (?transaction) {
                 if(not refund) {
                     if (Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) { return #err(#InternalError("Transaction is not expired")); };
-                    _pushSwapInfoCache(txId);
+                    _pushSwapInfoCache(_txState.setFailed(txId, "Manually set as an exception"));
                     return #ok(true);
                 };
                 switch (transaction.action) {
