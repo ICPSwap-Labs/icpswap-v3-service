@@ -279,6 +279,10 @@ shared (initMsg) actor class SwapFactory(
         _nextPoolVersion;
     };
 
+    public query func getWasmActiveStatus() : async Bool {
+        _isWasmActive;
+    };
+
     // --------------------------- ICRC28 ------------------------------------
     private stable var _icrc28_trusted_origins : [Text] = [
         "https://standards.identitykit.xyz",

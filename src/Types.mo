@@ -502,6 +502,7 @@ module {
         #getStagingWasm : () -> ();
         #getUpgradeFailedPoolList : () -> ();
         #getVersion : () -> ();
+        #getWasmActiveStatus : () -> ();
         #icrc10_supported_standards : () -> ();
         #icrc21_canister_call_consent_message :
           () -> (request : ICRCTypes.Icrc21ConsentMessageRequest);
