@@ -576,13 +576,13 @@ shared (initMsg) actor class SwapPool(
                                 case (#Deposit(_)) {
                                     _txState.depositTransferred(txIndex, index);
                                     ignore _tokenHolderService.deposit(caller, token, amount);
-                                    _txState.depositCredited(txIndex);
+                                    _txState.depositCredited(txIndex, amount);
                                     _pushSwapInfoCache(txIndex);
                                 };
                                 case (#OneStepSwap(_)) {
                                     _txState.oneStepSwapDepositTransferred(txIndex, index);
                                     ignore _tokenHolderService.deposit(caller, token, amount);
-                                    _txState.oneStepSwapDepositCredited(txIndex);
+                                    _txState.oneStepSwapDepositCredited(txIndex, amount);
                                 };
                                 case (_) {
                                     return #err(#InternalError("Unsupported transaction type"));
@@ -638,13 +638,13 @@ shared (initMsg) actor class SwapPool(
                                 case (#Deposit(_)) {
                                     _txState.depositTransferred(txIndex, index);
                                     ignore _tokenHolderService.deposit(caller, token, amountDeposit);
-                                    _txState.depositCredited(txIndex);
+                                    _txState.depositCredited(txIndex, amountDeposit);
                                     _pushSwapInfoCache(txIndex);
                                 };
                                 case (#OneStepSwap(_)) {
                                     _txState.oneStepSwapDepositTransferred(txIndex, index);
                                     ignore _tokenHolderService.deposit(caller, token, amountDeposit);
-                                    _txState.oneStepSwapDepositCredited(txIndex);
+                                    _txState.oneStepSwapDepositCredited(txIndex, amountDeposit);
                                 };
                                 case (_) { return #err(#InternalError("Unsupported transaction type")); };
                             };
@@ -1189,7 +1189,7 @@ shared (initMsg) actor class SwapPool(
         let from = { owner = canisterId; subaccount = subaccount; };
         let to = { owner = canisterId; subaccount = null }; 
 
-        let txIndex = _txState.startDeposit(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee, token.standard);
+        let txIndex = _txState.startDeposit(caller, canisterId, tokenPrincipal, from, to, args.amount - args.fee, args.fee, token.standard);
         return await _deposit(txIndex, token, tokenAct, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
     };
 
@@ -1304,7 +1304,7 @@ shared (initMsg) actor class SwapPool(
 
         if (args.amount0 > 0) {
             if (args.amount0 > args.fee0) {
-                let txIndex = _txState.startDeposit(caller, canisterId, _getToken0Principal(), from, to, args.amount0, args.fee0, _token0.standard);
+                let txIndex = _txState.startDeposit(caller, canisterId, _getToken0Principal(), from, to, args.amount0 - args.fee0, args.fee0, _token0.standard);
                 let memo = ?PoolUtils.natToBlob(txIndex);
                 let result = await _deposit(txIndex, _token0, _token0Act, args.positionOwner, from, to, args.amount0, args.fee0, memo);
                 switch (result) {
@@ -1316,7 +1316,7 @@ shared (initMsg) actor class SwapPool(
 
         if (args.amount1 > 0) {
             if (args.amount1 > args.fee1) {
-                let txIndex = _txState.startDeposit(caller, canisterId, _getToken1Principal(), from, to, args.amount1, args.fee1, _token1.standard);
+                let txIndex = _txState.startDeposit(caller, canisterId, _getToken1Principal(), from, to, args.amount1 - args.fee1, args.fee1, _token1.standard);
                 let memo = ?PoolUtils.natToBlob(txIndex);
                 let result = await _deposit(txIndex, _token1, _token1Act, args.positionOwner, from, to, args.amount1, args.fee1, memo);
                 switch (result) {
@@ -1418,6 +1418,9 @@ shared (initMsg) actor class SwapPool(
         if (not Nat.equal(feeOut, args.tokenOutFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeOut) # ", received: " # Nat.toText(args.tokenOutFee) # "), please try later")); 
         };
+        if (args.amountIn == "0") {
+            return #err(#InternalError("Amount in can't be 0"));
+        };
 
         let amountIn: Nat = TextUtils.toNat(args.amountIn);
         let canisterId = _getCanisterId();
@@ -1484,11 +1487,15 @@ shared (initMsg) actor class SwapPool(
         if (not Nat.equal(feeOut, args.tokenOutFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeOut) # ", received: " # Nat.toText(args.tokenOutFee) # "), please try later")); 
         };
-        let subaccount = Option.make(AccountUtils.principalToBlob(caller));
+        if (args.amountIn == "0") { return #err(#InternalError("Amount in can't be 0")); };
+
         let amountIn: Nat = TextUtils.toNat(args.amountIn);
+        if (not (amountIn > feeIn)) { return #err(#InternalError("Input amount should be greater than fee")) };
+
+        let subaccount = Option.make(AccountUtils.principalToBlob(caller));
         let canisterId = _getCanisterId();
 
-        let txIndex = _txState.startOneStepSwap(caller, canisterId, tokenInWithPrincipal, tokenOutWithPrincipal, amountIn, TextUtils.toNat(args.amountOutMinimum), feeIn, feeOut, caller, ?AccountUtils.principalToBlob(caller));
+        let txIndex = _txState.startOneStepSwap(caller, canisterId, tokenInWithPrincipal, tokenOutWithPrincipal, amountIn - feeIn, TextUtils.toNat(args.amountOutMinimum), feeIn, feeOut, caller, ?AccountUtils.principalToBlob(caller));
         
         let depositFrom = { owner = canisterId; subaccount = subaccount };
         let depositTo = { owner = canisterId; subaccount = null };
@@ -2013,6 +2020,11 @@ shared (initMsg) actor class SwapPool(
                     return #ok(true);
                 };
                 switch (transaction.action) {
+                    case (#Deposit(info)) {
+                        let (token, tokenAct) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act) } else { (_token1, _token1Act) };
+                        ignore _tokenHolderService.deposit(transaction.owner, token, info.transfer.amount);
+                        ignore _refund<system>(token, tokenAct, transaction.owner, { owner = _getCanisterId(); subaccount = null }, { owner = transaction.owner; subaccount = null }, info.transfer.amount, info.transfer.fee, ?PoolUtils.natToBlob(txId), txId);
+                    };
                     case (#Withdraw(info)) {
                         let (token, tokenAct) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act) } else { (_token1, _token1Act) };
                         ignore _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount);

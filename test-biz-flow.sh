@@ -339,6 +339,10 @@ function testBizFlow()
     echo "==> step 1.1 balanceOf subaccount"
     balanceOf $token0 $poolId $MINTER_PRINCIPAL
 
+    echo "==> step 1.2 balanceOf pool"
+    balanceOf $token0 $poolId "null"
+    balanceOf $token1 $poolId "null"
+
     checkUnusedBalance
 
     echo "==> step 2 withdraw all"

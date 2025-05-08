@@ -108,19 +108,19 @@ module {
             };
         };
 
-        public func depositCredited(txId: Nat): () {
+        public func depositCredited(txId: Nat, amountDeposit: Nat): () {
             let tx = _assertTransactionExists(_getTransaction(txId, transactions));
             switch(tx.action) {
                 case (#Deposit(deposit)) {
                     if (deposit.status == #TransferCompleted) {
                         let newDeposit = Deposit.process(deposit);
-                        _updateTransaction(txId, tx, #Deposit(newDeposit), transactions);
+                        _updateTransaction(txId, tx, #Deposit({ newDeposit with transfer = { newDeposit.transfer with amount = amountDeposit } }), transactions);
                     };
                 };
                 case (#OneStepSwap(info)) {
                     if (info.status == #DepositTransferCompleted) {
                         let newInfo = OneStepSwap.process(info);
-                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                        _updateTransaction(txId, tx, #OneStepSwap({ newInfo with deposit = { newInfo.deposit with transfer = { newInfo.deposit.transfer with amount = amountDeposit } } }), transactions);
                     };
                 };
                 case(_) { assert(false) };
@@ -271,6 +271,16 @@ module {
                                                 withdraw = { relatedInfo.withdraw with status = if (relatedInfo.withdraw.status != #Completed) { #Failed } else { relatedInfo.withdraw.status }; };
                                             }
                                         ), transactions);
+                                    };
+                                };
+                                case (#Deposit(relatedInfo)) {
+                                    if (relatedInfo.status != #Completed) {
+                                        _updateTransaction(info.relatedIndex, tx, #Deposit({ relatedInfo with status = #Failed }), transactions);
+                                    };
+                                };
+                                case (#Withdraw(relatedInfo)) {
+                                    if (relatedInfo.status != #Completed) {
+                                        _updateTransaction(info.relatedIndex, tx, #Withdraw({ relatedInfo with status = #Failed }), transactions);
                                     };
                                 };
                                 case (_) { };
@@ -698,13 +708,13 @@ module {
             };
         };
 
-        public func oneStepSwapDepositCredited(txId: Nat): () {
+        public func oneStepSwapDepositCredited(txId: Nat, amountDeposit: Nat): () {
             let tx = _assertTransactionExists(_getTransaction(txId, transactions));
             switch(tx.action) { 
                 case (#OneStepSwap(info)) {
                     if (info.status == #DepositTransferCompleted) {
                         let newInfo = OneStepSwap.process(info);
-                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                        _updateTransaction(txId, tx, #OneStepSwap({ newInfo with deposit = { newInfo.deposit with transfer = { newInfo.deposit.transfer with amount = amountDeposit } } }), transactions);
                     };  
                 };
                 case(_) { assert(false) };
