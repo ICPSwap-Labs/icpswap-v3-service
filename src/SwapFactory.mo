@@ -482,14 +482,12 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func setUpgradePoolList(args : Types.UpgradePoolArgs) : async Result.Result<(), Types.Error> {
         _checkPermission(msg.caller);
+        if (not _isWasmActive) { return #err(#InternalError("Wasm is not active")); };
+        if (Array.size(args.poolIds) == 0) { return #err(#InternalError("The number of canisters to be upgraded cannot be set to 0")); };
+        if (Array.size(args.poolIds) > 500) { return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 500")); };
+        
         // check if task map is empty
-        if (List.size(_pendingUpgradePoolList) > 0) { 
-            return #err(#InternalError("Please wait until the upgrade task list is empty")); 
-        };
-        // set a limit on the number of upgrade tasks
-        if (Array.size(args.poolIds) > 500) { 
-            return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 500")); 
-        };
+        if (List.size(_pendingUpgradePoolList) > 0) { return #err(#InternalError("Please wait until the upgrade task list is empty")); };
         // clear the upgrade task history
         _poolUpgradeTaskHis := [];
         _poolUpgradeTaskHisMap := HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);

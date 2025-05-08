@@ -132,6 +132,8 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
     public shared ({ caller }) func setUpgradePoolListValidate(args : Types.UpgradePoolArgs) : async Result {
         assert (Principal.equal(caller, governanceCid));
         // set a limit on the number of upgrade tasks
+        if (not (await _factoryAct.getWasmActiveStatus())) { return #Err("Wasm is not active"); };
+        if (Array.size(args.poolIds) == 0) { return #Err("The number of canisters to be upgraded cannot be set to 0"); };
         if (Array.size(args.poolIds) > 500) { return #Err("The number of canisters to be upgraded cannot be set to more than 500"); };
         // check task map is empty
         switch (await _factoryAct.getPendingUpgradePoolList()) {
