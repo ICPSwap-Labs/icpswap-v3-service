@@ -519,6 +519,9 @@ function testMintSwap()
     #sqrtPriceX96
     create_pool 274450166607934908532224538203
 
+    echo "==> step 0 stop jobs"
+    dfx canister call $poolId stopJobs "(vec {\"SyncTrxsJob\";})"
+
     # withdraw_mistransfer
 
     # test_factory_passcode
