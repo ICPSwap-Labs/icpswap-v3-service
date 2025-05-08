@@ -445,6 +445,9 @@ function testBizFlow()
 
     # checkUnusedBalance
     
+    # Get swap record
+    swap_record_result=$(dfx canister call $poolId getSwapRecordState --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
+    echo "swap_record_result: $swap_record_result"
 };
 
 testBizFlow
