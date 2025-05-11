@@ -6,6 +6,7 @@ import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
 import ICRCTypes "./ICRCTypes";
+import TxTypes "./components/transaction/Types";
 
 module {
 
@@ -28,6 +29,14 @@ module {
     public type User = {
         #address : AccountIdentifier;
         #account : Account;
+    };
+    public type PoolInitArgs = {
+        token0 : Token;
+        token1 : Token;
+        infoCid : Principal;
+        feeReceiverCid : Principal;
+        trustedCanisterManagerCid : Principal;
+        positionIndexCid : Principal;
     };
     public type PoolMetadata = {
         key : Text;
@@ -155,6 +164,16 @@ module {
         sqrtPriceX96 : Text;
         subnet : ?Text;
     };
+    public type CreatePoolRecord = {
+        caller: Principal;
+        timestamp: Int;
+        token0: Token;
+        token1: Token;
+        fee: Nat;
+        poolId: ?Principal;
+        status: Text;
+        err: ?Text;
+    };
     public type GetPoolArgs = {
         token0 : Token;
         token1 : Token;
@@ -204,9 +223,6 @@ module {
     };
     public type DecreaseLimitOrderArgs = {
         isLimitOrder : Bool;
-        token0InAmount : Nat;
-        token1InAmount : Nat;
-        tickLimit : Int;
     };
     public type ClaimArgs = {
         positionId : Nat;
@@ -232,52 +248,29 @@ module {
         #increaseLiquidity;
         #decreaseLiquidity;
         #claim;
+        #addPositionLiquidity : Nat;
+        #increasePositionLiquidity : Nat;
+        #decreasePositionLiquidity : Nat;
+        #claimPosition : Nat;
         #swap;
         #transferPosition : Nat;
         #limitOrder : { positionId : Nat; token0InAmount : Nat; token1InAmount : Nat; tickLimit : Int };
     };
+    public type SwapRecordInfo = {
+        txInfo : TxTypes.Transaction;
+        currentLiquidity : Nat;
+        currentTick : Int;
+        currentSqrtPriceX96 : Nat;
+    };
     public type TxStorage = actor {
         push : (SwapRecordInfo) -> async ();
         batchPush : ([SwapRecordInfo]) -> async ();
-        addOwner : (Principal) -> async ();
+        batchPushV2 : ([SwapRecordInfo]) -> async ();
         addClient : (Principal) -> async ();
     };
     public type PushError = {
         message : Text;
         time : Int;
-    };
-    public type TxStorageCanister = {
-        canisterId : Text;
-        canister : TxStorage;
-        var retryCount : Nat;
-        var errors : [PushError];
-    };
-    public type SwapRecordInfo = {
-        action : TransactionType;
-        feeTire : Nat;
-        from : Text;
-        liquidityChange : Nat;
-        liquidityTotal : Nat;
-        poolId : Text;
-        price : Nat;
-        feeAmount : Int;
-        feeAmountTotal : Int;
-        TVLToken0 : Int;
-        TVLToken1 : Int;
-        recipient : Text;
-        tick : Int;
-        timestamp : Int;
-        to : Text;
-        token0AmountTotal : Nat;
-        token0ChangeAmount : Nat;
-        token0Fee : Nat;
-        token0Id : Text;
-        token0Standard : Text;
-        token1AmountTotal : Nat;
-        token1ChangeAmount : Nat;
-        token1Fee : Nat;
-        token1Id : Text;
-        token1Standard : Text;
     };
     public type CycleInfo = {
         balance : Nat;
@@ -380,7 +373,15 @@ module {
         subnetType: Text;
         weight : Nat;
     };
+    public type DepositAndSwapArgs = {
+        zeroForOne : Bool;
+        tokenInFee: Nat;
+        tokenOutFee: Nat;
+        amountIn : Text;
+        amountOutMinimum : Text;
+    };
     public type SwapPoolMsg = {
+        #activeJobs : () -> ();
         #addLimitOrder : () -> LimitOrderArgs;
         #allTokenBalance : () -> (Nat, Nat);
         #approvePosition : () -> (Principal, Nat);
@@ -388,16 +389,25 @@ module {
         #checkOwnerOfUserPosition : () -> (Principal, Nat);
         #claim : () -> ClaimArgs;
         #decreaseLiquidity : () -> DecreaseLiquidityArgs;
+        #deleteFailedTransaction : () -> (Nat, Bool);
         #deposit : () -> DepositArgs;
+        #depositAllAndMint : () -> DepositAndMintArgs;
+        #depositAndSwap : () -> DepositAndSwapArgs;
         #depositFrom : () -> DepositArgs;
+        #depositFromAndSwap : () -> DepositAndSwapArgs;
+        #getAdmins : () -> ();
         #getAvailabilityState : () -> ();
+        #getCachedTokenFee : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
-        #getInitArgs : () -> ();
+        #getFailedTransactions : () -> ();
         #getFeeGrowthGlobal : () -> ();
+        #getInitArgs : () -> ();
+        #getJobs : () -> ();
         #getLimitOrderAvailabilityState : () -> ();
-        #getLimitOrders : () -> ();
         #getLimitOrderStack : () -> ();
+        #getLimitOrders : () -> ();
+        #getMistransferBalance : () -> Token;
         #getPosition : () -> GetPositionArgs;
         #getPositions : () -> (Nat, Nat);
         #getSortedUserLimitOrders : () -> Principal;
@@ -407,8 +417,7 @@ module {
         #getTicks : () -> (Nat, Nat);
         #getTokenAmountState : () -> ();
         #getTokenBalance : () -> ();
-        #getTokenMeta : () -> ();
-        #getTransferLogs : () -> ();
+        #getTransactions : () -> ();
         #getUserByPositionId : () -> Nat;
         #getUserLimitOrders : () -> Principal;
         #getUserPosition : () -> Nat;
@@ -419,96 +428,96 @@ module {
         #getUserPositionsByPrincipal : () -> Principal;
         #getUserUnusedBalance : () -> Principal;
         #getVersion : () -> ();
-        // #getWithdrawErrorLog : () -> ();
+        #icrc10_supported_standards : () -> ();
+        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
+        #icrc28_trusted_origins : () -> ();
         #increaseLiquidity : () -> IncreaseLiquidityArgs;
+        #init : () -> (Nat, Int, Nat);
         #metadata : () -> ();
         #mint : () -> MintArgs;
         #quote : () -> SwapArgs;
         #quoteForAll : () -> SwapArgs;
         #refreshIncome : () -> Nat;
         #removeLimitOrder : () -> Nat;
+        #restartJobs : () -> [Text];
+        #setAdmins : () -> [Principal];
+        #setAvailable : () -> Bool;
+        #setIcrc28TrustedOrigins : () -> [Text];
+        #setLimitOrderAvailable : () -> Bool;
+        #setWhiteList : () -> [Principal];
+        #stopJobs : () -> [Text];
         #sumTick : () -> ();
         #swap : () -> SwapArgs;
         #transferPosition : () -> (Principal, Principal, Nat);
-        #withdraw : () -> WithdrawArgs;
-        #withdrawToSubaccount : () -> WithdrawToSubaccountArgs;
-        #getAdmins : () -> ();
-        #getMistransferBalance : () -> Token;
-        #withdrawMistransferBalance : () -> Token;
-        #stopJobs : () -> [Text];
-        #restartJobs : () -> [Text];
-        #getJobs : () -> ();
-        #activeJobs : () -> ();
-        // --------  Admin permission required.  ---------
-        #depositAllAndMint : () -> DepositAndMintArgs;
-        #setAvailable : () -> Bool;
-        #setLimitOrderAvailable : () -> Bool;
-        #setWhiteList : () -> [Principal];
-        #removeErrorTransferLog : () -> (Nat, Bool);
-        // --------  Controller permission required.  ---------
-        #init : () -> (Nat, Int, Nat);
-        #setAdmins : () -> [Principal];
+        #updateTokenFee : () -> ();
         #upgradeTokenStandard : () -> Principal;
-        #resetTokenAmountState : () -> (Nat, Nat, Nat, Nat);
-         // ------ icrc21
-        #icrc10_supported_standards : () -> ();
-        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
-        #icrc28_trusted_origins : () -> ();
-        #setIcrc28TrustedOrigins : () -> [Text];
+        #withdraw : () -> WithdrawArgs;
+        #withdrawMistransferBalance : () -> Token;
+        #withdrawToSubaccount : () -> WithdrawToSubaccountArgs;  
     };
     public type SwapFactoryMsg = {
-        #addPasscode : () -> (Principal, Passcode);
-        #addPoolControllers : () -> (Principal, [Principal]);
-        #addPoolInstallers : () -> [PoolInstaller];
-        #addPoolInstallersValidate : () -> [PoolInstaller];
-        #batchAddPoolControllers : () -> ([Principal], [Principal]);
-        #batchClearRemovedPool : () -> [Principal];
-        #batchRemovePoolControllers : () -> ([Principal], [Principal]);
-        #batchRemovePools : () -> [Principal];
-        #batchSetPoolAdmins : () -> ([Principal], [Principal]);
-        #batchSetPoolAvailable : () -> ([Principal], Bool);
-        #batchSetPoolIcrc28TrustedOrigins : () -> ([Principal], [Text]);
-        #batchSetPoolLimitOrderAvailable : () -> ([Principal], Bool);
+        #activateWasm : () -> ();
+        #addPasscode : () -> (principal : Principal, passcode : Passcode);
+        #addPoolInstallers : () -> (installers : [PoolInstaller]);
+        #addPoolInstallersValidate : () -> (installers : [PoolInstaller]);
+        #batchAddPoolControllers :
+          () -> (poolCids : [Principal], controllers : [Principal]);
+        #batchClearRemovedPool : () -> (poolCids : [Principal]);
+        #batchRemovePoolControllers :
+          () -> (poolCids : [Principal], controllers : [Principal]);
+        #batchRemovePools : () -> (poolCids : [Principal]);
+        #batchSetPoolAdmins :
+          () -> (poolCids : [Principal], admins : [Principal]);
+        #batchSetPoolAvailable :
+          () -> (poolCids : [Principal], available : Bool);
+        #batchSetPoolIcrc28TrustedOrigins :
+          () -> (poolCids : [Principal], origins : [Text]);
+        #batchSetPoolLimitOrderAvailable :
+          () -> (poolCids : [Principal], available : Bool);
+        #clearChunks : () -> ();
         #clearPoolUpgradeTaskHis : () -> ();
-        #clearRemovedPool : () -> Principal;
         #clearUpgradeFailedPoolList : () -> ();
-        #createPool : () -> CreatePoolArgs;
-        #deletePasscode : () -> (Principal, Passcode);
+        #combineWasmChunks : () -> ();
+        #createPool : () -> (args : CreatePoolArgs);
+        #deletePasscode : () -> (principal : Principal, passcode : Passcode);
+        #getActiveWasm : () -> ();
         #getAdmins : () -> ();
+        #getCreatePoolRecords : () -> ();
+        #getCreatePoolRecordsByCaller : () -> (caller : Principal);
         #getCurrentUpgradeTask : () -> ();
         #getCycleInfo : () -> ();
         #getGovernanceCid : () -> ();
         #getInitArgs : () -> ();
         #getInstallerModuleHash : () -> ();
         #getNextPoolVersion : () -> ();
-        #getPasscodesByPrincipal : () -> Principal;
+        #getPasscodesByPrincipal : () -> (principal : Principal);
         #getPendingUpgradePoolList : () -> ();
-        #getPool : () -> GetPoolArgs;
+        #getPool : () -> (args : GetPoolArgs);
         #getPoolInstallers : () -> ();
-        #getPoolUpgradeTaskHis : () -> Principal;
+        #getPoolUpgradeTaskHis : () -> (poolCid : Principal);
         #getPoolUpgradeTaskHisList : () -> ();
         #getPools : () -> ();
         #getPrincipalPasscodes : () -> ();
         #getRemovedPools : () -> ();
+        #getStagingWasm : () -> ();
         #getUpgradeFailedPoolList : () -> ();
         #getVersion : () -> ();
+        #getWasmActiveStatus : () -> ();
         #icrc10_supported_standards : () -> ();
-        #icrc21_canister_call_consent_message : () -> ICRCTypes.Icrc21ConsentMessageRequest;
+        #icrc21_canister_call_consent_message :
+          () -> (request : ICRCTypes.Icrc21ConsentMessageRequest);
         #icrc28_trusted_origins : () -> ();
-        #removePool : () -> GetPoolArgs;
-        #removePoolControllers : () -> (Principal, [Principal]);
-        // #removePoolErrorTransferLog : () -> (Principal, Nat, Bool);
-        #removePoolInstaller : () -> Principal;
-        #removePoolInstallerValidate : () -> Principal;
+        #removePoolInstaller : () -> (canisterId : Principal);
+        #removePoolInstallerValidate : () -> (canisterId : Principal);
         #retryAllFailedUpgrades : () -> ();
-        #setAdmins : () -> [Principal];
-        #setIcrc28TrustedOrigins : () -> [Text];
-        #setInstallerModuleHash : () -> Blob;
-        #setInstallerModuleHashValidate : () -> Blob;
-        #setPoolAdmins : () -> (Principal, [Principal]);
-        #setPoolAvailable : () -> (Principal, Bool);
-        #setUpgradePoolList : () -> UpgradePoolArgs;
-        #upgradePoolTokenStandard : () -> (Principal, Principal);
+        #setAdmins : () -> (admins : [Principal]);
+        #setIcrc28TrustedOrigins : () -> (origins : [Text]);
+        #setInstallerModuleHash : () -> (moduleHash : Blob);
+        #setInstallerModuleHashValidate : () -> (moduleHash : Blob);
+        #setUpgradePoolList : () -> (args : UpgradePoolArgs);
+        #upgradePoolTokenStandard :
+          () -> (poolCid : Principal, tokenCid : Principal);
+        #uploadWasmChunk : () -> (chunk : [Nat8]);
     };
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();
@@ -535,6 +544,7 @@ module {
         #startAutoSyncPools : () -> ();
         #swapICPToICS : () -> ();
         #swapToICP : () -> Token;
+        #swapWithoutDeposit : () -> (Principal, Bool, Text, Text);
         #transfer : () -> (Token, Principal, Nat);
         #transferAll : () -> (Token, Principal);
     };
@@ -569,9 +579,8 @@ module {
         getVersion : query () -> async Text;
         getTickBitmaps : query () -> async Result.Result<[(Int, Nat)], Error>;
         getFeeGrowthGlobal : query () -> async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Error>;
-        getInitArgs : query () -> async Result.Result<{ token0 : Token; token1 : Token; infoCid : Principal; feeReceiverCid : Principal; trustedCanisterManagerCid : Principal; }, Error>;
+        getInitArgs : query () -> async Result.Result<PoolInitArgs, Error>;
         setIcrc28TrustedOrigins : shared ([Text]) -> async Result.Result<Bool, ()>;
-        // --- recover ---
         recoverUserPositions : shared ([UserPositionInfoWithId]) -> async ();
         recoverPositions : shared ([PositionInfoWithId]) -> async ();
         recoverTickBitmaps : shared ([(Int, Nat)]) -> async ();
@@ -588,6 +597,7 @@ module {
         deletePasscode : (Principal, Passcode) -> async Result.Result<(), Error>;
         getRemovedPools : query () -> async Result.Result<[PoolData], Error>;
         getPoolInstallers : query () -> async [PoolInstaller];
+        getWasmActiveStatus : query () -> async Bool;
     };
     public type SwapDataBackupActor = actor {
         backup : (Principal) -> async Result.Result<(), Error>;
@@ -595,7 +605,13 @@ module {
         removeBackupData : (Principal) -> async Result.Result<(), Error>;
     };
     public type SwapPoolInstaller = actor {
-        install : (Token, Token, Principal, Principal, Principal) -> async Principal;
+        install : (Token, Token, Principal, Principal, Principal, Principal) -> async Principal;
         getCycleInfo : () -> async Result.Result<CycleInfo, Error>;
+    };
+    public type PositionIndexActor = actor {
+        updatePoolIds : () -> async ();
+        updateUserPool : (Principal, ?Principal) -> async Result.Result<Bool, Error>;
+        addPoolToUser : (Principal) -> async Result.Result<Bool, Error>;
+        removePoolFromUser : (Principal) -> async Result.Result<Bool, Error>;
     };
 };

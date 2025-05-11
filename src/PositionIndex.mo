@@ -11,6 +11,7 @@ import Result "mo:base/Result";
 import Bool "mo:base/Bool";
 import Prim "mo:⛔";
 import Error "mo:base/Error";
+
 import ListUtils "mo:commons/utils/ListUtils";
 import CollectionUtils "mo:commons/utils/CollectionUtils";
 import PrincipalUtils "mo:commons/utils/PrincipalUtils";
@@ -43,7 +44,7 @@ shared (initMsg) actor class PositionIndex(
     };
 
     private func _autoUpdatePoolIds() : async () { await _updatePoolIds(); };
-    let __updatePoolIdsPer30s = Timer.recurringTimer<system>(#seconds(30), _autoUpdatePoolIds);
+    let __updatePoolIdsPer300s = Timer.recurringTimer<system>(#seconds(300), _autoUpdatePoolIds);
 
     public shared (msg) func addPoolId(poolId : Text) : async Result.Result<Bool, Types.Error> {
         var user : Text = PrincipalUtils.toAddress(msg.caller);
@@ -64,7 +65,7 @@ shared (initMsg) actor class PositionIndex(
             };
             return #ok(true);
         } else {
-            return #err(#InternalError("invalid pool id"));
+            return #err(#InternalError("Invalid pool id"));
         };
     };
 
@@ -96,6 +97,96 @@ shared (initMsg) actor class PositionIndex(
             };
             case (_) {};
         };
+        return #ok(true);
+    };
+
+    public shared (msg) func updateUserPool(userPrincipal: Principal, oldUserPrincipal: ?Principal) : async Result.Result<Bool, Types.Error> {
+        // Verify if the caller is a valid pool
+        let caller = Principal.toText(msg.caller);
+        if (not ListUtils.arrayContains(_poolIds, caller, Text.equal)) {
+            return #err(#InternalError("Invalid pool id"));
+        };
+
+        let user = PrincipalUtils.toAddress(userPrincipal);
+        
+        // Add pool to user's pool list if not exists
+        switch (_userPools.get(user)) {
+            case (?poolArray) {
+                if (not ListUtils.arrayContains(poolArray, caller, Text.equal)) {
+                    var poolList : List.List<Text> = List.fromArray(poolArray);
+                    poolList := List.push(caller, poolList);
+                    _userPools.put(user, List.toArray(poolList));
+                };
+            };
+            case (_) {
+                var poolList = List.nil<Text>();
+                poolList := List.push(caller, poolList);
+                _userPools.put(user, List.toArray(poolList));
+            };
+        };
+
+        // Remove pool from old user's pool list if exists
+        switch (oldUserPrincipal) {
+            case (?oldPrincipal) {
+                let oldUser = PrincipalUtils.toAddress(oldPrincipal);
+                switch (_userPools.get(oldUser)) {
+                    case (?poolArray) {
+                        _userPools.put(oldUser, CollectionUtils.arrayRemove(poolArray, caller, Text.equal));
+                    };
+                    case (_) {};
+                };
+            };
+            case (_) {};
+        };
+
+        return #ok(true);
+    };
+
+    public shared (msg) func addPoolToUser(userPrincipal: Principal) : async Result.Result<Bool, Types.Error> {
+        // Verify if the caller is a valid pool
+        let caller = Principal.toText(msg.caller);
+        if (not ListUtils.arrayContains(_poolIds, caller, Text.equal)) {
+            return #err(#InternalError("Invalid pool id"));
+        };
+
+        let user = PrincipalUtils.toAddress(userPrincipal);
+        
+        // Add pool to user's pool list if not exists
+        switch (_userPools.get(user)) {
+            case (?poolArray) {
+                if (not ListUtils.arrayContains(poolArray, caller, Text.equal)) {
+                    var poolList : List.List<Text> = List.fromArray(poolArray);
+                    poolList := List.push(caller, poolList);
+                    _userPools.put(user, List.toArray(poolList));
+                };
+            };
+            case (_) {
+                var poolList = List.nil<Text>();
+                poolList := List.push(caller, poolList);
+                _userPools.put(user, List.toArray(poolList));
+            };
+        };
+
+        return #ok(true);
+    };
+
+    public shared (msg) func removePoolFromUser(userPrincipal: Principal) : async Result.Result<Bool, Types.Error> {
+        // Verify if the caller is a valid pool
+        let caller = Principal.toText(msg.caller);
+        if (not ListUtils.arrayContains(_poolIds, caller, Text.equal)) {
+            return #err(#InternalError("Invalid pool id"));
+        };
+
+        let user = PrincipalUtils.toAddress(userPrincipal);
+        
+        // Remove pool from user's pool list if exists
+        switch (_userPools.get(user)) {
+            case (?poolArray) {
+                _userPools.put(user, CollectionUtils.arrayRemove(poolArray, caller, Text.equal));
+            };
+            case (_) {};
+        };
+
         return #ok(true);
     };
 

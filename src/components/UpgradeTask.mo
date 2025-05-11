@@ -2,9 +2,6 @@ import Principal "mo:base/Principal";
 import IC0Utils "mo:commons/utils/IC0Utils";
 import BlockTimestamp "../libraries/BlockTimestamp";
 import Types "../Types";
-import SwapPool "../SwapPool";
-// for testing
-// import SwapPoolTest "../../test/swap_pool/SwapPoolTest";
 
 module UpgradeTask {
 
@@ -57,11 +54,8 @@ module UpgradeTask {
         };
     };
 
-    public func stepUpgrade(task: Types.PoolUpgradeTask, infoCid : Principal, feeReceiverCid : Principal, trustedCanisterManagerCid : Principal,) : async Types.PoolUpgradeTask {
-        let oldPool = actor (Principal.toText(task.poolData.canisterId)) : actor {};
-        let _ = await (system SwapPool.SwapPool)(#upgrade oldPool)(task.poolData.token0, task.poolData.token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
-        // for testing
-        // let _ = await (system SwapPoolTest.SwapPoolTest)(#upgrade oldPool)(task.poolData.token0, task.poolData.token1, infoCid, feeReceiverCid, trustedCanisterManagerCid);
+    public func stepUpgrade(task: Types.PoolUpgradeTask, infoCid : Principal, feeReceiverCid : Principal, trustedCanisterManagerCid : Principal, positionIndexCid : Principal, wasm: Blob) : async Types.PoolUpgradeTask {
+        await IC0Utils.install_code(task.poolData.canisterId, to_candid(task.poolData.token0, task.poolData.token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), wasm, #upgrade(null));
         {
             poolData = task.poolData;
             moduleHashBefore = task.moduleHashBefore;

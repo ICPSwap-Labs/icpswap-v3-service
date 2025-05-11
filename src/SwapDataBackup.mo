@@ -17,6 +17,7 @@ shared (initMsg) actor class SwapDataBackup(
         isDone : Bool;
         isFailed : Bool;
         errorMsg : Text;
+        initArgs : Types.PoolInitArgs;
         metadata : Types.PoolMetadata;
         allTokenBalances : [(Principal, { balance0 : Nat; balance1 : Nat; })];
         positions : [Types.PositionInfoWithId];
@@ -125,11 +126,10 @@ shared (initMsg) actor class SwapDataBackup(
             case (#err(code)) { return #err(_setBackupError(poolCid, "Get user position ids failed: " # debug_show(code))); };
         };
 
-        // after version 3.5.0
-        // let initArgs = switch (await poolAct.getInitArgs()) {
-        //     case (#ok(data)) { data };
-        //     case (#err(code)) { return #err(_setBackupError(poolCid, "Get init args failed: " # debug_show(code))); };
-        // };
+        let initArgs = switch (await poolAct.getInitArgs()) {
+            case (#ok(data)) { data };
+            case (#err(code)) { return #err(_setBackupError(poolCid, "Get init args failed: " # debug_show(code))); };
+        };
         let tickBitmaps = switch (await poolAct.getTickBitmaps()) {
             case (#ok(data)) { data };
             case (#err(code)) { return #err(_setBackupError(poolCid, "Get tick bitmaps failed: " # debug_show(code))); };
@@ -150,6 +150,7 @@ shared (initMsg) actor class SwapDataBackup(
             isDone = true;
             isFailed = false;
             errorMsg = "";
+            initArgs = initArgs;
             metadata = metadata;
             allTokenBalances = allTokenBalances;
             positions = positions;
@@ -244,11 +245,18 @@ shared (initMsg) actor class SwapDataBackup(
             isDone = false;
             isFailed = true;
             errorMsg = errorMsg;
+            initArgs = {
+                token0 = { address = ""; standard = "" };
+                token1 = { address = ""; standard = "" };
+                infoCid = Principal.fromActor(this);
+                feeReceiverCid = Principal.fromActor(this);
+                trustedCanisterManagerCid = Principal.fromActor(this);
+                positionIndexCid = Principal.fromActor(this);
+            };
             metadata = {
                 token0 = { address = ""; standard = "" };
                 token1 = { address = ""; standard = "" };
                 fee = 0;
-                tickSpacing = 0;
                 sqrtPriceX96 = 0;
                 key = "";
                 liquidity = 0;
@@ -290,7 +298,7 @@ shared (initMsg) actor class SwapDataBackup(
     };
 
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.5.1";
+    private var _version : Text = "3.6.0";
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {

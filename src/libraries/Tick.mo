@@ -143,12 +143,10 @@ module {
         };
         
         var liquidityGrossBefore :SafeUint.Uint128 = SafeUint.Uint128(tempTick.liquidityGross);
-        // Debug.print("Tick update: liquidityGrossBefore=" # debug_show(liquidityGrossBefore.val()) # ",liquidityDelta=" # debug_show(liquidityDelta.val()));
         var liquidityGrossAfter :SafeUint.Uint128 = switch (LiquidityMath.addDelta(liquidityGrossBefore, liquidityDelta)) {
                 case (#ok(result)) { SafeUint.Uint128(result); };
                 case (#err(code)) { return #err("Tick LiquidityMath.addDelta failed " # debug_show(code)); };
         };
-        // Debug.print("Tick update: liquidityGrossAfter=" # debug_show(liquidityGrossAfter.val()) # ",maxLiquidity=" # debug_show(maxLiquidity.val()));
         if (liquidityGrossAfter.val() > maxLiquidity.val()) {
             return #err("Tick illegal liquidityGrossAfter: liquidityGrossAfter=" # debug_show(liquidityGrossAfter.val()) # ", maxLiquidity=" # debug_show(maxLiquidity.val())); 
         };

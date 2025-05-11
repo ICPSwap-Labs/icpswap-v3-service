@@ -11,6 +11,7 @@ import TokenFactory "mo:token-adapter/TokenFactory";
 import TickMath "../src/libraries/TickMath";
 import SafeInt "mo:commons/math/SafeInt";
 import Float "mo:base/Float";
+import PrincipalUtils "mo:commons/utils/PrincipalUtils";
 
 actor {
 
@@ -26,10 +27,18 @@ actor {
         return Blob.fromArray(Array.freeze(defaultArr));
     };
 
-    public shared (msg) func getSubaccount() : async Text {
+    public query (msg) func getSubaccount() : async Blob {
+        return _principalToBlob(msg.caller);
+    };
+
+    public query (msg) func getSubaccountText() : async Text {
         var text : Text = debug_show (Option.make(_principalToBlob(msg.caller)));
         text := Text.replace(text, #text("\\"), "\\");
         return "text__" # text # "__";
+    };
+
+    public query func getAccount(principal : Principal) : async Text {
+        return PrincipalUtils.toAddress(principal);
     };
 
     public shared func testTokenAdapterBalanceOf(addr : Text, std : Text, account : Principal, subaccount : ?Principal) : async Nat {
