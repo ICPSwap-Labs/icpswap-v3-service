@@ -2532,6 +2532,16 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
+    public query func getTransactionsByOwner(owner : Principal) : async Result.Result<[(Nat, Tx.Transaction)], Types.Error> {
+        var transactions : Buffer.Buffer<(Nat, Tx.Transaction)> = Buffer.Buffer<(Nat, Tx.Transaction)>(0);
+        for ((txId, tx) in _txState.getTransactions().vals()) {
+            if (Principal.equal(tx.owner, owner)) {
+                transactions.add((txId, tx));
+            };
+        };
+        return #ok(Buffer.toArray(transactions));
+    };
+
     public query func getFailedTransactions() : async Result.Result<[(Nat, Tx.Transaction)], Types.Error> {
         var failedTransactions : Buffer.Buffer<(Nat, Tx.Transaction)> = Buffer.Buffer<(Nat, Tx.Transaction)>(0);
         for ((txId, tx) in _txState.getTransactions().vals()) {
