@@ -1020,6 +1020,11 @@ shared (initMsg) actor class SwapFactory(
         _isWasmActive := true;
     };
 
+    public shared (msg) func setWasmActive(isActive : Bool) : async () {
+        _checkAdminPermission(msg.caller);
+        _isWasmActive := isActive;
+    };
+
     public shared (msg) func clearChunks() : async () {
         _checkAdminPermission(msg.caller);
         _wasmManager.clearChunks();

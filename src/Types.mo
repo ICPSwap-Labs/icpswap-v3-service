@@ -515,6 +515,7 @@ module {
         #setInstallerModuleHash : () -> (moduleHash : Blob);
         #setInstallerModuleHashValidate : () -> (moduleHash : Blob);
         #setUpgradePoolList : () -> (args : UpgradePoolArgs);
+        #setWasmActive : () -> (isActive : Bool);
         #upgradePoolTokenStandard :
           () -> (poolCid : Principal, tokenCid : Principal);
         #uploadWasmChunk : () -> (chunk : [Nat8]);
