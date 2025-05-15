@@ -222,7 +222,7 @@ module {
         liquidity : Text;
     };
     public type DecreaseLimitOrderArgs = {
-        isLimitOrder : Bool;
+        removeLimitOrder : Bool;
     };
     public type ClaimArgs = {
         positionId : Nat;
