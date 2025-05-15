@@ -217,7 +217,7 @@ shared (initMsg) actor class SwapPool(
                 let txIndex = _txState.startExecuteLimitOrder(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), value.token0InAmount, value.token1InAmount, key.tickLimit);
                 let result = _decreaseLiquidity(
                     value.owner, 
-                    { isLimitOrder = true; }, 
+                    { removeLimitOrder = true; }, 
                     { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); }
                 );
                 switch (result) {
@@ -457,7 +457,7 @@ shared (initMsg) actor class SwapPool(
             case (#ok(result)) { result };
             case (#err(code)) { Prim.trap("Decrease liquidity failed: _collect " # debug_show (code)); };
         };
-        if (not loArgs.isLimitOrder) { _deleteLimitOrderByPositionId(args.positionId); };
+        if (not loArgs.removeLimitOrder) { _deleteLimitOrderByPositionId(args.positionId); };
         if (liquidityDelta == userPositionInfo.liquidity) {
             _positionTickService.deletePositionForUser(PrincipalUtils.toAddress(owner), args.positionId);
         };
@@ -724,7 +724,7 @@ shared (initMsg) actor class SwapPool(
                                     __withdraw<system>(); 
                                     return #ok(txIndex);
                                 };
-                                case (_) { return #err(#InternalError("Invalid withdraw transaction status: expected Created status")); };
+                                case (_) { return #err(#InternalError("Invalid withdraw transaction status: expected CreditCompleted status")); };
                             };
                         };
                         case (#OneStepSwap(info)) {
@@ -738,7 +738,7 @@ shared (initMsg) actor class SwapPool(
                                     return #ok(txIndex);
                                 };
                                 case (_) {
-                                    return #err(#InternalError("Invalid one-step swap transaction status: expected SwapCompleted status"));
+                                    return #err(#InternalError("Invalid one-step swap transaction status: expected WithdrawCreditCompleted status"));
                                 };
                             };
                         };
@@ -1175,7 +1175,7 @@ shared (initMsg) actor class SwapPool(
         if (not Nat.equal(fee, args.fee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
         };
-        if (Text.notEqual(token.standard, "ICP") and Text.notEqual(token.standard, "ICRC1") and Text.notEqual(token.standard, "ICRC2") and Text.notEqual(token.standard, "ICRC3")) {
+        if (Text.notEqual(token.standard, "ICP") and Text.notEqual(token.standard, "ICRC1") and Text.notEqual(token.standard, "ICRC2")) {
             return #err(#InternalError("Illegal token standard: " # debug_show (token.standard)));
         };
         var canisterId = Principal.fromActor(this);
@@ -1208,6 +1208,8 @@ shared (initMsg) actor class SwapPool(
         };
         var canisterId = Principal.fromActor(this);
         if (Principal.equal(caller, canisterId)) { return #err(#InternalError("Caller and canister id can't be the same")); };
+        if (not (args.amount > 0)) { return #err(#InternalError("Input amount should be greater than 0")) };
+        if (not (args.amount > args.fee)) { return #err(#InternalError("Input amount should be greater than fee")) };
 
         let from = {owner = caller; subaccount = null;};
         let to = { owner = canisterId; subaccount = null }; 
@@ -1280,10 +1282,10 @@ shared (initMsg) actor class SwapPool(
         if ((args.tickLower >= args.tickUpper) or (args.tickLower < Tick.MIN_TICK) or (args.tickUpper > Tick.MAX_TICK)) {
             return #err(#InternalError("Illegal tick number"));
         };
-        if (Text.notEqual(_token0.standard, "ICP") and Text.notEqual(_token0.standard, "ICRC1") and Text.notEqual(_token0.standard, "ICRC2") and Text.notEqual(_token0.standard, "ICRC3")) {
+        if (Text.notEqual(_token0.standard, "ICP") and Text.notEqual(_token0.standard, "ICRC1") and Text.notEqual(_token0.standard, "ICRC2")) {
             return #err(#InternalError("Illegal token0 standard: " # debug_show (_token0.standard)));
         };
-        if (Text.notEqual(_token1.standard, "ICP") and Text.notEqual(_token1.standard, "ICRC1") and Text.notEqual(_token1.standard, "ICRC2") and Text.notEqual(_token1.standard, "ICRC3")) {
+        if (Text.notEqual(_token1.standard, "ICP") and Text.notEqual(_token1.standard, "ICRC1") and Text.notEqual(_token1.standard, "ICRC2")) {
             return #err(#InternalError("Illegal token1 standard: " # debug_show (_token1.standard)));
         };
         var fee0 = _token0Fee;
@@ -1707,7 +1709,7 @@ shared (initMsg) actor class SwapPool(
         var userPositionInfo = _positionTickService.getUserPosition(positionId);
         switch (_decreaseLiquidity(
             msg.caller, 
-            { isLimitOrder = false; }, 
+            { removeLimitOrder = false; }, 
             { positionId = positionId; liquidity = Nat.toText(userPositionInfo.liquidity); }
         )) {
             case (#ok(result)) {
@@ -1831,7 +1833,7 @@ shared (initMsg) actor class SwapPool(
 
         let txIndex = _txState.startDecreaseLiquidity(msg.caller, _getCanisterId(), args.positionId, token0, token1, TextUtils.toNat(args.liquidity));
 
-        let result = _decreaseLiquidity(msg.caller, { isLimitOrder = false; }, args);
+        let result = _decreaseLiquidity(msg.caller, { removeLimitOrder = false; }, args);
         switch (result) {
             case (#ok(res)) {
                 _pushSwapInfoCache(_txState.decreaseLiquidityCompleted(txIndex, res.amount0, res.amount1));
@@ -1970,9 +1972,7 @@ shared (initMsg) actor class SwapPool(
         _assertAccessible(msg.caller);
         _assertNotAnonymous(msg.caller);
 
-        if (_hasActiveLimitOrder(positionId)) {
-            return #err(#InternalError("Active limit order can not be transferred"));
-        };
+        if (_hasActiveLimitOrder(positionId)) { return #err(#InternalError("Active limit order can not be transferred")); };
         var sender = PrincipalUtils.toAddress(msg.caller);
         var spender = _positionTickService.getAllowancedUserPosition(positionId);
         if ((not Text.equal(sender, spender)) and (not Principal.equal(msg.caller, from))) {

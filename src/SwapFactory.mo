@@ -696,7 +696,6 @@ shared (initMsg) actor class SwapFactory(
             "EXT",
             "ICRC1",
             "ICRC2",
-            "ICRC3",
             "ICP"
         ];
         return Option.isSome(Array.find<Text>(supportedStandards, func(s) = Text.equal(s, standard)));
