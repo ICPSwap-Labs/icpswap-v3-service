@@ -302,7 +302,6 @@ shared (initMsg) actor class SwapFeeReceiver(
             and Text.notEqual(standard, "EXT") 
             and Text.notEqual(standard, "ICRC1") 
             and Text.notEqual(standard, "ICRC2") 
-            and Text.notEqual(standard, "ICRC3") 
             and Text.notEqual(standard, "ICP")
         ) {
             return false;
