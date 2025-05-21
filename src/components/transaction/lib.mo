@@ -267,6 +267,7 @@ module {
                                             {
                                                 relatedInfo with status = #Failed;
                                                 err = ?("Manually set as an exception");
+                                                deposit = { relatedInfo.deposit with status = if (relatedInfo.deposit.status != #Completed) { #Failed } else { relatedInfo.deposit.status }; };
                                                 swap = { relatedInfo.swap with status = if (relatedInfo.swap.status != #Completed) { #Failed } else { relatedInfo.swap.status }; };
                                                 withdraw = { relatedInfo.withdraw with status = if (relatedInfo.withdraw.status != #Completed) { #Failed } else { relatedInfo.withdraw.status }; };
                                             }
