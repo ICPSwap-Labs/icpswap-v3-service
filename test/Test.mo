@@ -114,4 +114,6 @@ actor {
         let priceWithDecimals = Float.div(Float.fromInt(part1), Float.fromInt(part2));
         return Float.div(priceWithDecimals, Float.fromInt(DECIMALS));
     };
+
+    public shared func addClient(_ : Principal) : async () { };
 };
