@@ -568,38 +568,40 @@ shared (initMsg) actor class SwapPool(
 
     private func _depositFrom(txIndex: Nat, token: Types.Token, tokenAct: TokenAdapterTypes.TokenAdapter, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : async Result.Result<Nat, Types.Error> {
         func __depositFrom(): async Result.Result<Nat, Types.Error> {
-            switch (await tokenAct.transferFrom({from = from; to = to; amount = amount; fee = ?fee; memo = memo; created_at_time = null })) {
-                case (#Ok(index)) {
-                    switch (_txState.getTransaction(txIndex)) {
-                        case (?tx) {
-                            switch (tx.action) {
-                                case (#Deposit(_)) {
-                                    _txState.depositTransferred(txIndex, index);
-                                    ignore _tokenHolderService.deposit(caller, token, amount);
-                                    _txState.depositCredited(txIndex, amount);
-                                    _pushSwapInfoCache(txIndex);
-                                };
-                                case (#OneStepSwap(_)) {
-                                    _txState.oneStepSwapDepositTransferred(txIndex, index);
-                                    ignore _tokenHolderService.deposit(caller, token, amount);
-                                    _txState.oneStepSwapDepositCredited(txIndex, amount);
-                                };
-                                case (_) {
-                                    return #err(#InternalError("Unsupported transaction type"));
+            try {
+                switch (await tokenAct.transferFrom({from = from; to = to; amount = amount; fee = ?fee; memo = memo; created_at_time = null })) {
+                    case (#Ok(index)) {
+                        switch (_txState.getTransaction(txIndex)) {
+                            case (?tx) {
+                                switch (tx.action) {
+                                    case (#Deposit(_)) {
+                                        _txState.depositTransferred(txIndex, index);
+                                        ignore _tokenHolderService.deposit(caller, token, amount);
+                                        _txState.depositCredited(txIndex, amount);
+                                        _pushSwapInfoCache(txIndex);
+                                    };
+                                    case (#OneStepSwap(_)) {
+                                        _txState.oneStepSwapDepositTransferred(txIndex, index);
+                                        ignore _tokenHolderService.deposit(caller, token, amount);
+                                        _txState.oneStepSwapDepositCredited(txIndex, amount);
+                                    };
+                                    case (_) { return #err(#InternalError("Unsupported transaction type")); };
                                 };
                             };
+                            case (_) { return #err(#InternalError("Transaction not found")); };
                         };
-                        case (_) {
-                            return #err(#InternalError("Transaction not found"));
-                        };
+                        return #ok(amount);
                     };
-                    return #ok(amount);
+                    case (#Err(msg)) {
+                        let errorMsg = debug_show(msg);
+                        _txState.depositFailed(txIndex, errorMsg);
+                        return #err(#InternalError(errorMsg));
+                    };
                 };
-                case (#Err(msg)) {
-                    let errorMsg = debug_show(msg);
-                    _txState.depositFailed(txIndex, errorMsg);
-                    return #err(#InternalError(errorMsg));
-                };
+            } catch (e) {
+                let errorMsg = Error.message(e);
+                _txState.depositFailed(txIndex, errorMsg);
+                return #err(#InternalError(errorMsg));
             };
         };
         
@@ -629,35 +631,41 @@ shared (initMsg) actor class SwapPool(
 
     private func _deposit(txIndex: Nat, token: Types.Token, tokenAct: TokenAdapterTypes.TokenAdapter, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : async Result.Result<Nat, Types.Error> {
         func __deposit(): async Result.Result<Nat, Types.Error> {
-            let amountDeposit = Nat.sub(amount, fee);
-            switch (await tokenAct.transfer({from = from; from_subaccount = from.subaccount; to = to; amount = amountDeposit; fee = ?fee; memo = memo; created_at_time = null })) {
-                case (#Ok(index)) {
-                    switch (_txState.getTransaction(txIndex)) {
-                        case (?tx) {
-                            switch (tx.action) {
-                                case (#Deposit(_)) {
-                                    _txState.depositTransferred(txIndex, index);
-                                    ignore _tokenHolderService.deposit(caller, token, amountDeposit);
-                                    _txState.depositCredited(txIndex, amountDeposit);
-                                    _pushSwapInfoCache(txIndex);
+            try {
+                let amountDeposit = Nat.sub(amount, fee);
+                switch (await tokenAct.transfer({from = from; from_subaccount = from.subaccount; to = to; amount = amountDeposit; fee = ?fee; memo = memo; created_at_time = null })) {
+                    case (#Ok(index)) {
+                        switch (_txState.getTransaction(txIndex)) {
+                            case (?tx) {
+                                switch (tx.action) {
+                                    case (#Deposit(_)) {
+                                        _txState.depositTransferred(txIndex, index);
+                                        ignore _tokenHolderService.deposit(caller, token, amountDeposit);
+                                        _txState.depositCredited(txIndex, amountDeposit);
+                                        _pushSwapInfoCache(txIndex);
+                                    };
+                                    case (#OneStepSwap(_)) {
+                                        _txState.oneStepSwapDepositTransferred(txIndex, index);
+                                        ignore _tokenHolderService.deposit(caller, token, amountDeposit);
+                                        _txState.oneStepSwapDepositCredited(txIndex, amountDeposit);
+                                    };
+                                    case (_) { return #err(#InternalError("Unsupported transaction type")); };
                                 };
-                                case (#OneStepSwap(_)) {
-                                    _txState.oneStepSwapDepositTransferred(txIndex, index);
-                                    ignore _tokenHolderService.deposit(caller, token, amountDeposit);
-                                    _txState.oneStepSwapDepositCredited(txIndex, amountDeposit);
-                                };
-                                case (_) { return #err(#InternalError("Unsupported transaction type")); };
                             };
+                            case (_) { return #err(#InternalError("Transaction not found")); };
                         };
-                        case (_) { return #err(#InternalError("Transaction not found")); };
+                        return #ok(amountDeposit);
                     };
-                    return #ok(amountDeposit);
+                    case (#Err(msg)) {
+                        let errorMsg = debug_show(msg);
+                        _txState.depositFailed(txIndex, errorMsg);
+                        return #err(#InternalError(errorMsg));
+                    };
                 };
-                case (#Err(msg)) {
-                    let errorMsg = debug_show(msg);
-                    _txState.depositFailed(txIndex, errorMsg);
-                    return #err(#InternalError(errorMsg));
-                };
+            } catch (e) {
+                let errorMsg = Error.message(e);
+                _txState.depositFailed(txIndex, errorMsg);
+                return #err(#InternalError(errorMsg));
             };
         };
 
@@ -696,12 +704,8 @@ shared (initMsg) actor class SwapPool(
                 try {
                     let amountOut = Nat.sub(amount, fee);
                     switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amountOut; fee = ?fee; memo = memo; created_at_time = null})) {
-                        case (#Ok(index)) {
-                            _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, ?index));
-                        };
-                        case (#Err(e)) {
-                            ignore _txState.withdrawFailed(txIndex,  debug_show(e));
-                        };
+                        case (#Ok(index)) { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, ?index)); };
+                        case (#Err(e)) { ignore _txState.withdrawFailed(txIndex,  debug_show(e)); };
                     };
                 } catch (e) {
                     ignore _txState.withdrawFailed(txIndex, debug_show (Error.message(e)));
@@ -1767,10 +1771,7 @@ shared (initMsg) actor class SwapPool(
             var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
             var addResult = switch (_addLiquidity(userPositionInfo.tickLower, userPositionInfo.tickUpper, amount0Desired, amount1Desired)) {
                 case (#ok(result)) { result };
-                case (#err(code)) {
-                    ignore _txState.addLiquidityFailed(txIndex, debug_show(code));
-                    throw Error.reject("increaseLiquidity " # debug_show (code));
-                };
+                case (#err(code)) { throw Error.reject("increaseLiquidity " # debug_show (code)); };
             };
 
             // check actualAmount
@@ -1939,7 +1940,6 @@ shared (initMsg) actor class SwapPool(
             swapAmount := _executeSwap(args, msg.caller, swapResult);
             _pushSwapInfoCache(_txState.swapCompleted(txIndex, swapAmount));
         } catch (e) {
-            ignore _txState.swapFailed(txIndex, debug_show(Error.message(e)));
             _rollback("swap failed: " # Error.message(e));
         };
 
