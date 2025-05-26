@@ -217,7 +217,7 @@ shared (initMsg) actor class SwapPool(
                 let txIndex = _txState.startExecuteLimitOrder(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), value.token0InAmount, value.token1InAmount, key.tickLimit);
                 let result = _decreaseLiquidity(
                     value.owner, 
-                    { removeLimitOrder = true; }, 
+                    { removeLimitOrder = false; }, 
                     { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); }
                 );
                 switch (result) {
@@ -457,7 +457,7 @@ shared (initMsg) actor class SwapPool(
             case (#ok(result)) { result };
             case (#err(code)) { Prim.trap("Decrease liquidity failed: _collect " # debug_show (code)); };
         };
-        if (not loArgs.removeLimitOrder) { _deleteLimitOrderByPositionId(args.positionId); };
+        if (loArgs.removeLimitOrder) { _deleteLimitOrderByPositionId(args.positionId); };
         if (liquidityDelta == userPositionInfo.liquidity) {
             _positionTickService.deletePositionForUser(PrincipalUtils.toAddress(owner), args.positionId);
         };
@@ -1834,7 +1834,7 @@ shared (initMsg) actor class SwapPool(
 
         let txIndex = _txState.startDecreaseLiquidity(msg.caller, _getCanisterId(), args.positionId, token0, token1, TextUtils.toNat(args.liquidity));
 
-        let result = _decreaseLiquidity(msg.caller, { removeLimitOrder = false; }, args);
+        let result = _decreaseLiquidity(msg.caller, { removeLimitOrder = true; }, args);
         switch (result) {
             case (#ok(res)) {
                 _pushSwapInfoCache(_txState.decreaseLiquidityCompleted(txIndex, res.amount0, res.amount1));
