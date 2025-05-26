@@ -447,7 +447,8 @@ function testBizFlow()
     
     # Get swap record
     swap_record_result=$(dfx canister call $poolId getSwapRecordState --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
-    echo "swap_record_result: $swap_record_result"
+    echo "$swap_record_result" > swap_record.json
+    echo "Swap record has been saved to swap_record.json"
 };
 
 testBizFlow
