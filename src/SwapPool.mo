@@ -1501,7 +1501,7 @@ shared (initMsg) actor class SwapPool(
         let subaccount = Option.make(AccountUtils.principalToBlob(caller));
         let canisterId = _getCanisterId();
 
-        let txIndex = _txState.startOneStepSwap(caller, canisterId, tokenInWithPrincipal, tokenOutWithPrincipal, amountIn - feeIn, TextUtils.toNat(args.amountOutMinimum), feeIn, feeOut, caller, ?AccountUtils.principalToBlob(caller));
+        let txIndex = _txState.startOneStepSwap(caller, canisterId, tokenInWithPrincipal, tokenOutWithPrincipal, amountIn, TextUtils.toNat(args.amountOutMinimum), feeIn, feeOut, caller, ?AccountUtils.principalToBlob(caller));
         
         let depositFrom = { owner = canisterId; subaccount = subaccount };
         let depositTo = { owner = canisterId; subaccount = null };
