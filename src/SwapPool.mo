@@ -1830,6 +1830,10 @@ shared (initMsg) actor class SwapPool(
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
+        // Check if position already has an active order
+        if (_hasActiveLimitOrder(args.positionId)) {
+            return #err(#InternalError("Active limit order can not be decreased"));
+        };
         let (token0, token1) = (_getToken0WithPrincipal(), _getToken1WithPrincipal());
 
         let txIndex = _txState.startDecreaseLiquidity(msg.caller, _getCanisterId(), args.positionId, token0, token1, TextUtils.toNat(args.liquidity));
