@@ -2099,6 +2099,14 @@ shared (initMsg) actor class SwapPool(
             #err(#InternalError("This token does not support ICRC-2"))
         };
     };
+
+    public shared (msg) func setTokenAmountState(token0Amount : Nat, token1Amount : Nat) : async Result.Result<(), Types.Error> {
+        _checkAdminPermission(msg.caller);
+        if (_available) { return #err(#InternalError("Pool should not be available")); };
+        _tokenAmountService.setTokenAmount0(token0Amount);
+        _tokenAmountService.setTokenAmount1(token1Amount);
+        return #ok();
+    };
     
     public shared (msg) func updateTokenFee() : async () {
         _checkAdminPermission(msg.caller);
