@@ -261,6 +261,7 @@ module {
         currentLiquidity : Nat;
         currentTick : Int;
         currentSqrtPriceX96 : Nat;
+        poolFee : Nat;
     };
     public type TxStorage = actor {
         push : (SwapRecordInfo) -> async ();
