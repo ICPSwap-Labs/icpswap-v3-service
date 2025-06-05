@@ -1157,6 +1157,7 @@ shared (initMsg) actor class SwapPool(
                     currentLiquidity = _liquidity;
                     currentTick = _tick;
                     currentSqrtPriceX96 = _sqrtPriceX96;
+                    poolFee = _fee;
                 });
                 _txState.delete(txIndex);
             }
