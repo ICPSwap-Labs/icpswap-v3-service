@@ -94,6 +94,16 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         };
     };
 
+    public shared ({ caller }) func batchAddInstallerControllersValidate(controllers : [Principal]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        for (controller in controllers.vals()) {
+            if (Principal.isAnonymous(controller)) {
+                return #Err("Anonymous principals cannot be pool controllers");
+            };
+        };
+        return #Ok(debug_show (controllers));
+    };
+
     public shared ({ caller }) func batchRemovePoolControllersValidate(poolCids : [Principal], controllers : [Principal]) : async Result {
         assert (Principal.equal(caller, governanceCid));
         switch (await _checkPools(poolCids)) {

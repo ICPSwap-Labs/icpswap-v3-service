@@ -518,7 +518,7 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func batchClearRemovedPool(poolCids : [Principal]) : async () {
         _checkPermission(msg.caller);
-        for (poolCid in poolCids.vals()) { await _addPoolControllers(poolCid, [feeReceiverCid]); };
+        for (poolCid in poolCids.vals()) { await _addCanisterControllers(poolCid, [feeReceiverCid]); };
         for (poolCid in poolCids.vals()) { ignore _poolDataService.deletePool(Principal.toText(poolCid)); };
     };
 
@@ -548,7 +548,7 @@ shared (initMsg) actor class SwapFactory(
     public shared (msg) func batchAddPoolControllers(poolCids : [Principal], controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
         for (poolCid in poolCids.vals()) {
-            await _addPoolControllers(poolCid, controllers);
+            await _addCanisterControllers(poolCid, controllers);
         };
     };
 
@@ -559,6 +559,13 @@ shared (initMsg) actor class SwapFactory(
         };
         for (poolCid in poolCids.vals()) {
             await _removePoolControllers(poolCid, controllers);
+        };
+    };
+
+    public shared (msg) func batchAddInstallerControllers(controllers : [Principal]) : async () {
+        _checkPermission(msg.caller);
+        for (poolInstaller in _poolInstallers.vals()) {
+            await _addCanisterControllers(poolInstaller.canisterId, controllers);
         };
     };
 
@@ -594,8 +601,8 @@ shared (initMsg) actor class SwapFactory(
         await poolAct.setLimitOrderAvailable(available);
     };
 
-    private func _addPoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
-         await IC0Utils.update_settings_add_controller(poolCid, controllers);
+    private func _addCanisterControllers(canisterCid : Principal, controllers : [Principal]) : async () {
+         await IC0Utils.update_settings_add_controller(canisterCid, controllers);
     };
 
     private func _removePoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
@@ -1091,6 +1098,7 @@ shared (initMsg) actor class SwapFactory(
             case (#setAdmins _)                          { _hasPermission(caller) };
             case (#setIcrc28TrustedOrigins _)            { _hasPermission(caller) };
             case (#batchAddPoolControllers _)            { _hasPermission(caller) };
+            case (#batchAddInstallerControllers _)       { _hasPermission(caller) };
             case (#batchRemovePoolControllers _)         { _hasPermission(caller) };
             case (#batchSetPoolAdmins _)                 { _hasPermission(caller) };
             case (#batchRemovePools _)                   { _hasPermission(caller) };

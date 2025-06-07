@@ -34,6 +34,14 @@ cat <<< $(jq '.canisters={
   "SwapPoolInstaller": {
     "main": "./src/SwapPoolInstaller.mo",
     "type": "motoko"
+  },
+  "SwapDataBackup": {
+    "main": "./src/SwapDataBackup.mo",
+    "type": "motoko"
+  },
+  "SwapFactoryValidator": {
+    "main": "./src/SwapFactoryValidator.mo",
+    "type": "motoko"
   }
 }' dfx.json) > dfx.json
 dfx start --background

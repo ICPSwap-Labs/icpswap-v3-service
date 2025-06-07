@@ -466,6 +466,7 @@ module {
         #addPasscode : () -> (principal : Principal, passcode : Passcode);
         #addPoolInstallers : () -> (installers : [PoolInstaller]);
         #addPoolInstallersValidate : () -> (installers : [PoolInstaller]);
+        #batchAddInstallerControllers : () -> (controllers : [Principal]);
         #batchAddPoolControllers :
           () -> (poolCids : [Principal], controllers : [Principal]);
         #batchClearRemovedPool : () -> (poolCids : [Principal]);
