@@ -139,6 +139,17 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         };
     };
 
+    public shared ({ caller }) func batchSetInstallerAdminsValidate(admins : [Principal]) : async Result {
+        assert (Principal.equal(caller, governanceCid));
+        // Check for anonymous principals
+        for (admin in admins.vals()) {
+            if (Principal.isAnonymous(admin)) {
+                return #Err("Anonymous principals cannot be installer admins");
+            };
+        };
+        return #Ok(debug_show (admins));
+    };
+
     public shared ({ caller }) func setUpgradePoolListValidate(args : Types.UpgradePoolArgs) : async Result {
         assert (Principal.equal(caller, governanceCid));
         // set a limit on the number of upgrade tasks

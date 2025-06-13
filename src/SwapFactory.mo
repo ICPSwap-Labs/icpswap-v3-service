@@ -64,7 +64,7 @@ shared (initMsg) actor class SwapFactory(
     /**
         make sure the version is not the same as the previous one and same as the new version of SwapPool
     **/
-    private var _nextPoolVersion : Text = "3.6.0";
+    private stable var _nextPoolVersion : Text = "3.6.0";
     // upgrade task
     private stable var _backupAct = actor (Principal.toText(backupCid)) : Types.SwapDataBackupActor;
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
@@ -423,6 +423,28 @@ shared (initMsg) actor class SwapFactory(
         #ok();
     };
 
+    public shared (msg) func setNextPoolVersion(version : Text) : async () {
+        _checkAdminPermission(msg.caller);
+        
+        // Compare versions
+        let v1 = Text.split(_nextPoolVersion, #text("."));
+        let v2 = Text.split(version, #text("."));
+        let v1Iter = Iter.map<Text,Nat>(v1, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
+        let v2Iter = Iter.map<Text,Nat>(v2, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
+        let v1Arr = Iter.toArray(v1Iter);
+        let v2Arr = Iter.toArray(v2Iter);
+        
+        if (v2Arr[0] < v1Arr[0]) { throw Error.reject("New version must be higher than current version"); }
+        else if (v2Arr[0] == v1Arr[0]) {
+            if (v2Arr[1] < v1Arr[1]) { throw Error.reject("New version must be higher than current version"); }
+            else if (v2Arr[1] == v1Arr[1]) {
+                if (v2Arr[2] <= v1Arr[2]) { throw Error.reject("New version must be higher than current version"); }
+            }
+        };
+        
+        _nextPoolVersion := version;
+    };
+
     public shared (msg) func clearPoolUpgradeTaskHis() : async () {
         _checkAdminPermission(msg.caller);
         _poolUpgradeTaskHis := [];
@@ -558,7 +580,7 @@ shared (initMsg) actor class SwapFactory(
             throw Error.reject("SwapFactory must be the controller of SwapPool");
         };
         for (poolCid in poolCids.vals()) {
-            await _removePoolControllers(poolCid, controllers);
+            await _removeCanisterControllers(poolCid, controllers);
         };
     };
 
@@ -566,6 +588,13 @@ shared (initMsg) actor class SwapFactory(
         _checkPermission(msg.caller);
         for (poolInstaller in _poolInstallers.vals()) {
             await _addCanisterControllers(poolInstaller.canisterId, controllers);
+        };
+    };
+
+    public shared (msg) func batchSetInstallerAdmins(admins : [Principal]) : async () {
+        _checkPermission(msg.caller);
+        for (poolInstaller in _poolInstallers.vals()) {
+            await _setInstallerAdmins(poolInstaller.canisterId, admins);
         };
     };
 
@@ -605,8 +634,13 @@ shared (initMsg) actor class SwapFactory(
          await IC0Utils.update_settings_add_controller(canisterCid, controllers);
     };
 
-    private func _removePoolControllers(poolCid : Principal, controllers : [Principal]) : async () {
-        await IC0Utils.update_settings_remove_controller(poolCid, controllers);
+    private func _removeCanisterControllers(canisterCid : Principal, controllers : [Principal]) : async () {
+        await IC0Utils.update_settings_remove_controller(canisterCid, controllers);
+    };
+
+    private func _setInstallerAdmins(installerCid : Principal, admins : [Principal]) : async () {
+        var installerAct = actor (Principal.toText(installerCid)) : Types.SwapPoolInstaller;
+        await installerAct.setAdmins(admins);
     };
 
     private func _checkPoolControllers(controllers : [Principal]) : Bool {
@@ -1101,6 +1135,7 @@ shared (initMsg) actor class SwapFactory(
             case (#batchAddInstallerControllers _)       { _hasPermission(caller) };
             case (#batchRemovePoolControllers _)         { _hasPermission(caller) };
             case (#batchSetPoolAdmins _)                 { _hasPermission(caller) };
+            case (#batchSetInstallerAdmins _)            { _hasPermission(caller) };
             case (#batchRemovePools _)                   { _hasPermission(caller) };
             case (#batchClearRemovedPool _)              { _hasPermission(caller) };
             case (#batchSetPoolAvailable _)              { _hasPermission(caller) };

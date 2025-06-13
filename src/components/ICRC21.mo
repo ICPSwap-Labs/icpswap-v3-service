@@ -6,20 +6,7 @@ import Principal "mo:base/Principal";
 import ICRCTypes "../ICRCTypes";
 import Types "../Types";
 module {
-    // public func icrc28_trusted_origins() : ICRCTypes.Icrc28TrustedOriginsResponse {
-    //     return {trusted_origins = [
-    //         "https://standards.identitykit.xyz",
-    //         "https://dev.standards.identitykit.xyz",
-    //         "https://demo.identitykit.xyz",
-    //         "https://dev.demo.identitykit.xyz",
-    //         "http://localhost:3001",
-    //         "http://localhost:3002",
-    //         "https://nfid.one",
-    //         "https://dev.nfid.one",
-    //         "https://app.icpswap.com",
-    //         "https://bplw4-cqaaa-aaaag-qcb7q-cai.icp0.io"
-    //     ]};
-    // };
+
     public func icrc10_supported_standards() : [{ url : Text; name : Text }] {
         return [
           { url = "https://github.com/dfinity/ICRC/blob/main/ICRCs/ICRC-10/ICRC-10.md"; name = "ICRC-10" },
@@ -27,6 +14,7 @@ module {
           { url = "https://github.com/dfinity/wg-identity-authentication/blob/main/topics/icrc_28_trusted_origins.md"; name = "ICRC-28" }
         ];
     };
+    
     public func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : ICRCTypes.Icrc21ConsentMessageResponse {
         let metadata = {
             utc_offset_minutes = null;
@@ -53,7 +41,13 @@ module {
             transfer_position_consent_msg(request.arg)
         } else if (Text.equal(request.method, "withdraw")) {
             withdraw_consent_msg(request.arg)
-        } else if (Text.equal(request.method, "create_pool_consent_msg")) {
+        } else if (Text.equal(request.method, "depositFromAndSwap") or Text.equal(request.method, "depositAndSwap")) {
+            deposit_and_swap_consent_msg(request.arg)
+        } else if (Text.equal(request.method, "addLimitOrder")) {
+            add_limit_order_consent_msg(request.arg)
+        } else if (Text.equal(request.method, "removeLimitOrder")) {
+            remove_limit_order_consent_msg(request.arg)
+        } else if (Text.equal(request.method, "createPool")) {
             create_pool_consent_msg(request.arg)
         } else {
             null
@@ -109,6 +103,23 @@ module {
         switch (_args) {
             case (?args) {
                 return Option.make("deposit({token: " # args.token # ", amount: " # Nat.toText(args.amount) # ", fee: " # Nat.toText(args.fee) # "})")
+            };
+            case (_) {
+                return null;
+            };
+        };
+    };
+    private func deposit_and_swap_consent_msg(args_candid: Blob): ?Text {
+        let _args: ?Types.DepositAndSwapArgs = from_candid(args_candid);
+        switch (_args) {
+            case (?args) {
+                return Option.make("depositAndSwap({" # 
+                    "zeroForOne: " # debug_show(args.zeroForOne) # 
+                    ", amountIn: " # args.amountIn # 
+                    ", tokenInFee: " # Nat.toText(args.tokenInFee) # 
+                    ", amountOutMinimum: " # args.amountOutMinimum # 
+                    ", tokenOutFee: " # Nat.toText(args.tokenOutFee) # 
+                "})")
             };
             case (_) {
                 return null;
@@ -175,6 +186,33 @@ module {
         switch (_args) {
             case (?args) {
                 return Option.make("createPool({token0: " # args.token0.address # ", token1: " # args.token1.address # ", fee: " # Nat.toText(args.fee) # ", sqrtPriceX96: " # args.sqrtPriceX96 # "})");
+            };
+            case (_) {
+                return null;
+            };
+        };
+    };
+    private func add_limit_order_consent_msg(args_candid: Blob): ?Text {
+        let _args: ?Types.LimitOrderArgs = from_candid(args_candid);
+        switch (_args) {
+            case (?args) {
+                return Option.make("addLimitOrder({" # 
+                    "positionId: " # debug_show(args.positionId) # 
+                    ", tickLimit: " # debug_show(args.tickLimit) # 
+                "})")
+            };
+            case (_) {
+                return null;
+            };
+        };
+    };
+    private func remove_limit_order_consent_msg(args_candid: Blob): ?Text {
+        let _args: ?(Nat) = from_candid(args_candid);
+        switch (_args) {
+            case (?args) {
+                return Option.make("removeLimitOrder({" # 
+                    "positionId: " # debug_show(args) # 
+                "})")
             };
             case (_) {
                 return null;
