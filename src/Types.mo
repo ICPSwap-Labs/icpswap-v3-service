@@ -473,6 +473,7 @@ module {
         #batchRemovePoolControllers :
           () -> (poolCids : [Principal], controllers : [Principal]);
         #batchRemovePools : () -> (poolCids : [Principal]);
+        #batchSetInstallerAdmins : () -> (admins : [Principal]);
         #batchSetPoolAdmins :
           () -> (poolCids : [Principal], admins : [Principal]);
         #batchSetPoolAvailable :
@@ -521,6 +522,7 @@ module {
         #setIcrc28TrustedOrigins : () -> (origins : [Text]);
         #setInstallerModuleHash : () -> (moduleHash : Blob);
         #setInstallerModuleHashValidate : () -> (moduleHash : Blob);
+        #setNextPoolVersion : () -> (version : Text);
         #setUpgradePoolList : () -> (args : UpgradePoolArgs);
         #setWasmActive : () -> (isActive : Bool);
         #upgradePoolTokenStandard :
@@ -615,6 +617,7 @@ module {
     public type SwapPoolInstaller = actor {
         install : (Token, Token, Principal, Principal, Principal, Principal) -> async Principal;
         getCycleInfo : () -> async Result.Result<CycleInfo, Error>;
+        setAdmins : shared ([Principal]) -> async ();
     };
     public type PositionIndexActor = actor {
         updatePoolIds : () -> async ();
