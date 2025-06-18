@@ -594,7 +594,12 @@ shared (initMsg) actor class SwapPool(
                     };
                     case (#Err(msg)) {
                         let errorMsg = debug_show(msg);
-                        _txState.depositFailed(txIndex, errorMsg);
+                        switch (msg) {
+                            case (#InsufficientFunds(_) or #InsufficientAllowance(_) or #BadFee(_)) {
+                                Debug.print("depositFrom failed: " # errorMsg);
+                                _txState.delete(txIndex);
+                            };
+                            case (_) { _txState.depositFailed(txIndex, errorMsg); }; };
                         return #err(#InternalError(errorMsg));
                     };
                 };
@@ -658,7 +663,12 @@ shared (initMsg) actor class SwapPool(
                     };
                     case (#Err(msg)) {
                         let errorMsg = debug_show(msg);
-                        _txState.depositFailed(txIndex, errorMsg);
+                        switch (msg) {
+                            case (#InsufficientFunds(_) or #BadFee(_)) {
+                                Debug.print("deposit failed: " # errorMsg);
+                                _txState.delete(txIndex);
+                            };
+                            case (_) { _txState.depositFailed(txIndex, errorMsg); }; };
                         return #err(#InternalError(errorMsg));
                     };
                 };
@@ -2020,7 +2030,6 @@ shared (initMsg) actor class SwapPool(
         switch (_txState.getTransaction(txId)) { 
             case (?transaction) {
                 if(not refund) {
-                    if (Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) { return #err(#InternalError("Transaction is not expired")); };
                     _pushSwapInfoCache(_txState.setFailed(txId, "Manually set as an exception"));
                     return #ok(true);
                 };
