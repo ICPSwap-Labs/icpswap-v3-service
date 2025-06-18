@@ -155,7 +155,7 @@ shared (initMsg) actor class SwapFactoryValidator(factoryCid : Principal, govern
         // set a limit on the number of upgrade tasks
         if (not (await _factoryAct.getWasmActiveStatus())) { return #Err("Wasm is not active"); };
         if (Array.size(args.poolIds) == 0) { return #Err("The number of canisters to be upgraded cannot be set to 0"); };
-        if (Array.size(args.poolIds) > 500) { return #Err("The number of canisters to be upgraded cannot be set to more than 500"); };
+        if (Array.size(args.poolIds) > 1000) { return #Err("The number of canisters to be upgraded cannot be set to more than 1000"); };
         // check task map is empty
         switch (await _factoryAct.getPendingUpgradePoolList()) {
             case (#ok(list)) {
