@@ -506,7 +506,7 @@ shared (initMsg) actor class SwapFactory(
         _checkPermission(msg.caller);
         if (not _isWasmActive) { return #err(#InternalError("Wasm is not active")); };
         if (Array.size(args.poolIds) == 0) { return #err(#InternalError("The number of canisters to be upgraded cannot be set to 0")); };
-        if (Array.size(args.poolIds) > 500) { return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 500")); };
+        if (Array.size(args.poolIds) > 1000) { return #err(#InternalError("The number of canisters to be upgraded cannot be set to more than 1000")); };
         
         // check if task map is empty
         if (List.size(_pendingUpgradePoolList) > 0) { return #err(#InternalError("Please wait until the upgrade task list is empty")); };
