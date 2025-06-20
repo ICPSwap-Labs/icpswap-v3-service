@@ -262,7 +262,15 @@ module {
                         case (?tx) {
                             switch(tx.action) {
                                 case (#OneStepSwap(relatedInfo)) {
-                                    if (relatedInfo.status != #Completed) {
+                                    if (relatedInfo.deposit.status == #Completed and relatedInfo.swap.status == #Completed) {
+                                        _updateTransaction(info.relatedIndex, tx, #OneStepSwap(
+                                            {
+                                                relatedInfo with 
+                                                status = #Completed;
+                                                withdraw = { relatedInfo.withdraw with status = #Completed };
+                                            }
+                                        ), transactions);
+                                    } else if (relatedInfo.status != #Completed) {
                                         _updateTransaction(info.relatedIndex, tx, #OneStepSwap(
                                             {
                                                 relatedInfo with status = #Failed;
