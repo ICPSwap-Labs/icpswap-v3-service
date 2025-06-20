@@ -2042,11 +2042,11 @@ shared (initMsg) actor class SwapPool(
                         ignore _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), info.relatedIndex);
                     };
                     case (#OneStepSwap(info)) {
-                        if (info.deposit.status != #Completed) {
+                        if (info.swap.status != #Completed) {
                             let (token, tokenAct, tokenFee) = if (Principal.equal(info.deposit.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
                             ignore _refund<system>(token, tokenAct, transaction.owner, { owner = _getCanisterId(); subaccount = null }, { owner = transaction.owner; subaccount = null }, info.deposit.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId);
                         } 
-                        else if (info.deposit.status == #Completed and info.swap.status == #Completed and info.withdraw.status != #Completed) {
+                        else if (info.withdraw.status != #Completed) {
                             let (token, tokenAct, tokenFee) = if (Principal.equal(info.withdraw.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
                             ignore _tokenHolderService.deposit(info.withdraw.transfer.to.owner, token, info.withdraw.transfer.amount);
                             ignore _refund<system>(token, tokenAct, transaction.owner, info.withdraw.transfer.from, info.withdraw.transfer.to, info.withdraw.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId);
