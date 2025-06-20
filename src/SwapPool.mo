@@ -601,7 +601,14 @@ shared (initMsg) actor class SwapPool(
                 };
             } catch (e) {
                 let errorMsg = Error.message(e);
-                _txState.depositFailed(txIndex, errorMsg);
+                Debug.print("depositFrom exception: " # errorMsg);
+                if (Text.contains(errorMsg, #text("Unsupport method 'transferFrom'")) 
+                    or Text.contains(errorMsg, #text("Unsupported method 'transferFrom'"))
+                ) {
+                    _txState.delete(txIndex);
+                } else {
+                    _txState.depositFailed(txIndex, errorMsg);
+                };
                 return #err(#InternalError(errorMsg));
             };
         };
