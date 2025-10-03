@@ -43,6 +43,7 @@ enum WasmEncoding {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum WasmValidationError {
     DecodingError(String),
     IoError(std::io::Error),

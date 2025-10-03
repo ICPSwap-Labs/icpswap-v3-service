@@ -318,6 +318,17 @@ module {
         token0InAmount : Nat;
         token1InAmount : Nat;
     };
+    // Withdraw queue data structure
+    public type WithdrawQueueItem = {
+        txIndex: Nat;
+        token:Token;
+        caller: Principal;
+        from: TxTypes.Account;
+        to: TxTypes.Account;
+        amount: Nat;
+        fee: Nat;
+        memo: ?Blob;
+    };
     public type ClaimedPoolData = {
         token0 : Token;
         token1 : Token;
@@ -430,7 +441,11 @@ module {
         #getUserPositions : () -> (offset : Nat, limit : Nat);
         #getUserPositionsByPrincipal : () -> (owner : Principal);
         #getUserUnusedBalance : () -> (account : Principal);
+        #getUserWithdrawQueue : () -> (user : Principal);
         #getVersion : () -> ();
+        #getWithdrawQueue : () -> ();
+        #getWithdrawQueueProcessingStatus : () -> ();
+        #getWithdrawQueueSize : () -> ();
         #icrc10_supported_standards : () -> ();
         #icrc21_canister_call_consent_message :
           () -> (request : ICRCTypes.Icrc21ConsentMessageRequest);

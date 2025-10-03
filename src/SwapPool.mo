@@ -228,15 +228,11 @@ shared (initMsg) actor class SwapPool(
                         let to = { owner = value.owner; subaccount = null; };
                         if (res.amount0 > _token0Fee) {
                             let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken0Principal(), from, to, res.amount0, _token0Fee, _token0.standard);
-                            ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { 
-                                ignore await _withdraw(txIndex, _token0, _token0Act, value.owner, from, to, res.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
-                            });
+                            _enqueueWithdraw<system>(txIndex, _token0, value.owner, from, to, res.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
                         };
                         if (res.amount1 > _token1Fee) {
                             let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken1Principal(), from, to, res.amount1, _token1Fee, _token1.standard);
-                            ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { 
-                                ignore await _withdraw(txIndex, _token1, _token1Act, value.owner, from, to, res.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
-                            });
+                            _enqueueWithdraw<system>(txIndex, _token1, value.owner, from, to, res.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
                         };
                         ignore Timer.setTimer<system>(#seconds (3), func() : async () { _jobService.onActivity<system>(); });
                     };
@@ -246,6 +242,55 @@ shared (initMsg) actor class SwapPool(
             case (_) {};
         };
     };
+    
+    private stable var _withdrawQueue = List.nil<Types.WithdrawQueueItem>();
+    private var _isProcessingWithdrawQueue : Bool = false;
+    // Withdraw queue functions
+    private func _enqueueWithdraw<system>(txIndex: Nat, token: Types.Token, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : () {
+        let item : Types.WithdrawQueueItem = {
+            txIndex = txIndex;
+            token = token;
+            caller = caller;
+            from = from;
+            to = to;
+            amount = amount;
+            fee = fee;
+            memo = memo;
+        };
+        _withdrawQueue := List.push(item, _withdrawQueue);
+        
+        // Only trigger processing if not already processing
+        if (not _isProcessingWithdrawQueue) {
+            ignore Timer.setTimer<system>(#nanoseconds(0), _processWithdrawQueue);
+        };
+    };
+    
+    private func _processWithdrawQueue() : async () {
+        // Set processing flag
+        _isProcessingWithdrawQueue := true;
+        
+        switch (List.pop(_withdrawQueue)) {
+            case (null, _) { 
+                // Queue is empty, clear processing flag
+                _isProcessingWithdrawQueue := false;
+                return; 
+            };
+            case (?item, remainingQueue) {
+                _withdrawQueue := remainingQueue;
+                let tokenAct = if (item.token.address == _token0.address) { _token0Act } else { _token1Act };
+                ignore await _withdraw(item.txIndex, item.token, tokenAct, item.caller, item.from, item.to, item.amount, item.fee, item.memo);
+                
+                // Continue processing if there are more items
+                if (not List.isNil(_withdrawQueue)) {
+                    ignore Timer.setTimer<system>(#seconds(1), _processWithdrawQueue);
+                } else {
+                    // No more items, clear processing flag
+                    _isProcessingWithdrawQueue := false;
+                };
+            };
+        };
+    };
+    
     private func _hasActiveLimitOrder(userPositionId: Nat) : Bool {
         // Check upper limit orders
         for ((_, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
@@ -305,6 +350,27 @@ shared (initMsg) actor class SwapPool(
             upperLimitOrdersIds = Buffer.toArray(upperLimitOrderIds);
         });
     };
+    
+    public query func getWithdrawQueue() : async Result.Result<[Types.WithdrawQueueItem], Types.Error> {
+        return #ok(List.toArray(_withdrawQueue));
+    };
+    
+    public query func getWithdrawQueueSize() : async Result.Result<Nat, Types.Error> {
+        return #ok(List.size(_withdrawQueue));
+    };
+    
+    public query func getUserWithdrawQueue(user : Principal) : async Result.Result<[Types.WithdrawQueueItem], Types.Error> {
+        let userItems = List.filter<Types.WithdrawQueueItem>(_withdrawQueue, func(item) {
+            Principal.equal(user, item.caller)
+        });
+        return #ok(List.toArray(userItems));
+    };
+    
+    public query func getWithdrawQueueProcessingStatus() : async Result.Result<Bool, Types.Error> {
+        return #ok(_isProcessingWithdrawQueue);
+    };
+    
+    
     public query func getSortedUserLimitOrders(user : Principal) : async Result.Result<[{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }], Types.Error> {
         var allLimitOrders : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }>(0);
         for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
@@ -1239,10 +1305,10 @@ shared (initMsg) actor class SwapPool(
         _assertNotAnonymous(caller);
 
         if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
-        let (token, tokenPrincipal, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
-            (_token0, _getToken0Principal(), _token0Act, _token0Fee);
+        let (token, tokenPrincipal, fee) = if (Text.equal(args.token, _token0.address)) {
+            (_token0, _getToken0Principal(), _token0Fee);
         } else {
-            (_token1, _getToken1Principal(), _token1Act, _token1Fee);
+            (_token1, _getToken1Principal(), _token1Fee);
         };
         if (not Nat.equal(fee, args.fee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
@@ -1257,7 +1323,9 @@ shared (initMsg) actor class SwapPool(
         let from = {owner = canisterId; subaccount = null;};
         let to = { owner = caller; subaccount = null }; 
         let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee, token.standard);
-        return await _withdraw(txIndex, token,tokenAct, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
+        
+        _enqueueWithdraw<system>(txIndex, token, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
+        return #ok(args.amount);
     };
     
     public shared ({ caller }) func withdrawToSubaccount(args : Types.WithdrawToSubaccountArgs) : async Result.Result<Nat, Types.Error> {
@@ -1265,10 +1333,10 @@ shared (initMsg) actor class SwapPool(
         _assertNotAnonymous(caller);
 
         if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
-        let (token, tokenPrincipal, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
-            (_token0, _getToken0Principal(), _token0Act, _token0Fee);
+        let (token, tokenPrincipal, fee) = if (Text.equal(args.token, _token0.address)) {
+            (_token0, _getToken0Principal(), _token0Fee);
         } else {
-            (_token1, _getToken1Principal(), _token1Act, _token1Fee);
+            (_token1, _getToken1Principal(), _token1Fee);
         };
         if (not Nat.equal(fee, args.fee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
@@ -1284,7 +1352,8 @@ shared (initMsg) actor class SwapPool(
 
         let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee, token.standard);
 
-        return await _withdraw(txIndex, token, tokenAct, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
+        _enqueueWithdraw<system>(txIndex, token, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
+        return #ok(args.amount);
     };
 
     public shared ({ caller }) func depositAllAndMint(args : Types.DepositAndMintArgs) : async Result.Result<Nat, Types.Error> {
@@ -1423,10 +1492,10 @@ shared (initMsg) actor class SwapPool(
         _assertNotAnonymous(caller);
 
         let (fee0, fee1) = (_token0Fee, _token1Fee);
-        let (tokenIn, tokenInWithPrincipal, tokenInAct, feeIn, tokenOut, tokenOutWithPrincipal, tokenOutAct,feeOut) = if (args.zeroForOne) { 
-            (_token0, _getToken0WithPrincipal(), _token0Act, fee0, _token1, _getToken1WithPrincipal(), _token1Act, fee1) 
+        let (tokenIn, tokenInWithPrincipal, tokenInAct, feeIn, tokenOut, tokenOutWithPrincipal,feeOut) = if (args.zeroForOne) { 
+            (_token0, _getToken0WithPrincipal(), _token0Act, fee0, _token1, _getToken1WithPrincipal(), fee1) 
         } else {
-            (_token1, _getToken1WithPrincipal(), _token1Act, fee1, _token0, _getToken0WithPrincipal(), _token0Act, fee0) 
+            (_token1, _getToken1WithPrincipal(), _token1Act, fee1, _token0, _getToken0WithPrincipal(), fee0) 
         };
         if (not Nat.equal(feeIn, args.tokenInFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeIn) # ", received: " # Nat.toText(args.tokenInFee) # "), please try later")); 
@@ -1470,11 +1539,11 @@ shared (initMsg) actor class SwapPool(
                     case (#ok(swapResult)) {
                         _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
 
-                        let withdrawResult = await _withdraw(txIndex, tokenOut, tokenOutAct, caller,{ owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
+                        _enqueueWithdraw<system>(txIndex, tokenOut, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
                         if(amountIn > swapResult.effectiveAmount) {
                             ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn - swapResult.effectiveAmount, feeIn, memo, txIndex);
                         };
-                        return withdrawResult;
+                        return #ok(swapResult.swapAmount);
                     };
                     case (#err(e)) {
                         _txState.oneStepSwapSwapFailed(txIndex, "Swap failed:" # debug_show(e));
@@ -1492,10 +1561,10 @@ shared (initMsg) actor class SwapPool(
         _assertNotAnonymous(caller);
         
         let (fee0, fee1) = (_token0Fee, _token1Fee);
-        let (tokenIn, tokenInWithPrincipal, tokenInAct, feeIn, tokenOut, tokenOutWithPrincipal, tokenOutAct,feeOut) = if (args.zeroForOne) { 
-            (_token0, _getToken0WithPrincipal(), _token0Act, fee0, _token1, _getToken1WithPrincipal(), _token1Act, fee1) 
+        let (tokenIn, tokenInWithPrincipal, tokenInAct, feeIn, tokenOut, tokenOutWithPrincipal,feeOut) = if (args.zeroForOne) { 
+            (_token0, _getToken0WithPrincipal(), _token0Act, fee0, _token1, _getToken1WithPrincipal(), fee1) 
         } else {
-            (_token1, _getToken1WithPrincipal(), _token1Act, fee1, _token0, _getToken0WithPrincipal(), _token0Act, fee0) 
+            (_token1, _getToken1WithPrincipal(), _token1Act, fee1, _token0, _getToken0WithPrincipal(), fee0) 
         };
         if (not Nat.equal(feeIn, args.tokenInFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeIn) # ", received: " # Nat.toText(args.tokenInFee) # "), please try later")); 
@@ -1545,11 +1614,11 @@ shared (initMsg) actor class SwapPool(
                 switch(await _swap(caller, swapArgs)) {
                     case (#ok(swapResult)) {
                         _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
-                        let withdrawResult = await _withdraw(txIndex, tokenOut, tokenOutAct, caller,{ owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
+                        _enqueueWithdraw<system>(txIndex, tokenOut, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
                         if(amountIn > swapResult.effectiveAmount) {
                             ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn - swapResult.effectiveAmount, feeIn, memo, txIndex);
                         };
-                        return withdrawResult;
+                        return #ok(swapResult.swapAmount);
                     };
                     case (#err(e)) {
                         _txState.oneStepSwapSwapFailed(txIndex, "Swap failed:" # debug_show(e));
@@ -1732,15 +1801,11 @@ shared (initMsg) actor class SwapPool(
                 // auto withdraw
                 if(result.amount0 > _token0Fee){
                     let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount0, _token0Fee, _token0.standard);
-                    ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { 
-                        ignore await _withdraw(txIndex, _token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
-                    });
+                    _enqueueWithdraw<system>(txIndex, _token0, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
                 };
                 if(result.amount1 > _token1Fee){
                     let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount1, _token1Fee, _token1.standard);
-                    ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { 
-                        ignore await _withdraw(txIndex, _token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
-                    });
+                    _enqueueWithdraw<system>(txIndex, _token1, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, result.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
                 };
                 return #ok(true);
             };
@@ -1856,15 +1921,11 @@ shared (initMsg) actor class SwapPool(
                 // auto withdraw
                 if(res.amount0 > _token0Fee){
                     let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount0, _token0Fee, _token0.standard);
-                    ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { 
-                        ignore await _withdraw(txIndex, _token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
-                    });
+                    _enqueueWithdraw<system>(txIndex, _token0, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
                 };
                 if(res.amount1 > _token1Fee){
                     let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount1, _token1Fee, _token1.standard);
-                    ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { 
-                        ignore await _withdraw(txIndex, _token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
-                    });
+                    _enqueueWithdraw<system>(txIndex, _token1, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, res.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
                 };
             };
             case (#err(err)) { ignore _txState.decreaseLiquidityFailed(txIndex, debug_show(err)); };
@@ -1906,15 +1967,11 @@ shared (initMsg) actor class SwapPool(
             // auto withdraw
             if(collectResult.amount0 > 0){
                 let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee, _token0.standard);
-                ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { 
-                    ignore await _withdraw(txIndex, _token0, _token0Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
-                });
+                _enqueueWithdraw<system>(txIndex, _token0, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
             };
             if(collectResult.amount1 > 0){
                 let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee, _token1.standard);
-                ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { 
-                    ignore await _withdraw(txIndex, _token1, _token1Act, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
-                });
+                _enqueueWithdraw<system>(txIndex, _token1, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
             };
         } catch (e) {
             _rollback("claim failed: " # Error.message(e));
@@ -2669,7 +2726,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.6.2";
+    private var _version : Text = "3.6.3";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
@@ -2846,6 +2903,7 @@ shared (initMsg) actor class SwapPool(
         caller : Principal;
         msg : Types.SwapPoolMsg;
     }) : Bool {
+        let _ = arg;
         return _isAvailable(caller) and (not Principal.isAnonymous(caller)) and _hasPermission(msg, caller);
     };
 

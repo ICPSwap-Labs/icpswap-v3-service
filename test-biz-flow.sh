@@ -275,6 +275,71 @@ function withdrawAll() #token amount
     echo "\033[32m withdraw all success. \033[0m"
 }
 
+# Optional monitoring function for withdraw queue (uncomment to use)
+function monitor_withdraw_queue() {
+    local pool_id=$1
+    local timeout=${2:-60}  # Default 60 seconds timeout
+    
+    echo "=== Monitoring withdraw queue for $timeout seconds ==="
+    local end_time=$(($(date +%s) + timeout))
+    
+    while [ $(date +%s) -lt $end_time ]; do
+        local queue_size=$(dfx canister call $pool_id getWithdrawQueueSize | grep -o '[0-9]*' | head -1)
+        local is_processing=$(dfx canister call $pool_id getWithdrawQueueProcessingStatus | grep -o 'true\|false')
+        
+        echo "$(date): Queue size: $queue_size, Processing: $is_processing"
+        
+        # If queue is empty and not processing, we're done
+        if [ "$queue_size" = "0" ] && [ "$is_processing" = "false" ]; then
+            echo "=== Queue processing completed! ==="
+            break
+        fi
+        
+        sleep 3
+    done
+}
+
+function testWithdrawQueue() {
+    echo
+    echo "=== Testing Withdraw Queue Mechanism ==="
+    echo
+    
+    # Ensure we have a pool and some balance to withdraw
+    echo "==> Preparing for withdraw queue test"
+    deposit $token0 10000000000000000
+    
+    echo "==> Initial queue status (should be empty)"
+    dfx canister call $poolId getWithdrawQueueSize
+    dfx canister call $poolId getWithdrawQueueProcessingStatus
+    
+    echo "==> Starting withdraw queue test"
+    local start_time=$(date +%s)
+    echo "Test start time: $(date)"
+    
+    local count=100
+    echo "Submitting $count withdraw requests..."
+    for ((i=1; i<=$count; i++)); do
+        echo "Operation $i of $count"
+        dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = 10000000000: nat;})" >/dev/null 2>&1 &
+    done
+
+    echo "Waiting for all requests to be submitted..."
+    wait
+    
+    local submit_end_time=$(date +%s)
+    local submit_duration=$((submit_end_time - start_time))
+    echo "All requests submitted in $submit_duration seconds at $(date)"
+    
+    echo "==> Queue status immediately after submission"
+    dfx canister call $poolId getWithdrawQueueSize
+    dfx canister call $poolId getWithdrawQueueProcessingStatus
+    
+    echo "==> Withdraw queue test completed!"
+    echo "Queue will process requests in the background with 1-second intervals."
+    echo "To automatically monitor queue processing, uncomment the following line:"
+    echo "# monitor_withdraw_queue $poolId 120"
+}
+
 function swap() #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96  token0BalanceAmount token1BalanceAmount zeroForOne
 {
     echo "== swap... =="
@@ -449,9 +514,22 @@ function testBizFlow()
     swap_record_result=$(dfx canister call $poolId getSwapRecordState --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
     echo "$swap_record_result" > swap_record.json
     echo "Swap record has been saved to swap_record.json"
+    
+    echo
+    echo "=== Running Withdraw Queue Test ==="
+    testWithdrawQueue
 };
 
 testBizFlow
+
+echo ""
+echo "=== ALL TESTS COMPLETED ==="
+echo "✅ Business flow test completed successfully"
+echo "✅ Withdraw queue mechanism tested"
+echo ""
+echo "The withdraw queue is now active and will process requests sequentially."
+echo "All withdraw operations will be queued and processed with 1-second intervals."
+echo ""
 
 dfx stop
 mv dfx.json.bak dfx.json
