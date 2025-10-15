@@ -245,7 +245,8 @@ shared (initMsg) actor class SwapPool(
     
     private stable var _withdrawQueue = List.nil<Types.WithdrawQueueItem>();
     private var _isProcessingWithdrawQueue : Bool = false;
-    // Withdraw queue functions
+    private let WITHDRAW_BATCH_SIZE : Nat = 10;
+    
     private func _enqueueWithdraw<system>(txIndex: Nat, token: Types.Token, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : () {
         let item : Types.WithdrawQueueItem = {
             txIndex = txIndex;
@@ -257,37 +258,57 @@ shared (initMsg) actor class SwapPool(
             fee = fee;
             memo = memo;
         };
-        _withdrawQueue := List.push(item, _withdrawQueue);
-        
-        // Only trigger processing if not already processing
-        if (not _isProcessingWithdrawQueue) {
+        _withdrawQueue := List.append(_withdrawQueue, List.make(item));
+        _tryStartProcessing<system>();
+    };
+    
+    private func _tryStartProcessing<system>() : () {
+        if (not _isProcessingWithdrawQueue and not List.isNil(_withdrawQueue)) {
+            _isProcessingWithdrawQueue := true;
             ignore Timer.setTimer<system>(#nanoseconds(0), _processWithdrawQueue);
         };
     };
     
     private func _processWithdrawQueue() : async () {
-        // Set processing flag
-        _isProcessingWithdrawQueue := true;
-        
-        switch (List.pop(_withdrawQueue)) {
-            case (null, _) { 
-                // Queue is empty, clear processing flag
-                _isProcessingWithdrawQueue := false;
-                return; 
-            };
-            case (?item, remainingQueue) {
-                _withdrawQueue := remainingQueue;
-                let tokenAct = if (item.token.address == _token0.address) { _token0Act } else { _token1Act };
-                ignore await _withdraw(item.txIndex, item.token, tokenAct, item.caller, item.from, item.to, item.amount, item.fee, item.memo);
-                
-                // Continue processing if there are more items
-                if (not List.isNil(_withdrawQueue)) {
-                    ignore Timer.setTimer<system>(#seconds(1), _processWithdrawQueue);
-                } else {
-                    // No more items, clear processing flag
-                    _isProcessingWithdrawQueue := false;
+        while (true) {
+            var batchCount = 0;
+            var batch = List.nil<Types.WithdrawQueueItem>();
+            var remainingQueue = _withdrawQueue;
+            
+            // Extract up to WITHDRAW_BATCH_SIZE items from front of queue (FIFO)
+            label batchLoop while (batchCount < WITHDRAW_BATCH_SIZE) {
+                switch (List.pop(remainingQueue)) {
+                    case (null, _) { break batchLoop; };
+                    case (?item, rest) {
+                        batch := List.push(item, batch);
+                        remainingQueue := rest;
+                        batchCount += 1;
+                    };
                 };
             };
+            
+            // Update global queue with remaining items
+            _withdrawQueue := remainingQueue;
+            
+            // If no items to process, stop
+            if (List.isNil(batch)) { _isProcessingWithdrawQueue := false; return; };
+            
+            // Reverse batch to restore FIFO order (since we used push)
+            batch := List.reverse(batch);
+            
+            // Process this batch sequentially
+            func processNext(queue: List.List<Types.WithdrawQueueItem>) : async () {
+                switch (List.pop(queue)) {
+                    case (null, _) { return; };
+                    case (?item, rest) {
+                        let tokenAct = if (item.token.address == _token0.address) { _token0Act } else { _token1Act };
+                        ignore await _withdraw(item.txIndex, item.token, tokenAct, item.caller, item.from, item.to, item.amount, item.fee, item.memo);
+                        await processNext(rest);
+                    };
+                };
+            };
+            
+            await processNext(batch);
         };
     };
     
@@ -355,21 +376,46 @@ shared (initMsg) actor class SwapPool(
         return #ok(List.toArray(_withdrawQueue));
     };
     
-    public query func getWithdrawQueueSize() : async Result.Result<Nat, Types.Error> {
-        return #ok(List.size(_withdrawQueue));
-    };
-    
     public query func getUserWithdrawQueue(user : Principal) : async Result.Result<[Types.WithdrawQueueItem], Types.Error> {
-        let userItems = List.filter<Types.WithdrawQueueItem>(_withdrawQueue, func(item) {
-            Principal.equal(user, item.caller)
+        let userItems = List.filter<Types.WithdrawQueueItem>(_withdrawQueue, func(item) { 
+            Principal.equal(user, item.caller);
         });
         return #ok(List.toArray(userItems));
     };
     
-    public query func getWithdrawQueueProcessingStatus() : async Result.Result<Bool, Types.Error> {
-        return #ok(_isProcessingWithdrawQueue);
+    public query func getWithdrawQueueInfo() : async Result.Result<{
+        isProcessing: Bool;
+        queueSize: Nat;
+        items: [Types.WithdrawQueueItem];
+    }, Types.Error> {
+        return #ok({
+            isProcessing = _isProcessingWithdrawQueue;
+            queueSize = List.size(_withdrawQueue);
+            items = List.toArray(_withdrawQueue);
+        });
     };
     
+    // Restart withdraw queue processing (with optional force flag)
+    public shared ({ caller }) func restartWithdrawQueueProcessing(force: Bool) : async Result.Result<Text, Types.Error> {
+        _assertAccessible(caller);
+        
+        if (List.isNil(_withdrawQueue)) {
+            return #ok("Queue is empty, no need to restart");
+        };
+        
+        if (not force and _isProcessingWithdrawQueue) {
+            return #ok("Processing is already active. Use force=true to force restart");
+        };
+        
+        if (force) { _isProcessingWithdrawQueue := false; };
+        _tryStartProcessing<system>();
+        
+        if (force) {
+            return #ok("Processing force restarted");
+        } else {
+            return #ok("Processing restarted");
+        };
+    };
     
     public query func getSortedUserLimitOrders(user : Principal) : async Result.Result<[{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }], Types.Error> {
         var allLimitOrders : Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }> = Buffer.Buffer<{ timestamp:Nat; userPositionId:Nat; token0InAmount:Nat; token1InAmount:Nat; tickLimit:Int; }>(0);
@@ -774,24 +820,37 @@ shared (initMsg) actor class SwapPool(
     };
 
     private func _withdraw(txIndex: Nat, token: Types.Token, tokenAct: TokenAdapterTypes.TokenAdapter, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob): async Result.Result<Nat, Types.Error> {
-        func __withdraw<system>() {
-            ignore Timer.setTimer<system>(#nanoseconds(0), func (): async () {
-                try {
-                    let amountOut = Nat.sub(amount, fee);
-                    switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amountOut; fee = ?fee; memo = memo; created_at_time = null})) {
-                        case (#Ok(index)) { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, ?index)); };
-                        case (#Err(e)) { ignore _txState.withdrawFailed(txIndex,  debug_show(e)); };
+        func __withdraw(): async () {
+            try {
+                let amountOut = Nat.sub(amount, fee);
+                switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amountOut; fee = ?fee; memo = memo; created_at_time = null})) {
+                    case (#Ok(index)) { 
+                        try {
+                            switch (_txState.getTransaction(txIndex)) {
+                                case (null) { };
+                                case (?_tx) {
+                                    let completedTx = _txState.withdrawCompleted(txIndex, ?index);
+                                    _pushSwapInfoCache(completedTx); 
+                                };
+                            };
+                        } catch (e) {
+                            try {
+                                ignore _txState.withdrawFailed(txIndex, "Post-transfer processing failed: " # Error.message(e));
+                            } catch (_cleanupError) { };
+                        };
                     };
-                } catch (e) {
-                    ignore _txState.withdrawFailed(txIndex, debug_show (Error.message(e)));
+                    case (#Err(e)) { ignore _txState.withdrawFailed(txIndex,  debug_show(e)); };
                 };
-            });
+            } catch (e) {
+                ignore _txState.withdrawFailed(txIndex, debug_show (Error.message(e)));
+            };
         };
 
         if (amount <= fee) {
             _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, null));
             return #ok(amount);
         };
+        
         if (_tokenHolderService.withdraw(caller, token, amount)) {
             _txState.withdrawCredited(txIndex);
             switch (_txState.getTransaction(txIndex)) {
@@ -800,10 +859,12 @@ shared (initMsg) actor class SwapPool(
                         case (#Withdraw(info)) {
                             switch (info.status) {
                                 case (#CreditCompleted) {  
-                                    __withdraw<system>(); 
+                                    await __withdraw(); 
                                     return #ok(amount);
                                 };
-                                case (_) { return #err(#InternalError("Invalid withdraw transaction status: expected CreditCompleted status")); };
+                                case (_) { 
+                                    return #err(#InternalError("Invalid withdraw transaction status: expected CreditCompleted status")); 
+                                };
                             };
                         };
                         case (#OneStepSwap(info)) {
@@ -813,7 +874,7 @@ shared (initMsg) actor class SwapPool(
                             };
                             switch (info.status) {
                                 case (#WithdrawCreditCompleted) {
-                                    __withdraw<system>();
+                                    await __withdraw();
                                     return #ok(amount);
                                 };
                                 case (_) {
@@ -1225,7 +1286,7 @@ shared (initMsg) actor class SwapPool(
     private func _pushSwapInfoCache(txIndex: Nat) : () {
         let tx = _txState.getTransaction(txIndex);
         switch (tx) {
-            case (null) { return };
+            case (null) {  return; };
             case (?tx) {
                 _swapRecordService.addRecord({
                     txInfo = tx;
@@ -1936,42 +1997,40 @@ shared (initMsg) actor class SwapPool(
         return result;
     };
 
-    public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
-        _assertAccessible(msg.caller);
-        _assertNotAnonymous(msg.caller);
-
-        if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
+    private func _claim<system>(caller : Principal, positionId : Nat, toSubaccount : ?Blob) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
+        if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(caller), positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
-        var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
+        var userPositionInfo = _positionTickService.getUserPosition(positionId);
         var collectResult = { amount0 = 0; amount1 = 0 };
-        let txIndex = _txState.startClaim(msg.caller, _getCanisterId(), args.positionId, _getToken0WithPrincipal(), _getToken1WithPrincipal());
+        let txIndex = _txState.startClaim(caller, _getCanisterId(), positionId, _getToken0WithPrincipal(), _getToken1WithPrincipal());
         try {
             if (userPositionInfo.liquidity > 0) {
-                ignore switch (_removeLiquidity(args.positionId, 0)) {
+                ignore switch (_removeLiquidity(positionId, 0)) {
                     case (#ok(result)) { result };
                     case (#err(code)) { throw Error.reject("claim " # debug_show (code)); };
                 };
             };
-            collectResult := switch (_collect(args.positionId)) {
+            collectResult := switch (_collect(positionId)) {
                 case (#ok(result)) { result };
                 case (#err(code)) { throw Error.reject("claim " # debug_show (code)); };
             };
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
             if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
-                ignore _tokenHolderService.deposit2(msg.caller, _token0, collectResult.amount0, _token1, collectResult.amount1);
+                ignore _tokenHolderService.deposit2(caller, _token0, collectResult.amount0, _token1, collectResult.amount1);
             };
             _pushSwapInfoCache(_txState.claimCompleted(txIndex, collectResult.amount0, collectResult.amount1));
             
             // auto withdraw
+            let to = { owner = caller; subaccount = toSubaccount };
             if(collectResult.amount0 > 0){
-                let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee, _token0.standard);
-                _enqueueWithdraw<system>(txIndex, _token0, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
+                let txIndex = _txState.startWithdraw(caller, _getCanisterId(), _getToken0Principal(), { owner = _getCanisterId(); subaccount = null }, to, collectResult.amount0, _token0Fee, _token0.standard);
+                _enqueueWithdraw<system>(txIndex, _token0, caller, { owner = _getCanisterId(); subaccount = null }, to, collectResult.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
             };
             if(collectResult.amount1 > 0){
-                let txIndex = _txState.startWithdraw(msg.caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee, _token1.standard);
-                _enqueueWithdraw<system>(txIndex, _token1, msg.caller, { owner = _getCanisterId(); subaccount = null }, { owner = msg.caller; subaccount = null }, collectResult.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
+                let txIndex = _txState.startWithdraw(caller, _getCanisterId(), _getToken1Principal(), { owner = _getCanisterId(); subaccount = null }, to, collectResult.amount1, _token1Fee, _token1.standard);
+                _enqueueWithdraw<system>(txIndex, _token1, caller, { owner = _getCanisterId(); subaccount = null }, to, collectResult.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
             };
         } catch (e) {
             _rollback("claim failed: " # Error.message(e));
@@ -1982,6 +2041,18 @@ shared (initMsg) actor class SwapPool(
             amount0 = collectResult.amount0;
             amount1 = collectResult.amount1;
         });
+    };
+
+    public shared (msg) func claim(args : Types.ClaimArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
+        _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+        return await _claim<system>(msg.caller, args.positionId, null);
+    };
+
+    public shared (msg) func claimToSubaccount(args : Types.ClaimToSubaccountArgs) : async Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
+        _assertAccessible(msg.caller);
+        _assertNotAnonymous(msg.caller);
+        return await _claim<system>(msg.caller, args.positionId, ?args.subaccount);
     };
 
     public shared (msg) func swap(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {

@@ -227,6 +227,10 @@ module {
     public type ClaimArgs = {
         positionId : Nat;
     };
+    public type ClaimToSubaccountArgs = {
+        positionId : Nat;
+        subaccount : Blob;
+    };
     public type SwapArgs = {
         zeroForOne : Bool;
         amountIn : Text;
@@ -401,6 +405,7 @@ module {
         #checkOwnerOfUserPosition :
           () -> (owner : Principal, positionId : Nat);
         #claim : () -> (args : ClaimArgs);
+        #claimToSubaccount : () -> (args : ClaimToSubaccountArgs);
         #decreaseLiquidity : () -> (args : DecreaseLiquidityArgs);
         #deleteFailedTransaction : () -> (txId : Nat, refund : Bool);
         #deposit : () -> (args : DepositArgs);
@@ -444,8 +449,7 @@ module {
         #getUserWithdrawQueue : () -> (user : Principal);
         #getVersion : () -> ();
         #getWithdrawQueue : () -> ();
-        #getWithdrawQueueProcessingStatus : () -> ();
-        #getWithdrawQueueSize : () -> ();
+        #getWithdrawQueueInfo : () -> ();
         #icrc10_supported_standards : () -> ();
         #icrc21_canister_call_consent_message :
           () -> (request : ICRCTypes.Icrc21ConsentMessageRequest);
@@ -459,6 +463,7 @@ module {
         #refreshIncome : () -> (positionId : Nat);
         #removeLimitOrder : () -> (positionId : Nat);
         #restartJobs : () -> (names : [Text]);
+        #restartWithdrawQueueProcessing : () -> (force : Bool);
         #setAdmins : () -> (admins : [Principal]);
         #setAvailable : () -> (available : Bool);
         #setIcrc28TrustedOrigins : () -> (origins : [Text]);
