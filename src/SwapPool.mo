@@ -828,10 +828,7 @@ shared (initMsg) actor class SwapPool(
                         try {
                             switch (_txState.getTransaction(txIndex)) {
                                 case (null) { };
-                                case (?_tx) {
-                                    let completedTx = _txState.withdrawCompleted(txIndex, ?index);
-                                    _pushSwapInfoCache(completedTx); 
-                                };
+                                case (?_tx) { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, ?index)); };
                             };
                         } catch (e) {
                             try {
@@ -1286,7 +1283,7 @@ shared (initMsg) actor class SwapPool(
     private func _pushSwapInfoCache(txIndex: Nat) : () {
         let tx = _txState.getTransaction(txIndex);
         switch (tx) {
-            case (null) {  return; };
+            case (null) { return; };
             case (?tx) {
                 _swapRecordService.addRecord({
                     txInfo = tx;
@@ -1303,19 +1300,33 @@ shared (initMsg) actor class SwapPool(
     private func _submit(): async () {};
     private func _rollback(msg: Text) : () { Prim.trap(msg); };
 
-    public shared ({ caller }) func deposit(args : Types.DepositArgs) : async Result.Result<Nat, Types.Error> {
-        _assertAccessible(caller);
-        _assertNotAnonymous(caller);
 
-        if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
-        let (token, tokenPrincipal, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
+    private func _validateAndSelectToken(tokenAddress: Text, providedFee: Nat) : Result.Result<{
+        token: Types.Token; tokenPrincipal: Principal; tokenAct: TokenAdapterTypes.TokenAdapter; fee: Nat;
+    }, Types.Error> {
+        if (tokenAddress != _token0.address and tokenAddress != _token1.address) { 
+            return #err(#UnsupportedToken(tokenAddress)); 
+        };
+        let (token, tokenPrincipal, tokenAct, fee) = if (Text.equal(tokenAddress, _token0.address)) {
             (_token0, _getToken0Principal(), _token0Act, _token0Fee);
         } else {
             (_token1, _getToken1Principal(), _token1Act, _token1Fee);
         };
-        if (not Nat.equal(fee, args.fee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
+        if (not Nat.equal(fee, providedFee)) { 
+            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(providedFee) # "), please try later")); 
         };
+        return #ok({ token = token; tokenPrincipal = tokenPrincipal; tokenAct = tokenAct; fee = fee });
+    };
+
+    public shared ({ caller }) func deposit(args : Types.DepositArgs) : async Result.Result<Nat, Types.Error> {
+        _assertAccessible(caller);
+        _assertNotAnonymous(caller);
+
+        let tokenInfo = switch (_validateAndSelectToken(args.token, args.fee)) { case (#ok(info)) { info }; case (#err(e)) { return #err(e); }; };
+        let token = tokenInfo.token;
+        let tokenPrincipal = tokenInfo.tokenPrincipal;
+        let tokenAct = tokenInfo.tokenAct;
+        
         if (Text.notEqual(token.standard, "ICP") and Text.notEqual(token.standard, "ICRC1") and Text.notEqual(token.standard, "ICRC2")) {
             return #err(#InternalError("Illegal token standard: " # debug_show (token.standard)));
         };
@@ -1338,15 +1349,11 @@ shared (initMsg) actor class SwapPool(
         _assertAccessible(caller);
         _assertNotAnonymous(caller);
 
-        if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
-        let (token, tokenPrincipal, tokenAct, fee) = if (Text.equal(args.token, _token0.address)) {
-            (_token0, _getToken0Principal(), _token0Act, _token0Fee);
-        } else {
-            (_token1, _getToken1Principal(), _token1Act, _token1Fee);
-        };
-        if (not Nat.equal(fee, args.fee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
-        };
+        let tokenInfo = switch (_validateAndSelectToken(args.token, args.fee)) { case (#ok(info)) { info }; case (#err(e)) { return #err(e); }; };
+        let token = tokenInfo.token;
+        let tokenPrincipal = tokenInfo.tokenPrincipal;
+        let tokenAct = tokenInfo.tokenAct;
+
         var canisterId = Principal.fromActor(this);
         if (Principal.equal(caller, canisterId)) { return #err(#InternalError("Caller and canister id can't be the same")); };
         if (not (args.amount > 0)) { return #err(#InternalError("Input amount should be greater than 0")) };
@@ -1365,15 +1372,10 @@ shared (initMsg) actor class SwapPool(
         _assertAccessible(caller);
         _assertNotAnonymous(caller);
 
-        if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
-        let (token, tokenPrincipal, fee) = if (Text.equal(args.token, _token0.address)) {
-            (_token0, _getToken0Principal(), _token0Fee);
-        } else {
-            (_token1, _getToken1Principal(), _token1Fee);
-        };
-        if (not Nat.equal(fee, args.fee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
-        };
+        let tokenInfo = switch (_validateAndSelectToken(args.token, args.fee)) { case (#ok(info)) { info }; case (#err(e)) { return #err(e); }; };
+        let token = tokenInfo.token;
+        let tokenPrincipal = tokenInfo.tokenPrincipal;
+        let fee = tokenInfo.fee;
         var canisterId = _getCanisterId();
         var balance : Nat = _tokenHolderService.getBalance(caller, token);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };
@@ -1393,15 +1395,10 @@ shared (initMsg) actor class SwapPool(
         _assertAccessible(caller);
         _assertNotAnonymous(caller);
 
-        if (args.token != _token0.address and args.token != _token1.address) { return #err(#UnsupportedToken(args.token)); };
-        let (token, tokenPrincipal, fee) = if (Text.equal(args.token, _token0.address)) {
-            (_token0, _getToken0Principal(), _token0Fee);
-        } else {
-            (_token1, _getToken1Principal(), _token1Fee);
-        };
-        if (not Nat.equal(fee, args.fee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # debug_show(fee) # ", received: " # debug_show(args.fee) # "), please try later")); 
-        };
+        let tokenInfo = switch (_validateAndSelectToken(args.token, args.fee)) { case (#ok(info)) { info }; case (#err(e)) { return #err(e); }; };
+        let token = tokenInfo.token;
+        let tokenPrincipal = tokenInfo.tokenPrincipal;
+        let fee = tokenInfo.fee;
         var canisterId = Principal.fromActor(this);
         var balance : Nat = _tokenHolderService.getBalance(caller, token);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };
