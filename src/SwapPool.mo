@@ -377,10 +377,6 @@ shared (initMsg) actor class SwapPool(
         });
     };
     
-    public query func getWithdrawQueue() : async Result.Result<[Types.WithdrawQueueItem], Types.Error> {
-        return #ok(List.toArray(_withdrawQueue));
-    };
-    
     public query func getUserWithdrawQueue(user : Principal) : async Result.Result<[Types.WithdrawQueueItem], Types.Error> {
         let userItems = List.filter<Types.WithdrawQueueItem>(_withdrawQueue, func(item) { 
             Principal.equal(user, item.caller);

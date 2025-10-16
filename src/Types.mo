@@ -448,7 +448,6 @@ module {
         #getUserUnusedBalance : () -> (account : Principal);
         #getUserWithdrawQueue : () -> (user : Principal);
         #getVersion : () -> ();
-        #getWithdrawQueue : () -> ();
         #getWithdrawQueueInfo : () -> ();
         #icrc10_supported_standards : () -> ();
         #icrc21_canister_call_consent_message :
