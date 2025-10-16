@@ -275,6 +275,30 @@ function withdrawAll() #token amount
     echo "\033[32m withdraw all success. \033[0m"
 }
 
+# Get withdraw queue information
+function get_withdraw_queue_info() {
+    local pool_id=$1
+    echo "=== Withdraw Queue Information ==="
+    local queue_info=$(dfx canister call $pool_id getWithdrawQueueInfo --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
+    
+    # Check if the command was successful
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to fetch withdraw queue info"
+        return 1
+    fi
+    
+    # Debug: show raw JSON (uncomment to debug)
+    # echo "Raw JSON: $queue_info"
+    
+    # Extract values from JSON response
+    # Use 'tostring' to convert boolean to string, otherwise false becomes "unknown" with //
+    local is_processing=$(echo "$queue_info" | jq -r '.ok.isProcessing | tostring')
+    local queue_size=$(echo "$queue_info" | jq -r '.ok.queueSize // "unknown"')
+    
+    echo "Queue size: $queue_size"
+    echo "Is processing: $is_processing"
+}
+
 # Optional monitoring function for withdraw queue (uncomment to use)
 function monitor_withdraw_queue() {
     local pool_id=$1
@@ -282,20 +306,39 @@ function monitor_withdraw_queue() {
     
     echo "=== Monitoring withdraw queue for $timeout seconds ==="
     local end_time=$(($(date +%s) + timeout))
+    local last_print_time=0
     
     while [ $(date +%s) -lt $end_time ]; do
-        local queue_size=$(dfx canister call $pool_id getWithdrawQueueSize | grep -o '[0-9]*' | head -1)
-        local is_processing=$(dfx canister call $pool_id getWithdrawQueueProcessingStatus | grep -o 'true\|false')
+        local current_time=$(date +%s)
         
-        echo "$(date): Queue size: $queue_size, Processing: $is_processing"
-        
-        # If queue is empty and not processing, we're done
-        if [ "$queue_size" = "0" ] && [ "$is_processing" = "false" ]; then
-            echo "=== Queue processing completed! ==="
-            break
+        # Only fetch and print every 1 second
+        if [ $((current_time - last_print_time)) -ge 1 ]; then
+            # Use getWithdrawQueueInfo and convert to JSON using idl2json
+            local queue_info=$(dfx canister call $pool_id getWithdrawQueueInfo --candid .dfx/local/canisters/SwapPool/SwapPool.did 2>&1 | idl2json 2>&1)
+            
+            # Check if the call was successful and parse JSON
+            if echo "$queue_info" | jq -e . >/dev/null 2>&1; then
+                # Extract values from JSON response
+                # Use 'tostring' to convert boolean to string, otherwise false becomes "?" with //
+                local is_processing=$(echo "$queue_info" | jq -r '.ok.isProcessing | tostring')
+                local queue_size=$(echo "$queue_info" | jq -r '.ok.queueSize // "?"')
+                
+                echo "[$(date +%H:%M:%S)] Queue: $queue_size items | Processing: $is_processing"
+                
+                # If queue is empty, we're done (regardless of processing status)
+                if [ "$queue_size" = "0" ]; then
+                    echo "=== Queue is empty! ==="
+                    break
+                fi
+            else
+                # Fallback: if JSON parsing fails, show raw output
+                echo "[$(date +%H:%M:%S)] Queue: (parsing error) | Raw: $queue_info"
+            fi
+            
+            last_print_time=$current_time
         fi
         
-        sleep 3
+        sleep 0.2  # Check more frequently but only print every second
     done
 }
 
@@ -309,8 +352,7 @@ function testWithdrawQueue() {
     deposit $token0 10000000000000000
     
     echo "==> Initial queue status (should be empty)"
-    dfx canister call $poolId getWithdrawQueueSize
-    dfx canister call $poolId getWithdrawQueueProcessingStatus
+    get_withdraw_queue_info $poolId
     
     echo "==> Starting withdraw queue test"
     local start_time=$(date +%s)
@@ -331,13 +373,10 @@ function testWithdrawQueue() {
     echo "All requests submitted in $submit_duration seconds at $(date)"
     
     echo "==> Queue status immediately after submission"
-    dfx canister call $poolId getWithdrawQueueSize
-    dfx canister call $poolId getWithdrawQueueProcessingStatus
+    monitor_withdraw_queue $poolId
     
-    echo "==> Withdraw queue test completed!"
-    echo "Queue will process requests in the background with 1-second intervals."
-    echo "To automatically monitor queue processing, uncomment the following line:"
-    echo "# monitor_withdraw_queue $poolId 120"
+    echo "==> Final queue status"
+    get_withdraw_queue_info $poolId
 }
 
 function swap() #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96  token0BalanceAmount token1BalanceAmount zeroForOne
@@ -525,10 +564,6 @@ testBizFlow
 echo ""
 echo "=== ALL TESTS COMPLETED ==="
 echo "✅ Business flow test completed successfully"
-echo "✅ Withdraw queue mechanism tested"
-echo ""
-echo "The withdraw queue is now active and will process requests sequentially."
-echo "All withdraw operations will be queued and processed with 1-second intervals."
 echo ""
 
 dfx stop
