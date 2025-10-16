@@ -52,7 +52,7 @@ module {
 
     private func _assertTransactionExists(tx: ?Transaction): Transaction {
         switch (tx) {
-            case null { assert(false); loop {} };
+            case null { Prim.trap("Transaction not found or has been deleted"); };
             case (?tx) tx;
         }
     };
