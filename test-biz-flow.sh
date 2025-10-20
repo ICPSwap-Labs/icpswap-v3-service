@@ -338,13 +338,14 @@ function monitor_withdraw_queue() {
             last_print_time=$current_time
         fi
         
-        sleep 0.2  # Check more frequently but only print every second
+        sleep 1  # Check more frequently but only print every second
     done
 }
 
 function testWithdrawQueue() {
     echo
     echo "=== Testing Withdraw Queue Mechanism ==="
+    echo "NOTE: Queue now processes ONE item at a time to minimize resource consumption"
     echo
     
     # Ensure we have a pool and some balance to withdraw
@@ -358,8 +359,9 @@ function testWithdrawQueue() {
     local start_time=$(date +%s)
     echo "Test start time: $(date)"
     
-    local count=100
+    local count=50
     echo "Submitting $count withdraw requests..."
+    echo "WARNING: This will take approximately $count seconds to process (1 item per async call)"
     for ((i=1; i<=$count; i++)); do
         echo "Operation $i of $count"
         dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = 10000000000: nat;})" >/dev/null 2>&1 &
@@ -372,8 +374,8 @@ function testWithdrawQueue() {
     local submit_duration=$((submit_end_time - start_time))
     echo "All requests submitted in $submit_duration seconds at $(date)"
     
-    echo "==> Queue status immediately after submission"
-    monitor_withdraw_queue $poolId
+    echo "==> Monitoring queue processing (processing one item at a time)..."
+    monitor_withdraw_queue $poolId 180
     
     echo "==> Final queue status"
     get_withdraw_queue_info $poolId
