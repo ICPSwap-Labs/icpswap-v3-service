@@ -369,13 +369,6 @@ shared (initMsg) actor class SwapPool(
         });
     };
     
-    public query func getUserWithdrawQueue(user : Principal) : async Result.Result<[Types.WithdrawQueueItem], Types.Error> {
-        let userItems = List.filter<Types.WithdrawQueueItem>(_withdrawQueue, func(item) { 
-            Principal.equal(user, item.caller);
-        });
-        return #ok(List.toArray(userItems));
-    };
-    
     public query func getWithdrawQueueInfo() : async Result.Result<{
         isProcessing: Bool;
         queueSize: Nat;
@@ -712,13 +705,13 @@ shared (initMsg) actor class SwapPool(
                     case (#Deposit(info)) {
                         switch (info.status) {
                             case (#Created) { return await __depositFrom(); };
-                            case (_) { return #err(#InternalError("Invalid deposit transaction status: expected Created status")); };
+                            case (_) { return #err(#InternalError("Invalid deposit status: expected Created")); };
                         };
                     };
                     case (#OneStepSwap(info)) {
                         switch (info.status) {
                             case (#Created) { return await __depositFrom(); };
-                            case (_) { return #err(#InternalError("Invalid one-step swap transaction status: expected Created status")); };
+                            case (_) { return #err(#InternalError("Invalid one-step swap status: expected Created")); };
                         };
                     };
                     case (_) { return #err(#InternalError("Unsupported transaction type")); };
@@ -782,13 +775,13 @@ shared (initMsg) actor class SwapPool(
                     case (#Deposit(info)) {
                         switch (info.status) {
                             case (#Created) { return await __deposit(); };
-                            case (_) { return #err(#InternalError("Invalid deposit transaction status: expected Created status")); };
+                            case (_) { return #err(#InternalError("Invalid deposit status: expected Created")); };
                         };
                     };
                     case (#OneStepSwap(info)) {
                         switch (info.status) {
                             case (#Created) { return await __deposit(); };
-                            case (_) { return #err(#InternalError("Invalid one-step swap transaction status: expected Created status")); };
+                            case (_) { return #err(#InternalError("Invalid one-step swap status: expected Created")); };
                         };
                     };
                     case (_) { return #err(#InternalError("Unsupported transaction type")); };
@@ -806,19 +799,9 @@ shared (initMsg) actor class SwapPool(
                 let amountOut = Nat.sub(amount, fee);
                 switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amountOut; fee = ?fee; memo = memo; created_at_time = null})) {
                     case (#Ok(index)) { 
-                        try {
-                            switch (_txState.getTransaction(txIndex)) {
-                                case (null) { };
-                                case (?_tx) { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, ?index)); };
-                            };
-                        } catch (e) {
-                            try {
-                                // Check if transaction still exists before updating failure status
-                                switch (_txState.getTransaction(txIndex)) {
-                                    case (null) { };
-                                    case (?_) { ignore _txState.withdrawFailed(txIndex, "Post-transfer processing failed: " # Error.message(e)); };
-                                };
-                            } catch (_cleanupError) { };
+                        switch (_txState.getTransaction(txIndex)) {
+                            case (null) { };
+                            case (?_tx) { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, ?index)); };
                         };
                     };
                     case (#Err(e)) { 
@@ -832,12 +815,8 @@ shared (initMsg) actor class SwapPool(
             } catch (e) {
                 // Check if transaction still exists before updating failure status
                 switch (_txState.getTransaction(txIndex)) {
-                    case (null) { 
-                        Debug.print("[WARN][__withdraw] Transaction not found when marking as failed: txIndex=" # Nat.toText(txIndex));
-                    };
-                    case (?_) {
-                        ignore _txState.withdrawFailed(txIndex, debug_show (Error.message(e)));
-                    };
+                    case (null) { Debug.print("[WARN][__withdraw] Transaction not found when marking as failed: txIndex=" # Nat.toText(txIndex)); };
+                    case (?_) { ignore _txState.withdrawFailed(txIndex, debug_show (Error.message(e))); };
                 };
             };
         };
@@ -862,7 +841,7 @@ shared (initMsg) actor class SwapPool(
                         case (#Withdraw(info)) {
                             switch (info.status) {
                                 case (#CreditCompleted) { await __withdraw(); return #ok(amount); };
-                                case (_) { return #err(#InternalError("Invalid withdraw transaction status: expected CreditCompleted status")); };
+                                case (_) { return #err(#InternalError("Invalid withdraw status: expected CreditCompleted")); };
                             };
                         };
                         case (#OneStepSwap(info)) {
@@ -876,7 +855,7 @@ shared (initMsg) actor class SwapPool(
                             };
                             switch (info.status) {
                                 case (#WithdrawCreditCompleted) { await __withdraw(); return #ok(amount); };
-                                case (_) { return #err(#InternalError("Invalid one-step swap transaction status: expected WithdrawCreditCompleted status")); };
+                                case (_) { return #err(#InternalError("Invalid one-step swap status: expected WithdrawCreditCompleted")); };
                             };
                         };
                         case (_) { return #err(#InternalError("Unsupported transaction type for withdraw")); };
@@ -941,7 +920,7 @@ shared (initMsg) actor class SwapPool(
                                     __refund<system>(); 
                                     return #ok(amount);
                                 };
-                                case (_) { return #err(#InternalError("Invalid refund transaction status: expected Created status")); };
+                                case (_) { return #err(#InternalError("Invalid refund status: expected Created")); };
                             };
                         };
                         case (_) { return #err(#InternalError("Unsupported transaction type for refund")); };
@@ -1349,7 +1328,7 @@ shared (initMsg) actor class SwapPool(
         var canisterId = Principal.fromActor(this);
         var subaccount : ?Blob = Option.make(AccountUtils.principalToBlob(caller));
         if (Option.isNull(subaccount)) {
-            return #err(#InternalError("Subaccount can't be null"));
+            return #err(#InternalError("Subaccount cannot be null"));
         };
         if (not (args.amount > 0)) { return #err(#InternalError("Input amount should be greater than 0")) };
         if (not (args.amount > args.fee)) { return #err(#InternalError("Input amount should be greater than fee")) };
@@ -1371,7 +1350,7 @@ shared (initMsg) actor class SwapPool(
         let tokenAct = tokenInfo.tokenAct;
 
         var canisterId = Principal.fromActor(this);
-        if (Principal.equal(caller, canisterId)) { return #err(#InternalError("Caller and canister id can't be the same")); };
+        if (Principal.equal(caller, canisterId)) { return #err(#InternalError("Caller and canister id cannot be the same")); };
         if (not (args.amount > 0)) { return #err(#InternalError("Input amount should be greater than 0")) };
         if (not (args.amount > args.fee)) { return #err(#InternalError("Input amount should be greater than fee")) };
 
@@ -1395,7 +1374,7 @@ shared (initMsg) actor class SwapPool(
         var canisterId = _getCanisterId();
         var balance : Nat = _tokenHolderService.getBalance(caller, token);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };
-        if (not (args.amount > 0)) { return #err(#InternalError("Amount can not be 0")); };
+        if (not (args.amount > 0)) { return #err(#InternalError("Amount cannot be 0")); };
         if (args.amount > balance) { return #err(#InsufficientFunds) };
         if (not (args.amount > fee)) { return #err(#InsufficientFunds) };
 
@@ -1418,7 +1397,7 @@ shared (initMsg) actor class SwapPool(
         var canisterId = Principal.fromActor(this);
         var balance : Nat = _tokenHolderService.getBalance(caller, token);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };
-        if (not (args.amount > 0)) { return #err(#InternalError("Amount can not be 0")); };
+        if (not (args.amount > 0)) { return #err(#InternalError("Amount cannot be 0")); };
         if (args.amount > balance) { return #err(#InsufficientFunds) };
         if (not (args.amount > fee)) { return #err(#InsufficientFunds) };
         let from = {owner = canisterId; subaccount = null;};
@@ -1456,7 +1435,7 @@ shared (initMsg) actor class SwapPool(
         var canisterId = Principal.fromActor(this);
         var subaccount : ?Blob = Option.make(AccountUtils.principalToBlob(args.positionOwner));
         if (Option.isNull(subaccount)) {
-            return #err(#InternalError("Subaccount can't be null"));
+            return #err(#InternalError("Subaccount cannot be null"));
         };
         let from = {owner = canisterId; subaccount = subaccount;};
         let to = { owner = canisterId; subaccount = null };
@@ -1572,7 +1551,7 @@ shared (initMsg) actor class SwapPool(
         if (not Nat.equal(feeOut, args.tokenOutFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeOut) # ", received: " # Nat.toText(args.tokenOutFee) # "), please try later")); 
         };
-        if (args.amountIn == "0") { return #err(#InternalError("Amount in can't be 0")); };
+        if (args.amountIn == "0") { return #err(#InternalError("Amount in cannot be 0")); };
 
         let amountIn: Nat = TextUtils.toNat(args.amountIn);
         let canisterId = _getCanisterId();
@@ -1640,7 +1619,7 @@ shared (initMsg) actor class SwapPool(
         if (not Nat.equal(feeOut, args.tokenOutFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeOut) # ", received: " # Nat.toText(args.tokenOutFee) # "), please try later")); 
         };
-        if (args.amountIn == "0") { return #err(#InternalError("Amount in can't be 0")); };
+        if (args.amountIn == "0") { return #err(#InternalError("Amount in cannot be 0")); };
 
         let amountIn: Nat = TextUtils.toNat(args.amountIn);
         if (not (amountIn > feeIn)) { return #err(#InternalError("Input amount should be greater than fee")) };
@@ -1706,7 +1685,7 @@ shared (initMsg) actor class SwapPool(
         if (not _checkUserPositionLimit()) { return #err(#InternalError("Number of user position exceeds limit")); };
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
         var amount1Desired = SafeUint.Uint256(TextUtils.toNat(args.amount1Desired));
-        if (Nat.equal(amount0Desired.val(), 0) and Nat.equal(amount1Desired.val(), 0)) { return #err(#InternalError("Amount desired can't be both 0")); };
+        if (Nat.equal(amount0Desired.val(), 0) and Nat.equal(amount1Desired.val(), 0)) { return #err(#InternalError("Amount desired cannot be both 0")); };
 
         if (not _checkAmounts(amount0Desired.val(), amount1Desired.val(), msg.caller)) {
             var accountBalance : TokenHolder.AccountBalance = _tokenHolderService.getBalances(msg.caller);
@@ -1911,7 +1890,7 @@ shared (initMsg) actor class SwapPool(
         };
         var amount0Desired = SafeUint.Uint256(TextUtils.toNat(args.amount0Desired));
         var amount1Desired = SafeUint.Uint256(TextUtils.toNat(args.amount1Desired));
-        if (Nat.equal(amount0Desired.val(), 0) and Nat.equal(amount1Desired.val(), 0)) { return #err(#InternalError("Amount desired can't be both 0")); };
+        if (Nat.equal(amount0Desired.val(), 0) and Nat.equal(amount1Desired.val(), 0)) { return #err(#InternalError("Amount desired cannot be both 0")); };
 
         if (not _checkAmounts(amount0Desired.val(), amount1Desired.val(), msg.caller)) {
             var accountBalance : TokenHolder.AccountBalance = _tokenHolderService.getBalances(msg.caller);
@@ -2793,18 +2772,10 @@ shared (initMsg) actor class SwapPool(
         };
     };
     private func _isAvailable(caller: Principal) : Bool {
-        if (_available and _txState.getTransactions().size() < 2000) {
-            return true;
-        };
-        if (CollectionUtils.arrayContains<Principal>(_whiteList, caller, Principal.equal)) {
-            return true;
-        };
-        if (CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal)) {
-            return true;
-        };
-        if (Prim.isController(caller)) {
-            return true;
-        };
+        if (_available and _txState.getTransactions().size() < 2000) { return true; };
+        if (CollectionUtils.arrayContains<Principal>(_whiteList, caller, Principal.equal)) { return true; };
+        if (CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal)) { return true; };
+        if (Prim.isController(caller)) { return true; };
         return false;
     };
     private func _checkControllerPermission(caller: Principal) {
@@ -2835,8 +2806,8 @@ shared (initMsg) actor class SwapPool(
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
-        if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
-        if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
+        if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Use deposit and withdraw instead"));
+        if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only ICRC-1 standard is supported"));
         if(not (await _trustAct.isCanisterTrusted(Principal.fromText(token.address)))) {
             return #err(#InternalError("Untrusted canister: " # token.address));
         };
@@ -2847,8 +2818,8 @@ shared (initMsg) actor class SwapPool(
         _assertAccessible(caller);
         _assertNotAnonymous(caller);
         
-        if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Please use deposit and withdraw instead"));
-        if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only support ICRC-1 standard."));
+        if (Text.equal(token.address, _token0.address) or Text.equal(token.address, _token1.address)) return #err(#InternalError("Use deposit and withdraw instead"));
+        if (not Text.equal(token.standard, "ICRC1")) return #err(#InternalError("Only ICRC-1 standard is supported"));
         // validate if the canister is trusted.
         if(not (await _trustAct.isCanisterTrusted(Principal.fromText(token.address)))) {
             return #err(#InternalError("Untrusted canister: " # token.address));
