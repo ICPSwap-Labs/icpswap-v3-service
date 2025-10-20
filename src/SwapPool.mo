@@ -384,6 +384,7 @@ shared (initMsg) actor class SwapPool(
     // Restart withdraw queue processing (with optional force flag)
     public shared ({ caller }) func restartWithdrawQueueProcessing(force: Bool) : async Result.Result<Text, Types.Error> {
         _assertAccessible(caller);
+        _checkAdminPermission(caller);
         
         if (List.isNil(_withdrawQueue)) { return #ok("Queue is empty, no need to restart"); };
         if (not force and _isProcessingWithdrawQueue) { return #ok("Processing is already active. Use force=true to force restart"); };
