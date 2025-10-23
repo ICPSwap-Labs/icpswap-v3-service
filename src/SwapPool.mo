@@ -274,7 +274,7 @@ shared (initMsg) actor class SwapPool(
                     case (null) {
                         // Transaction already completed/deleted (e.g., by refund)
                         _withdrawQueue := rest;
-                        if (not List.isNil(rest)) { ignore Timer.setTimer<system>(#seconds(1), _processWithdrawQueue); } else { _isProcessingWithdrawQueue := false; };
+                        if (not List.isNil(rest)) { ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processWithdrawQueue); } else { _isProcessingWithdrawQueue := false; };
                     };
                     case (?tx) {
                         // Transaction exists, check if it's still in a state that needs withdraw
@@ -287,7 +287,7 @@ shared (initMsg) actor class SwapPool(
                         
                         if (not shouldProcess) {
                             _withdrawQueue := rest;
-                            if (not List.isNil(rest)) { ignore Timer.setTimer<system>(#seconds(1), _processWithdrawQueue); } else { _isProcessingWithdrawQueue := false; };
+                            if (not List.isNil(rest)) { ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processWithdrawQueue); } else { _isProcessingWithdrawQueue := false; };
                         } else {
                             // Normal processing
                             _withdrawQueue := rest;
@@ -300,7 +300,7 @@ shared (initMsg) actor class SwapPool(
                                 Debug.print("[ERROR][_processWithdrawQueue] Withdraw failed: txIndex=" # Nat.toText(item.txIndex) # ", error=" # Error.message(e));
                             };
                             
-                            if (not List.isNil(_withdrawQueue)) { ignore Timer.setTimer<system>(#seconds(1), _processWithdrawQueue); }
+                            if (not List.isNil(_withdrawQueue)) { ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processWithdrawQueue); }
                             else { _isProcessingWithdrawQueue := false; };
                         };
                     };
@@ -865,8 +865,9 @@ shared (initMsg) actor class SwapPool(
                 case (_) { return #err(#InternalError("Transaction not found")); };
             }
         } else {
-            ignore _txState.withdrawFailed(txIndex, "Insufficient balance");
-            return #err(#InternalError("Insufficient balance: required=" # Nat.toText(amount) # ", available=" # Nat.toText(currentBalance)));
+            Debug.print("[INFO][_withdraw] Insufficient funds, deleting transaction to avoid accumulation of duplicate withdraw requests: txIndex=" # Nat.toText(txIndex));
+            _txState.delete(txIndex);
+            return #err(#InsufficientFunds);
         };
     };
 
