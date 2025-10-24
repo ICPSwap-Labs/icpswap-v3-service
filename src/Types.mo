@@ -333,6 +333,12 @@ module {
         fee: Nat;
         memo: ?Blob;
     };
+
+    public type UserWithdrawQueueInfo = {
+        items: [WithdrawQueueItem];
+        token0TotalAmount: Nat;
+        token1TotalAmount: Nat;
+    };
     public type ClaimedPoolData = {
         token0 : Token;
         token1 : Token;
@@ -446,6 +452,7 @@ module {
         #getUserPositions : () -> (offset : Nat, limit : Nat);
         #getUserPositionsByPrincipal : () -> (owner : Principal);
         #getUserUnusedBalance : () -> (account : Principal);
+        #getUserWithdrawQueue : () -> (user : Principal);
         #getVersion : () -> ();
         #getWithdrawQueueInfo : () -> ();
         #icrc10_supported_standards : () -> ();

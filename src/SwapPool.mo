@@ -380,7 +380,27 @@ shared (initMsg) actor class SwapPool(
             items = List.toArray(_withdrawQueue);
         });
     };
-    
+
+    public query func getUserWithdrawQueue(user : Principal) : async Result.Result<Types.UserWithdrawQueueInfo, Types.Error> {
+        let itemsArray = List.toArray(List.filter<Types.WithdrawQueueItem>(_withdrawQueue, func(item) { Principal.equal(user, item.caller); }));
+        
+        var token0TotalAmount: Nat = 0;
+        var token1TotalAmount: Nat = 0;
+        for (item in itemsArray.vals()) {
+            if (Text.equal(item.token.address, _token0.address)) {
+                token0TotalAmount := token0TotalAmount + item.amount;
+            } else if (Text.equal(item.token.address, _token1.address)) {
+                token1TotalAmount := token1TotalAmount + item.amount;
+            };
+        };
+        
+        return #ok({
+            items = itemsArray;
+            token0TotalAmount = token0TotalAmount;
+            token1TotalAmount = token1TotalAmount;
+        });
+    };
+
     // Restart withdraw queue processing (with optional force flag)
     public shared ({ caller }) func restartWithdrawQueueProcessing(force: Bool) : async Result.Result<Text, Types.Error> {
         _assertAccessible(caller);
