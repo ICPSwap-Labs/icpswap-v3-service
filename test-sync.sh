@@ -404,10 +404,24 @@ function getPoolState() #poolId
     local tick=$(echo "$metadata_json" | jq -r '.ok.tick' | tr -d '_')
     local liquidity=$(echo "$metadata_json" | jq -r '.ok.liquidity' | tr -d '_')
     
+    # Get token balances
+    local balance_json=$(dfx canister call $poolId getTokenBalance --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
+    local token0Balance=$(echo "$balance_json" | jq -r '.token0' | tr -d '_')
+    local token1Balance=$(echo "$balance_json" | jq -r '.token1' | tr -d '_')
+    
+    # Get user unused balance (for current principal)
+    local user_balance_json=$(dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")" --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
+    local userBalance0=$(echo "$user_balance_json" | jq -r '.ok.balance0' | tr -d '_')
+    local userBalance1=$(echo "$user_balance_json" | jq -r '.ok.balance1' | tr -d '_')
+    
     echo "Pool $poolId State:"
     echo "  sqrtPriceX96: $sqrtPriceX96"
     echo "  tick: $tick"
     echo "  liquidity: $liquidity"
+    echo "  token0 balance: $token0Balance"
+    echo "  token1 balance: $token1Balance"
+    echo "  user unused balance0: $userBalance0"
+    echo "  user unused balance1: $userBalance1"
     
     # Return values for comparison, using printf to ensure proper formatting
     # printf "%s %s %s" "$sqrtPriceX96" "$tick" "$liquidity"
@@ -513,6 +527,8 @@ function testSyncSwap()
         swap "$poolId12" "$token1" 10000000000 10000000000 0 &
     done
     wait
+
+    sleep 30
 
     # Record final states
     echo "Final Pool States:"

@@ -52,7 +52,7 @@ module {
 
     private func _assertTransactionExists(tx: ?Transaction): Transaction {
         switch (tx) {
-            case null { assert(false); loop {} };
+            case null { Prim.trap("Transaction not found or has been deleted"); };
             case (?tx) tx;
         }
     };
@@ -158,21 +158,25 @@ module {
         };
 
         public func withdrawCredited(txId: Nat): () {
-            let tx = _assertTransactionExists(_getTransaction(txId, transactions));
-            switch(tx.action) {
-                case (#Withdraw(info)) {
-                    if (info.status == #Created) {
-                        let newInfo = Withdraw.process(info);
-                        _updateTransaction(txId, tx, #Withdraw(newInfo), transactions);
+            switch (_getTransaction(txId, transactions)) {
+                case (null) { };
+                case (?tx) {
+                    switch(tx.action) {
+                        case (#Withdraw(info)) {
+                            if (info.status == #Created) {
+                                let newInfo = Withdraw.process(info);
+                                _updateTransaction(txId, tx, #Withdraw(newInfo), transactions);
+                            };
+                        };
+                        case(#OneStepSwap(info)) {
+                            if (info.status == #SwapCompleted) {
+                                let newInfo = OneStepSwap.process(info);
+                                _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
+                            };
+                        };
+                        case(_) { assert(false) };
                     };
                 };
-                case(#OneStepSwap(info)) {
-                    if (info.status == #SwapCompleted) {
-                        let newInfo = OneStepSwap.process(info);
-                        _updateTransaction(txId, tx, #OneStepSwap(newInfo), transactions);
-                    };
-                };
-                case(_) { assert(false) };
             };
         };
 
@@ -262,25 +266,27 @@ module {
                         case (?tx) {
                             switch(tx.action) {
                                 case (#OneStepSwap(relatedInfo)) {
-                                    if (relatedInfo.deposit.status == #Completed and relatedInfo.swap.status == #Completed) {
+                                    if (relatedInfo.deposit.status == #Completed and relatedInfo.swap.status == #Completed and relatedInfo.withdraw.status == #Completed) {
+                                        // All steps completed, mark the entire transaction as Completed
                                         _updateTransaction(info.relatedIndex, tx, #OneStepSwap(
                                             {
                                                 relatedInfo with 
                                                 status = #Completed;
-                                                withdraw = { relatedInfo.withdraw with status = #Completed };
                                             }
                                         ), transactions);
-                                    } else if (relatedInfo.status != #Completed) {
+                                    } else if (relatedInfo.status == #Failed or relatedInfo.swap.status == #Failed) {
+                                        // Transaction already failed or swap failed - mark entire transaction as Failed
                                         _updateTransaction(info.relatedIndex, tx, #OneStepSwap(
                                             {
                                                 relatedInfo with status = #Failed;
-                                                err = ?("Manually set as an exception");
+                                                err = ?("Refund completed after failure");
                                                 deposit = { relatedInfo.deposit with status = if (relatedInfo.deposit.status != #Completed) { #Failed } else { relatedInfo.deposit.status }; };
                                                 swap = { relatedInfo.swap with status = if (relatedInfo.swap.status != #Completed) { #Failed } else { relatedInfo.swap.status }; };
                                                 withdraw = { relatedInfo.withdraw with status = if (relatedInfo.withdraw.status != #Completed) { #Failed } else { relatedInfo.withdraw.status }; };
                                             }
                                         ), transactions);
                                     };
+                                    // If swap is successful but withdraw is pending, don't update status - let withdraw complete normally
                                 };
                                 case (#Deposit(relatedInfo)) {
                                     if (relatedInfo.status != #Completed) {

@@ -227,6 +227,10 @@ module {
     public type ClaimArgs = {
         positionId : Nat;
     };
+    public type ClaimToSubaccountArgs = {
+        positionId : Nat;
+        subaccount : Blob;
+    };
     public type SwapArgs = {
         zeroForOne : Bool;
         amountIn : Text;
@@ -318,6 +322,23 @@ module {
         token0InAmount : Nat;
         token1InAmount : Nat;
     };
+    // Withdraw queue data structure
+    public type WithdrawQueueItem = {
+        txIndex: Nat;
+        token:Token;
+        caller: Principal;
+        from: TxTypes.Account;
+        to: TxTypes.Account;
+        amount: Nat;
+        fee: Nat;
+        memo: ?Blob;
+    };
+
+    public type UserWithdrawQueueInfo = {
+        items: [WithdrawQueueItem];
+        token0TotalAmount: Nat;
+        token1TotalAmount: Nat;
+    };
     public type ClaimedPoolData = {
         token0 : Token;
         token1 : Token;
@@ -390,6 +411,7 @@ module {
         #checkOwnerOfUserPosition :
           () -> (owner : Principal, positionId : Nat);
         #claim : () -> (args : ClaimArgs);
+        #claimToSubaccount : () -> (args : ClaimToSubaccountArgs);
         #decreaseLiquidity : () -> (args : DecreaseLiquidityArgs);
         #deleteFailedTransaction : () -> (txId : Nat, refund : Bool);
         #deposit : () -> (args : DepositArgs);
@@ -430,7 +452,9 @@ module {
         #getUserPositions : () -> (offset : Nat, limit : Nat);
         #getUserPositionsByPrincipal : () -> (owner : Principal);
         #getUserUnusedBalance : () -> (account : Principal);
+        #getUserWithdrawQueue : () -> ();
         #getVersion : () -> ();
+        #getWithdrawQueueInfo : () -> ();
         #icrc10_supported_standards : () -> ();
         #icrc21_canister_call_consent_message :
           () -> (request : ICRCTypes.Icrc21ConsentMessageRequest);
@@ -444,6 +468,7 @@ module {
         #refreshIncome : () -> (positionId : Nat);
         #removeLimitOrder : () -> (positionId : Nat);
         #restartJobs : () -> (names : [Text]);
+        #restartWithdrawQueueProcessing : () -> (force : Bool);
         #setAdmins : () -> (admins : [Principal]);
         #setAvailable : () -> (available : Bool);
         #setIcrc28TrustedOrigins : () -> (origins : [Text]);
