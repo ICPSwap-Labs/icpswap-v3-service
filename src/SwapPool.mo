@@ -851,8 +851,6 @@ shared (initMsg) actor class SwapPool(
             return #ok(amount);
         };
         
-        let currentBalance = _tokenHolderService.getBalance(caller, token);
-        
         if (_tokenHolderService.withdraw(caller, token, amount)) {
             // Update transaction state (will gracefully handle if transaction was already deleted)
             _txState.withdrawCredited(txIndex);
@@ -2282,13 +2280,13 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
-    public shared (msg) func setTokenAmountState(token0Amount : Nat, token1Amount : Nat) : async Result.Result<(), Types.Error> {
-        _checkAdminPermission(msg.caller);
-        if (_available) { return #err(#InternalError("Pool should not be available")); };
-        _tokenAmountService.setTokenAmount0(token0Amount);
-        _tokenAmountService.setTokenAmount1(token1Amount);
-        return #ok();
-    };
+    // public shared (msg) func setTokenAmountState(token0Amount : Nat, token1Amount : Nat) : async Result.Result<(), Types.Error> {
+    //     _checkAdminPermission(msg.caller);
+    //     if (_available) { return #err(#InternalError("Pool should not be available")); };
+    //     _tokenAmountService.setTokenAmount0(token0Amount);
+    //     _tokenAmountService.setTokenAmount1(token1Amount);
+    //     return #ok();
+    // };
     
     public shared (msg) func updateTokenFee() : async () {
         _checkAdminPermission(msg.caller);
@@ -3002,7 +3000,6 @@ shared (initMsg) actor class SwapPool(
         caller : Principal;
         msg : Types.SwapPoolMsg;
     }) : Bool {
-        let _ = arg;
         return _isAvailable(caller) and (not Principal.isAnonymous(caller)) and _hasPermission(msg, caller);
     };
 

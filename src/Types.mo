@@ -473,7 +473,7 @@ module {
         #setAvailable : () -> (available : Bool);
         #setIcrc28TrustedOrigins : () -> (origins : [Text]);
         #setLimitOrderAvailable : () -> (available : Bool);
-        #setTokenAmountState : () -> (token0Amount : Nat, token1Amount : Nat);
+        // #setTokenAmountState : () -> (token0Amount : Nat, token1Amount : Nat);
         #setWhiteList : () -> (whiteList : [Principal]);
         #stopJobs : () -> (names : [Text]);
         #sumTick : () -> ();
