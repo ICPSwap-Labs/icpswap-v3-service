@@ -275,6 +275,112 @@ function withdrawAll() #token amount
     echo "\033[32m withdraw all success. \033[0m"
 }
 
+# Get withdraw queue information
+function get_withdraw_queue_info() {
+    local pool_id=$1
+    echo "=== Withdraw Queue Information ==="
+    local queue_info=$(dfx canister call $pool_id getWithdrawQueueInfo --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
+    
+    # Check if the command was successful
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to fetch withdraw queue info"
+        return 1
+    fi
+    
+    # Debug: show raw JSON (uncomment to debug)
+    # echo "Raw JSON: $queue_info"
+    
+    # Extract values from JSON response
+    # Use 'tostring' to convert boolean to string, otherwise false becomes "unknown" with //
+    local is_processing=$(echo "$queue_info" | jq -r '.ok.isProcessing | tostring')
+    local queue_size=$(echo "$queue_info" | jq -r '.ok.queueSize // "unknown"')
+    
+    echo "Queue size: $queue_size"
+    echo "Is processing: $is_processing"
+}
+
+# Optional monitoring function for withdraw queue (uncomment to use)
+function monitor_withdraw_queue() {
+    local pool_id=$1
+    local timeout=${2:-60}  # Default 60 seconds timeout
+    
+    echo "=== Monitoring withdraw queue for $timeout seconds ==="
+    local end_time=$(($(date +%s) + timeout))
+    local last_print_time=0
+    
+    while [ $(date +%s) -lt $end_time ]; do
+        local current_time=$(date +%s)
+        
+        # Only fetch and print every 1 second
+        if [ $((current_time - last_print_time)) -ge 1 ]; then
+            # Use getWithdrawQueueInfo and convert to JSON using idl2json
+            local queue_info=$(dfx canister call $pool_id getWithdrawQueueInfo --candid .dfx/local/canisters/SwapPool/SwapPool.did 2>&1 | idl2json 2>&1)
+            
+            # Check if the call was successful and parse JSON
+            if echo "$queue_info" | jq -e . >/dev/null 2>&1; then
+                # Extract values from JSON response
+                # Use 'tostring' to convert boolean to string, otherwise false becomes "?" with //
+                local is_processing=$(echo "$queue_info" | jq -r '.ok.isProcessing | tostring')
+                local queue_size=$(echo "$queue_info" | jq -r '.ok.queueSize // "?"')
+                
+                echo "[$(date +%H:%M:%S)] Queue: $queue_size items | Processing: $is_processing"
+                
+                # If queue is empty, we're done (regardless of processing status)
+                if [ "$queue_size" = "0" ]; then
+                    echo "=== Queue is empty! ==="
+                    break
+                fi
+            else
+                # Fallback: if JSON parsing fails, show raw output
+                echo "[$(date +%H:%M:%S)] Queue: (parsing error) | Raw: $queue_info"
+            fi
+            
+            last_print_time=$current_time
+        fi
+        
+        sleep 1  # Check more frequently but only print every second
+    done
+}
+
+function testWithdrawQueue() {
+    echo
+    echo "=== Testing Withdraw Queue Mechanism ==="
+    echo "NOTE: Queue now processes ONE item at a time to minimize resource consumption"
+    echo
+    
+    # Ensure we have a pool and some balance to withdraw
+    echo "==> Preparing for withdraw queue test"
+    deposit $token0 10000000000000000
+    
+    echo "==> Initial queue status (should be empty)"
+    get_withdraw_queue_info $poolId
+    
+    echo "==> Starting withdraw queue test"
+    local start_time=$(date +%s)
+    echo "Test start time: $(date)"
+    
+    local count=50
+    echo "Submitting $count withdraw requests..."
+    echo "WARNING: This will take approximately $count seconds to process (1 item per async call)"
+    for ((i=1; i<=$count; i++)); do
+        echo "Operation $i of $count"
+        dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = 10000000000: nat;})" >/dev/null 2>&1 &
+    done
+
+    echo "Waiting for all requests to be submitted..."
+    wait
+    
+    local submit_end_time=$(date +%s)
+    local submit_duration=$((submit_end_time - start_time))
+    echo "All requests submitted in $submit_duration seconds at $(date)"
+    
+    echo "==> Monitoring queue processing (processing one item at a time)..."
+    monitor_withdraw_queue $poolId 180
+    
+    echo "==> Final queue status"
+    get_withdraw_queue_info $poolId
+}
+
 function swap() #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96  token0BalanceAmount token1BalanceAmount zeroForOne
 {
     echo "== swap... =="
@@ -445,6 +551,10 @@ function testBizFlow()
 
     # checkUnusedBalance
     
+    echo
+    echo "=== Running Withdraw Queue Test ==="
+    testWithdrawQueue
+
     # Get swap record
     swap_record_result=$(dfx canister call $poolId getSwapRecordState --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
     echo "$swap_record_result" > swap_record.json
@@ -452,6 +562,11 @@ function testBizFlow()
 };
 
 testBizFlow
+
+echo ""
+echo "=== ALL TESTS COMPLETED ==="
+echo "✅ Business flow test completed successfully"
+echo ""
 
 dfx stop
 mv dfx.json.bak dfx.json

@@ -51,9 +51,9 @@ module Jobs {
             _level := #Active;
         };
         public func createJob<system>(name: Text, interval: Nat, job: () -> async ()) {
-            Debug.print("Creating job: " # name);
+            Debug.print("[INFO][Job] Creating job: name=" # name # ", interval=" # Nat.toText(interval) # "s");
             let wrapped = func() : async() {
-                Debug.print("Running job: " # name);
+                Debug.print("[INFO][Job] Running job: name=" # name);
                 await job();
                 switch (_jobs.get(name)) {
                     case (null) {  };
@@ -68,7 +68,7 @@ module Jobs {
                     };
                 };
                 if ((Time.now() - _lastActivity) > LEVEL_DOWNGRADE_THRESHOLD) {
-                    Debug.print("Downgrading level...");
+                    Debug.print("[INFO][Job] Downgrading level to Inactive due to inactivity");
                     _level := #Inactive;
                     stopJobs([]);
                 };
@@ -83,14 +83,14 @@ module Jobs {
             });
         };
         private func _stopJob(name: Text) {
-            Debug.print("Stopping job: " # name);
+            Debug.print("[INFO][Job] Stopping job: name=" # name);
             switch (_jobs.get(name)) {
                 case (null) {  };
                 case (?job) {
                     switch (job.timerId) {
                         case (null) {  };
                         case (?timerId) {
-                            Debug.print("Stopping job: " # name # " with timerId: " # Nat.toText(timerId));
+                            Debug.print("[INFO][Job] Cancelling timer: name=" # name # ", timerId=" # Nat.toText(timerId));
                             Timer.cancelTimer(timerId);
                             _jobs.put(name, {
                                 name = job.name;
@@ -116,7 +116,7 @@ module Jobs {
         public func onActivity<system>() {
             _lastActivity := Time.now();
             if (_level == #Inactive) {
-                Debug.print("Upgrading level...");
+                Debug.print("[INFO][Job] Upgrading level to Active");
                 _level := #Active;
                 restartJobs<system>([]);
             };
@@ -134,12 +134,12 @@ module Jobs {
         };
         public func restartJobs<system>(names: [Text]) {
             if (_level == #Inactive) {
-                Debug.print("Cannot restart jobs in Inactive state");
+                Debug.print("[WARN][Job] Cannot restart jobs: level=Inactive");
                 return;
             };
             
             if ((Time.now() - _lastActivity) > LEVEL_DOWNGRADE_THRESHOLD) {
-                Debug.print("Cannot restart jobs due to inactivity");
+                Debug.print("[WARN][Job] Cannot restart jobs: inactivity threshold exceeded");
                 return;
             };
 

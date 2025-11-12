@@ -320,6 +320,8 @@ function swap() #depositToken depositAmount amountIn amountOutMinimum ### liquid
     echo "token0 withdraw result: $result"
     result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
     echo "token1 withdraw result: $result"
+
+    sleep 2
     
     token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
     echo "token0 $MINTER_PRINCIPAL balance: $token0BalanceResult"
@@ -358,6 +360,8 @@ function oneStepSwap() #depositToken depositAmount amountIn amountOutMinimum ###
     echo "token0 withdraw result: $result"
     result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
     echo "token1 withdraw result: $result"
+
+    sleep 2
     
     token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
     echo "token0 $MINTER_PRINCIPAL balance: $token0BalanceResult"
@@ -375,6 +379,8 @@ function oneStepSwap() #depositToken depositAmount amountIn amountOutMinimum ###
 }
 
 function checkBalance(){
+    sleep 2
+
     token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
     echo "token0 $MINTER_PRINCIPAL balance: $token0BalanceResult"
     token1BalanceResult="$(balanceOf $token1 $MINTER_PRINCIPAL null)"
