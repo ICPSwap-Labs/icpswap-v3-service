@@ -2280,8 +2280,8 @@ shared (initMsg) actor class SwapPool(
     
     public shared (msg) func updateTokenFee() : async () {
         _checkAdminPermission(msg.caller);
-        _token0Fee := await _token0Act.fee();
-        _token1Fee := await _token1Act.fee();
+        try { _token0Fee := await _token0Act.fee(); } catch (e) { Debug.print("[WARN][updateTokenFee] Update token fee failed: error=" # Error.message(e)); };
+        try { _token1Fee := await _token1Act.fee(); } catch (e) { Debug.print("[WARN][updateTokenFee] Update token fee failed: error=" # Error.message(e)); };
     };
 
     public query (msg) func quote(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
