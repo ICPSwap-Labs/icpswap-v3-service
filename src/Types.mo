@@ -557,6 +557,7 @@ module {
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();
         #claim : () -> (Principal, Token, Nat);
+        #forceAutoClaim : () -> ();
         #getBaseBalances : () -> ();
         #getCanisterId : () -> ();
         #getConfig : () -> ();
