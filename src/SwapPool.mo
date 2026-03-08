@@ -381,8 +381,8 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    public query func getUserWithdrawQueue(user : Principal) : async Result.Result<Types.UserWithdrawQueueInfo, Types.Error> {
-        let itemsArray = List.toArray(List.filter<Types.WithdrawQueueItem>(_withdrawQueue, func(item) { Principal.equal(user, item.caller); }));
+    public query ({ caller }) func getUserWithdrawQueue() : async Result.Result<Types.UserWithdrawQueueInfo, Types.Error> {
+        let itemsArray = List.toArray(List.filter<Types.WithdrawQueueItem>(_withdrawQueue, func(item) { Principal.equal(caller, item.caller); }));
         
         var token0TotalAmount: Nat = 0;
         var token1TotalAmount: Nat = 0;

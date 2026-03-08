@@ -452,7 +452,7 @@ module {
         #getUserPositions : () -> (offset : Nat, limit : Nat);
         #getUserPositionsByPrincipal : () -> (owner : Principal);
         #getUserUnusedBalance : () -> (account : Principal);
-        #getUserWithdrawQueue : () -> (user : Principal);
+        #getUserWithdrawQueue : () -> ();
         #getVersion : () -> ();
         #getWithdrawQueueInfo : () -> ();
         #icrc10_supported_standards : () -> ();
