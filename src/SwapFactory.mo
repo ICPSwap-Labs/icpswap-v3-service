@@ -35,7 +35,6 @@ import ICRCTypes "./ICRCTypes";
 import Types "./Types";
 
 shared (initMsg) actor class SwapFactory(
-    infoCid : Principal,
     feeReceiverCid : Principal,
     passcodeManagerCid : Principal,
     trustedCanisterManagerCid : Principal,
@@ -58,7 +57,6 @@ shared (initMsg) actor class SwapFactory(
 
     private var _feeTickSpacingMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(_feeTickSpacingEntries.vals(), 10, Nat.equal, Hash.hash);
     private var _poolDataService : PoolData.Service = PoolData.Service(_poolDataState);
-    private var _infoAct = actor (Principal.toText(infoCid)) : Types.TxStorage;
     private stable var _lockState : LockState = { locked = false; time = 0};
 
     /**
@@ -110,10 +108,10 @@ shared (initMsg) actor class SwapFactory(
                     let passcode = { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; };
                     if(not _deletePasscode(msg.caller, passcode)) { return #err(#InternalError("Passcode is not existed.")); };
 
-                    let pool: Types.SwapPoolActor = await installFunc(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
+                    let pool: Types.SwapPoolActor = await installFunc(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
                     await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
                     await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), [initMsg.caller]);
-                    await _infoAct.addClient(Principal.fromActor(pool));
+                    // await _infoAct.addClient(Principal.fromActor(pool));
                     let poolData = {
                         key = poolKey;
                         token0 = token0;
@@ -215,7 +213,6 @@ shared (initMsg) actor class SwapFactory(
     };
 
     public query func getInitArgs() : async Result.Result<{    
-        infoCid : Principal;
         feeReceiverCid : Principal;
         passcodeManagerCid : Principal;
         trustedCanisterManagerCid : Principal;
@@ -224,7 +221,6 @@ shared (initMsg) actor class SwapFactory(
         positionIndexCid : Principal;
     }, Types.Error> {
         #ok({
-            infoCid = infoCid;
             feeReceiverCid = feeReceiverCid;
             passcodeManagerCid = passcodeManagerCid;
             trustedCanisterManagerCid = trustedCanisterManagerCid;
@@ -871,7 +867,7 @@ shared (initMsg) actor class SwapFactory(
                         _currentUpgradeTask := ?currentTask;
                         ignore Timer.setTimer<system>(#seconds (5), _execUpgrade);
                     } else if (not task.upgrade.isDone) {
-                        var currentTask = await UpgradeTask.stepUpgrade(task, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid, _wasmManager.getActiveWasm());
+                        var currentTask = await UpgradeTask.stepUpgrade(task, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid, _wasmManager.getActiveWasm());
                         _currentUpgradeTask := ?currentTask;
                         ignore Timer.setTimer<system>(#seconds (5), _execUpgrade);
                     } else if (not task.start.isDone) {
@@ -977,23 +973,23 @@ shared (initMsg) actor class SwapFactory(
         #External : Types.SwapPoolInstaller;
         #Local;
     };
-    private type InstallerFunc = (Types.Token, Types.Token, Principal, Principal, Principal, Principal) -> async Types.SwapPoolActor;
+    private type InstallerFunc = (Types.Token, Types.Token, Principal, Principal, Principal) -> async Types.SwapPoolActor;
     private func _getInstallFunc(subnet: ?Text) : ?InstallerFunc {
         switch (_getInstaller(subnet)) {
             case (?#External(act)) {
-                let fun = func _actInstall(token0: Types.Token, token1: Types.Token, infoCid: Principal, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal, positionIndexCid: Principal) : async Types.SwapPoolActor {
-                    let canisterId: Principal = await act.install(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
+                let fun = func _actInstall(token0: Types.Token, token1: Types.Token, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal, positionIndexCid: Principal) : async Types.SwapPoolActor {
+                    let canisterId: Principal = await act.install(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
                     return actor(Principal.toText(canisterId)) : Types.SwapPoolActor;
                 };
                 return Option.make(fun);
             };
             case (?#Local) {
-                let fun = func (token0: Types.Token, token1: Types.Token, infoCid: Principal, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal, positionIndexCid: Principal) : async Types.SwapPoolActor {
+                let fun = func (token0: Types.Token, token1: Types.Token, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal, positionIndexCid: Principal) : async Types.SwapPoolActor {
                     Cycles.add<system>(_initCycles);
                     let createCanisterResult = await IC0Utils.create_canister(null, null, _initCycles);
                     let canisterId = createCanisterResult.canister_id;
                     await IC0Utils.deposit_cycles(canisterId, _initCycles);
-                    await IC0Utils.install_code(canisterId, to_candid(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
+                    await IC0Utils.install_code(canisterId, to_candid(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
                     return actor(Principal.toText(canisterId)) : Types.SwapPoolActor;
                 };
                 return Option.make(fun);

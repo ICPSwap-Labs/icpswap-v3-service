@@ -58,21 +58,6 @@ cat > dfx.json <<- EOF
       "wasm": "./test/icrc2/icrc2.wasm",
       "type": "custom",
       "candid": "./test/icrc2/icrc2.did"
-    },
-    "base_index": {
-      "wasm": "./test/base_index/base_index.wasm",
-      "type": "custom",
-      "candid": "./test/base_index/base_index.did"
-    },
-    "node_index": {
-      "wasm": "./test/node_index/node_index.wasm",
-      "type": "custom",
-      "candid": "./test/node_index/node_index.did"
-    },
-    "price": {
-      "wasm": "./test/price/price.wasm",
-      "type": "custom",
-      "candid": "./test/price/price.did"
     }
   },
   "defaults": { "build": { "packtool": "vessel sources" } }, "networks": { "local": { "bind": "127.0.0.1:8000", "type": "ephemeral" } }, "version": 1
@@ -107,16 +92,10 @@ echo "==> install TrustedCanisterManager"
 dfx canister install TrustedCanisterManager --argument="(null)"
 echo "==> install Test"
 dfx canister install Test
-echo "==> install price"
-dfx deploy price
-echo "==> install base_index"
-dfx deploy base_index --argument="(principal \"$(dfx canister id price)\", principal \"$(dfx canister id node_index)\")"
-echo "==> install node_index"
-dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx canister id price)\")"
 echo "==> install SwapDataBackup"
 dfx canister install SwapDataBackup --argument="(principal \"$(dfx canister id SwapFactory)\", null)"
 echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", opt principal \"$MINTER_PRINCIPAL\", principal \"$(dfx canister id PositionIndex)\")"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", opt principal \"$MINTER_PRINCIPAL\", principal \"$(dfx canister id PositionIndex)\")"
 echo "==> install PositionIndex"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
@@ -124,12 +103,10 @@ dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id 
 tokenAId=`dfx canister id TOKENA`
 tokenBId=`dfx canister id TOKENB`
 testId=`dfx canister id Test`
-infoId=`dfx canister id base_index`
 swapFactoryId=`dfx canister id SwapFactory`
 positionIndexId=`dfx canister id PositionIndex`
 swapFeeReceiverId=`dfx canister id SwapFeeReceiver`
 zeroForOne="true"
-echo "==> infoId (\"$infoId\")"
 echo "==> positionIndexId (\"$positionIndexId\")"
 echo "==> swapFeeReceiverId (\"$swapFeeReceiverId\")"
 
@@ -167,8 +144,6 @@ testAccount=`dfx canister call Test getAccount "(principal \"$testId\")" | sed '
 echo "testAccount: $testAccount"
 currentAccount=`dfx canister call Test getAccount "(principal \"$MINTER_PRINCIPAL\")" | sed 's/[()]//g' | sed 's/"//g'`
 echo "currentAccount: $currentAccount"
-
-dfx canister call base_index addClient "(principal \"$swapFactoryId\")"
 
 if [[ "$tokenAId" < "$tokenBId" ]]; then
     token0="$tokenAId"
