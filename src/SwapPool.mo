@@ -1255,9 +1255,14 @@ shared (initMsg) actor class SwapPool(
         swapFee0Lp : Nat;
         swapFee1Lp : Nat;
     } {
+        let feeGrowthDelta0 = if (positionInfo.feeGrowthInside0LastX128 >= userPositionInfo.feeGrowthInside0LastX128) {
+            SafeUint.Uint256(positionInfo.feeGrowthInside0LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside0LastX128))
+        } else {
+            SafeUint.Uint256(0)
+        };
         var swapFee0Total = SafeUint.Uint128(
             FullMath.mulDiv(
-                SafeUint.Uint256(positionInfo.feeGrowthInside0LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside0LastX128)),
+                feeGrowthDelta0,
                 SafeUint.Uint256(userPositionInfo.liquidity),
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
@@ -1267,9 +1272,14 @@ shared (initMsg) actor class SwapPool(
         var swapFee0Lp = if (swapFee0Total > swapFee0Repurchase) {
             SafeUint.Uint128(swapFee0Total).sub(SafeUint.Uint128(swapFee0Repurchase)).val();
         } else { swapFee0Repurchase := 0; swapFee0Total };
+        let feeGrowthDelta1 = if (positionInfo.feeGrowthInside1LastX128 >= userPositionInfo.feeGrowthInside1LastX128) {
+            SafeUint.Uint256(positionInfo.feeGrowthInside1LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside1LastX128))
+        } else {
+            SafeUint.Uint256(0)
+        };
         var swapFee1Total = SafeUint.Uint128(
             FullMath.mulDiv(
-                SafeUint.Uint256(positionInfo.feeGrowthInside1LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside1LastX128)),
+                feeGrowthDelta1,
                 SafeUint.Uint256(userPositionInfo.liquidity),
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
