@@ -57,7 +57,6 @@ import ICRCTypes "./ICRCTypes";
 shared (initMsg) actor class SwapPool(
     token0 : Types.Token,
     token1 : Types.Token,
-    infoCid : Principal,
     feeReceiverCid : Principal,
     trustedCanisterManagerCid : Principal,
     positionIndexCid : Principal
@@ -88,7 +87,12 @@ shared (initMsg) actor class SwapPool(
 
     private stable var _canisterId : ?Principal = null;
 
-    private stable var _admins : [Principal] = [];
+    private stable var _admins : [Principal] = [
+        // admin principal
+        Principal.fromText("hw447-5yiq7-3pttp-lzs2z-avadx-v7ip6-i4sob-q77eu-x6ra5-nuuk7-7qe"),
+        // info sync principal
+        Principal.fromText("3c2zg-cvcgp-luz2w-ju52z-yvpuw-rxzdb-ibih4-ppsli-6qj7a-wg5ch-oae"),
+    ];
     private stable var _available : Bool = true;
     private stable var _whiteList : [Principal] = [];
     /// pool invariant metadatas.
@@ -133,7 +137,7 @@ shared (initMsg) actor class SwapPool(
 
     private var _positionTickService : PositionTick.Service = PositionTick.Service(_userPositionsEntries, _positionsEntries, _tickBitmapsEntries, _ticksEntries, _userPositionIdsEntries, _allowancedUserPositionEntries);
     private var _tokenHolderService : TokenHolder.Service = TokenHolder.Service(_tokenHolderState);
-    private var _swapRecordService : SwapRecord.Service = SwapRecord.Service(_recordState, Principal.toText(infoCid));
+    private var _swapRecordService : SwapRecord.Service = SwapRecord.Service(_recordState);
     private var _tokenAmountService : TokenAmount.Service = TokenAmount.Service(_tokenAmountState);
 
     private stable var _txsEntries : [(Nat, Tx.Transaction)] = [];
@@ -1256,9 +1260,14 @@ shared (initMsg) actor class SwapPool(
         swapFee0Lp : Nat;
         swapFee1Lp : Nat;
     } {
+        let feeGrowthDelta0 = if (positionInfo.feeGrowthInside0LastX128 >= userPositionInfo.feeGrowthInside0LastX128) {
+            SafeUint.Uint256(positionInfo.feeGrowthInside0LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside0LastX128))
+        } else {
+            SafeUint.Uint256(0)
+        };
         var swapFee0Total = SafeUint.Uint128(
             FullMath.mulDiv(
-                SafeUint.Uint256(positionInfo.feeGrowthInside0LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside0LastX128)),
+                feeGrowthDelta0,
                 SafeUint.Uint256(userPositionInfo.liquidity),
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
@@ -1268,9 +1277,14 @@ shared (initMsg) actor class SwapPool(
         var swapFee0Lp = if (swapFee0Total > swapFee0Repurchase) {
             SafeUint.Uint128(swapFee0Total).sub(SafeUint.Uint128(swapFee0Repurchase)).val();
         } else { swapFee0Repurchase := 0; swapFee0Total };
+        let feeGrowthDelta1 = if (positionInfo.feeGrowthInside1LastX128 >= userPositionInfo.feeGrowthInside1LastX128) {
+            SafeUint.Uint256(positionInfo.feeGrowthInside1LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside1LastX128))
+        } else {
+            SafeUint.Uint256(0)
+        };
         var swapFee1Total = SafeUint.Uint128(
             FullMath.mulDiv(
-                SafeUint.Uint256(positionInfo.feeGrowthInside1LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside1LastX128)),
+                feeGrowthDelta1,
                 SafeUint.Uint256(userPositionInfo.liquidity),
                 SafeUint.Uint256(FixedPoint128.Q128),
             )
@@ -2437,9 +2451,7 @@ shared (initMsg) actor class SwapPool(
                 )
             ) {
                 case (#ok(result)) { result };
-                case (#err(_)) {
-                    throw Error.reject("refresh income failed");
-                };
+                case (#err(_)) { throw Error.reject("Refresh income failed"); };
             };
             let positionKey = "" # Int.toText(userPositionInfo.tickLower) # "_" # Int.toText(userPositionInfo.tickUpper) # "";
             var positionInfo = _positionTickService.getPosition(positionKey);
@@ -2654,25 +2666,32 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query func getSwapRecordState() : async Result.Result<{
-        infoCid : Text;
         records : [Types.SwapRecordInfo];
         retryCount : Nat;
         errors : [Types.PushError];
     }, Types.Error> {
         var swapRecordState = _swapRecordService.getState();
         return #ok({
-            infoCid = Principal.toText(infoCid);
             records = swapRecordState.records;
             retryCount = swapRecordState.retryCount;
             errors = swapRecordState.errors;
         });
     };
 
+    public query (msg) func getPendingSyncData(limit : ?Nat) : async [Types.SwapRecordInfo] {
+        _checkAdminPermission(msg.caller);
+        _swapRecordService.getPendingSyncData(limit);
+    };
+
+    public shared({caller}) func deleteSyncedData(ids : [Nat]) : async () {
+        _checkAdminPermission(caller);
+        _swapRecordService.deleteSyncedData(ids);
+    };
+
     public query func getInitArgs() : async Result.Result<Types.PoolInitArgs, Types.Error> {
         return #ok({
             token0 = token0;
             token1 = token1;
-            infoCid = infoCid;
             feeReceiverCid = feeReceiverCid;
             trustedCanisterManagerCid = trustedCanisterManagerCid;
             positionIndexCid = positionIndexCid;
@@ -2802,6 +2821,7 @@ shared (initMsg) actor class SwapPool(
             case (#setAdmins _)              { Prim.isController(caller) };
             case (#upgradeTokenStandard _)   { Prim.isController(caller) };
             // Admin
+            case (#deleteSyncedData _)       { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#depositAllAndMint _)      { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setAvailable _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setWhiteList _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
@@ -2811,7 +2831,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.6.3";
+    private var _version : Text = "3.6.4";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
@@ -2923,9 +2943,6 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
-    // sync records
-    private func _syncRecordsJob() : async () { await _swapRecordService.syncRecord(); };
-
     // sync token fee
     private func _syncTokenFeeJob() : async () { _token0Fee := await _token0Act.fee(); _token1Fee := await _token1Act.fee(); };
     
@@ -2945,7 +2962,6 @@ shared (initMsg) actor class SwapPool(
         _checkAdminPermission(caller);
         _jobService.active();
     };
-    _jobService.createJob<system>("SyncTrxsJob", 60, _syncRecordsJob);
     _jobService.createJob<system>("SyncTokenFeeJob", 3600, _syncTokenFeeJob);
     _jobService.createJob<system>("WithdrawFeeJob", 3600 * 24 * 7, _claimSwapFeeRepurchaseJob);
     _jobService.createJob<system>("ClearExpiredTransferLogJob", 3600 * 24, _clearExpiredFailedTransactionJob);

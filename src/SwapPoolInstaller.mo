@@ -39,7 +39,6 @@ actor class SwapPoolInstaller(
     public shared ({ caller }) func install(
         token0: Types.Token, 
         token1: Types.Token, 
-        infoCid: Principal, 
         feeReceiverCid: Principal, 
         trustedCanisterManagerCid: Principal,
         positionIndexCid: Principal
@@ -49,7 +48,7 @@ actor class SwapPoolInstaller(
         let canisterId = createCanisterResult.canister_id;
         await IC0Utils.deposit_cycles(canisterId, _initTopUpCycles);
         // let _ = await (system SwapPool.SwapPool)(#install canisterId)(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
-        await IC0Utils.install_code(canisterId, to_candid(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
+        await IC0Utils.install_code(canisterId, to_candid(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
         await IC0Utils.update_settings_add_controller(canisterId, [factoryId, governanceId]);
         return canisterId;
     };
