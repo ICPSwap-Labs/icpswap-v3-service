@@ -94,10 +94,10 @@ module TokenHolder {
             let (_amount0, _amount1) = if (Func.tokenEqual(_token0, token0)) { (amount0, amount1) } else { (amount1, amount0 ) };
             switch(_balances.get(principal)) {
                 case (?ab) {
-                    _balances.put(principal, { balance0 = ab.balance0 + amount0; balance1 = ab.balance1 + amount1; }: AccountBalance);
+                    _balances.put(principal, { balance0 = ab.balance0 + _amount0; balance1 = ab.balance1 + _amount1; }: AccountBalance);
                 };
                 case (_) {
-                    _balances.put(principal, { balance0 = amount0; balance1 = amount1; }: AccountBalance);
+                    _balances.put(principal, { balance0 = _amount0; balance1 = _amount1; }: AccountBalance);
                 };
             };
             return true;

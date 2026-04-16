@@ -2193,17 +2193,78 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
+    private func _adminRefundAggregateFor(relatedIndex : Nat) : { #done; #inProgress; #none } {
+        var done = false;
+        var inProgress = false;
+        for ((_, tx) in _txState.getTransactions().vals()) {
+            switch (tx.action) {
+                case (#Refund(r)) {
+                    if (r.relatedIndex == relatedIndex) {
+                        switch (r.status) {
+                            case (#Completed) { done := true };
+                            case (#Created) { inProgress := true };
+                            case (#CreditCompleted) { inProgress := true };
+                            case (#Failed) {};
+                        };
+                    };
+                };
+                case (_) {};
+            };
+        };
+        if (done) { #done } else if (inProgress) { #inProgress } else { #none };
+    };
+
+    private func _adminSkipRedundantSetFailed(tx : Tx.Transaction) : Bool {
+        switch (tx.action) {
+            case (#Deposit(i)) { i.status == #Completed or i.status == #Failed };
+            case (#Withdraw(i)) { i.status == #Completed or i.status == #Failed };
+            case (#Refund(i)) { i.status == #Completed or i.status == #Failed };
+            case (#AddLiquidity(i)) { i.status == #Completed or i.status == #Failed };
+            case (#DecreaseLiquidity(i)) { i.status == #Completed or i.status == #Failed };
+            case (#Claim(i)) { i.status == #Completed or i.status == #Failed };
+            case (#Swap(i)) { i.status == #Completed or i.status == #Failed };
+            case (#OneStepSwap(i)) { i.status == #Completed or i.status == #Failed };
+            case (#TransferPosition(i)) { i.status == #Completed or i.status == #Failed };
+            case (#AddLimitOrder(i)) { i.status == #Completed or i.status == #Failed };
+            case (#ExecuteLimitOrder(i)) { i.status == #Completed or i.status == #Failed };
+            case (#RemoveLimitOrder(i)) { i.status == #Completed or i.status == #Failed };
+        };
+    };
+
     public shared (msg) func deleteFailedTransaction(txId: Nat, refund : Bool) : async Result.Result<Bool, Types.Error> {
         _assertAccessible(msg.caller);
         _checkAdminPermission(msg.caller);
         switch (_txState.getTransaction(txId)) { 
             case (?transaction) {
                 if(not refund) {
+                    if (_adminSkipRedundantSetFailed(transaction)) { return #ok(true); };
                     switch (_txState.getTransaction(txId)) {
                         case (null) { Debug.print("[WARN][deleteFailedTransaction] Transaction not found: txId=" # Nat.toText(txId)); };
                         case (?_tx) { try { _pushSwapInfoCache(_txState.setFailed(txId, "Manually set as an exception")); } catch (e) { Debug.print("[WARN][deleteFailedTransaction] Push swap info cache failed: txId=" # Nat.toText(txId) # ", error=" # Error.message(e)); }; };
                     };
                     return #ok(true);
+                };
+                switch (transaction.action) {
+                    case (#Refund(r)) {
+                        switch (r.status) {
+                            case (#Completed) { return #ok(true) };
+                            case (#Created) { return #err(#InternalError("Refund transaction still in progress")) };
+                            case (#CreditCompleted) { return #err(#InternalError("Refund transaction still in progress")) };
+                            case (#Failed) {};
+                        };
+                    };
+                    case (_) {};
+                };
+                switch (transaction.action) {
+                    case (#Deposit(i)) { if (i.status == #Completed) { return #err(#InternalError("Deposit already completed; refusing refund")); }; };
+                    case (#Withdraw(i)) { if (i.status == #Completed) { return #err(#InternalError("Withdraw already completed; refusing refund")); }; };
+                    case (#OneStepSwap(i)) { if (i.status == #Completed) { return #err(#InternalError("One-step swap already completed; refusing refund")); }; };
+                    case (_) {};
+                };
+                switch (_adminRefundAggregateFor(txId)) {
+                    case (#done) { return #ok(true) };
+                    case (#inProgress) { return #err(#InternalError("A refund for this transaction is already in progress")) };
+                    case (#none) {};
                 };
                 switch (transaction.action) {
                     case (#Deposit(info)) {

@@ -106,7 +106,7 @@ shared (initMsg) actor class SwapFactory(
             case (_) {
                 try {
                     let passcode = { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; };
-                    if(not _deletePasscode(msg.caller, passcode)) { return #err(#InternalError("Passcode is not existed.")); };
+                    if(not _deletePasscode(msg.caller, passcode)) { _unlock(); return #err(#InternalError("Passcode is not existed.")); };
 
                     let pool: Types.SwapPoolActor = await installFunc(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
                     await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
@@ -148,6 +148,7 @@ shared (initMsg) actor class SwapFactory(
                         status = "failed";
                         err = ?Error.message(e);
                     });
+                    _unlock();
                     return #err(#InternalError("Create pool failed: " # Error.message(e)));
                 };
             };
