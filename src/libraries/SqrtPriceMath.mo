@@ -81,9 +81,9 @@ module SqrtPriceMath {
             } else {
                 SafeUint.Uint256(FullMath.mulDiv(amount, SafeUint.Uint256(FixedPoint96.Q96), SafeUint.Uint256(liquidity.val())))
             };
-            return #ok(SafeUint.Uint160(
-                SafeUint.Uint256(sqrtPX96.val()).add(quotient).val()
-            ).val());
+            let sum = sqrtPX96.val() + quotient.val();
+            if (sum > SafeUint.UINT_160_MAX) { return #err("SqrtPriceMath sqrtPX96 + quotient overflows Uint160"); };
+            return #ok(SafeUint.Uint160(sum).val());
         } else {
             var quotient:SafeUint.Uint256 = switch (FullMath.mulDivRoundingUp(amount, SafeUint.Uint256(FixedPoint96.Q96), SafeUint.Uint256(liquidity.val()))) {
                 case (#ok(result)) { SafeUint.Uint256(result); };

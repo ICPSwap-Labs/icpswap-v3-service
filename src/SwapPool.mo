@@ -71,8 +71,9 @@ shared (initMsg) actor class SwapPool(
         assert(not _inited);
         assert(_isAvailable(caller));
         _checkControllerPermission(caller);
+        assert(fee < SwapMath.Nat1e6);
 
-        _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) { 
+        _tick := switch (TickMath.getTickAtSqrtRatio(SafeUint.Uint160(sqrtPriceX96))) {
             case (#ok(r)) { r }; 
             case (#err(code)) { throw Error.reject("Pool initialization failed: " # code); }; 
         };
@@ -554,7 +555,11 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
-    private func _decreaseLiquidity(owner : Principal, loArgs : Types.DecreaseLimitOrderArgs, args : Types.DecreaseLiquidityArgs) : Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {        
+    // Tracking-only subtraction for _tokenAmountService: clamp to 0 if b > a.
+    // These fields are accounting/telemetry and must not interrupt the main business flow.
+    private func _natSubClamp(a : Nat, b : Nat) : Nat = if (b > a) { 0 } else { a - b };
+
+    private func _decreaseLiquidity(owner : Principal, loArgs : Types.DecreaseLimitOrderArgs, args : Types.DecreaseLiquidityArgs) : Result.Result<{ amount0 : Nat; amount1 : Nat }, Types.Error> {
         var userPositionInfo = _positionTickService.getUserPosition(args.positionId);
         var liquidityDelta = TextUtils.toNat(args.liquidity);
         if (Nat.equal(liquidityDelta, 0)) { return #err(#InternalError("Illegal liquidity delta")); };
@@ -572,8 +577,8 @@ shared (initMsg) actor class SwapPool(
         if (liquidityDelta == userPositionInfo.liquidity) {
             _positionTickService.deletePositionForUser(PrincipalUtils.toAddress(owner), args.positionId);
         };
-        _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
-        _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
+        _tokenAmountService.setTokenAmount0(_natSubClamp(_tokenAmountService.getTokenAmount0(), collectResult.amount0));
+        _tokenAmountService.setTokenAmount1(_natSubClamp(_tokenAmountService.getTokenAmount1(), collectResult.amount1));
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
             ignore _tokenHolderService.deposit2(owner, _token0, collectResult.amount0, _token1, collectResult.amount1);
         };
@@ -1211,12 +1216,12 @@ shared (initMsg) actor class SwapPool(
         if (args.zeroForOne and swapResult.amount1 < 0) {
             swapAmount := IntUtils.toNat(-(swapResult.amount1), 256);
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(IntUtils.toNat(swapResult.amount0, 256))).val());
-            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(swapAmount)).val());
+            _tokenAmountService.setTokenAmount1(_natSubClamp(_tokenAmountService.getTokenAmount1(), swapAmount));
             ignore _tokenHolderService.swap(caller, _token0, IntUtils.toNat(swapResult.amount0, 256), _token1, swapAmount);
         };
         if ((not args.zeroForOne) and swapResult.amount0 < 0) {
             swapAmount := IntUtils.toNat(-(swapResult.amount0), 256);
-            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(swapAmount)).val());
+            _tokenAmountService.setTokenAmount0(_natSubClamp(_tokenAmountService.getTokenAmount0(), swapAmount));
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(IntUtils.toNat(swapResult.amount1, 256))).val());
             ignore _tokenHolderService.swap(caller, _token1, IntUtils.toNat(swapResult.amount1, 256), _token0, swapAmount);
         };
@@ -2049,8 +2054,8 @@ shared (initMsg) actor class SwapPool(
                 case (#ok(result)) { result };
                 case (#err(code)) { throw Error.reject("claim " # debug_show (code)); };
             };
-            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(collectResult.amount0)).val());
-            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(collectResult.amount1)).val());
+            _tokenAmountService.setTokenAmount0(_natSubClamp(_tokenAmountService.getTokenAmount0(), collectResult.amount0));
+            _tokenAmountService.setTokenAmount1(_natSubClamp(_tokenAmountService.getTokenAmount1(), collectResult.amount1));
             if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
                 ignore _tokenHolderService.deposit2(caller, _token0, collectResult.amount0, _token1, collectResult.amount1);
             };
@@ -2862,7 +2867,7 @@ shared (initMsg) actor class SwapPool(
         };
     };
     private func _isAvailable(caller: Principal) : Bool {
-        if (_available and _txState.getTransactions().size() < 2000) { return true; };
+        if (_available) { return true; };
         if (CollectionUtils.arrayContains<Principal>(_whiteList, caller, Principal.equal)) { return true; };
         if (CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal)) { return true; };
         if (Prim.isController(caller)) { return true; };
@@ -2982,8 +2987,8 @@ shared (initMsg) actor class SwapPool(
         if (balance0 > 0 or balance1 > 0) {
             _claimLogBuffer.add("{\"amount0\": \"" # debug_show(balance0) # "\", \"amount1\": \"" # debug_show(balance1) # "\", \"timestamp\": \"" # debug_show(BlockTimestamp.blockTimestamp()) # "\"}");
             ignore _tokenHolderService.deposit2(feeReceiverCid, _token0, balance0, _token1, balance1);
-            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).sub(SafeUint.Uint256(balance0)).val());
-            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).sub(SafeUint.Uint256(balance1)).val());
+            _tokenAmountService.setTokenAmount0(_natSubClamp(_tokenAmountService.getTokenAmount0(), balance0));
+            _tokenAmountService.setTokenAmount1(_natSubClamp(_tokenAmountService.getTokenAmount1(), balance1));
             _tokenAmountService.setSwapFee0Repurchase(0);
             _tokenAmountService.setSwapFee1Repurchase(0);
         };
@@ -2999,7 +3004,7 @@ shared (initMsg) actor class SwapPool(
                     case (null) { Debug.print("[WARN][cleanupExpiredTransactions] Transaction not found: index=" # Nat.toText(index)); };
                     case (?_tx) { try { _pushSwapInfoCache(_txState.setFailed(index, "Manually set as expired")); } catch (e) { Debug.print("[WARN][_clearExpiredFailedTransactionJob] Push swap info cache failed: index=" # Nat.toText(index) # ", error=" # Error.message(e)); }; };
                 };
-                // _txState.delete(index);
+                _txState.delete(index);
             };
         };
     };
@@ -3060,6 +3065,7 @@ shared (initMsg) actor class SwapPool(
         _txsEntries := [];
         _txIndex := 0;
         ignore Timer.setTimer<system>(#nanoseconds (0), _syncTokenFeeJob);
+        if (not List.isNil(_withdrawQueue)) { _tryStartProcessing<system>(); };
     };
     
     system func inspect({

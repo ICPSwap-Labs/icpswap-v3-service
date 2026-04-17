@@ -566,6 +566,9 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func batchAddPoolControllers(poolCids : [Principal], controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
+        for (controller in controllers.vals()) {
+            if (Principal.isAnonymous(controller)) { throw Error.reject("Anonymous principals cannot be pool controllers"); };
+        };
         for (poolCid in poolCids.vals()) {
             await _addCanisterControllers(poolCid, controllers);
         };
@@ -583,6 +586,9 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func batchAddInstallerControllers(controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
+        for (controller in controllers.vals()) {
+            if (Principal.isAnonymous(controller)) { throw Error.reject("Anonymous principals cannot be installer controllers"); };
+        };
         for (poolInstaller in _poolInstallers.vals()) {
             await _addCanisterControllers(poolInstaller.canisterId, controllers);
         };
