@@ -130,8 +130,13 @@ module {
             amountOut := SafeUint.Uint256(IntUtils.toNat(amountRemaining.neg().val(), 256));
         };
 
+        // cap the input amount to not exceed the remaining input amount (rounding guard)
         if (exactIn and sqrtRatioNextX96.val() != sqrtRatioTargetX96.val()) {
-            feeAmount := SafeUint.Uint256(IntUtils.toNat(amountRemaining.val(), 256)).sub(amountIn);
+            let amountRemainingNat = IntUtils.toNat(amountRemaining.val(), 256);
+            if (amountIn.val() > amountRemainingNat) {
+                amountIn := SafeUint.Uint256(amountRemainingNat);
+            };
+            feeAmount := SafeUint.Uint256(amountRemainingNat).sub(amountIn);
         } else {
             feeAmount := switch (FullMath.mulDivRoundingUp(amountIn, SafeUint.Uint256(feePips.val()), SafeUint.Uint256(Nat1e6).sub(SafeUint.Uint256(feePips.val())))) {
                 case (#ok(result)) { SafeUint.Uint256(result); };
