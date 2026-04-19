@@ -605,7 +605,7 @@ module {
         depositFrom : shared (DepositArgs) -> async Result.Result<Nat, Error>;
         swap : shared (SwapArgs) -> async Result.Result<Nat, Error>;
         getLimitOrderAvailabilityState : query () -> async Result.Result<Bool, Error>;
-        getLimitOrderStack : query () -> async Result.Result<[(LimitOrderKey, LimitOrderValue)], Error>;
+        getLimitOrderStack : query () -> async Result.Result<[(LimitOrderType, LimitOrderKey, LimitOrderValue)], Error>;
         getLimitOrders : query () -> async Result.Result<{ lowerLimitOrders : [(LimitOrderKey, LimitOrderValue)]; upperLimitOrders : [(LimitOrderKey, LimitOrderValue)]; },Error>;
         getPositions : query (Nat, Nat) -> async Result.Result<Page<PositionInfoWithId>, Error>;
         getSwapRecordState : query () -> async Result.Result<{ records : [SwapRecordInfo]; retryCount : Nat; errors : [PushError]; }, Error>;
@@ -619,6 +619,7 @@ module {
         getTickBitmaps : query () -> async Result.Result<[(Int, Nat)], Error>;
         getFeeGrowthGlobal : query () -> async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Error>;
         getInitArgs : query () -> async Result.Result<PoolInitArgs, Error>;
+        getWithdrawQueueInfo : query () -> async Result.Result<{ isProcessing: Bool; queueSize: Nat; items: [WithdrawQueueItem]; }, Error>;
         setIcrc28TrustedOrigins : shared ([Text]) -> async Result.Result<Bool, ()>;
         recoverUserPositions : shared ([UserPositionInfoWithId]) -> async ();
         recoverPositions : shared ([PositionInfoWithId]) -> async ();

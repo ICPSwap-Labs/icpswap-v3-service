@@ -34,7 +34,8 @@ shared (initMsg) actor class SwapDataBackup(
         userPositionIds : [(Text, [Nat])];
         feeGrowthGlobal : { feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; };
         limitOrders : { lowerLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)]; upperLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)]; };
-        limitOrderStack : [(Types.LimitOrderKey, Types.LimitOrderValue)];
+        limitOrderStack : [(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)];
+        withdrawQueue : [Types.WithdrawQueueItem];
     };
 
     private stable var _poolBackupEntries : [(Principal, PoolBackupData)] = [];
@@ -146,6 +147,10 @@ shared (initMsg) actor class SwapDataBackup(
             case (#ok(data)) { data };
             case (#err(code)) { return #err(_setBackupError(poolCid, "Get limit order stack failed: " # debug_show(code))); };
         };
+        let withdrawQueue = switch (await poolAct.getWithdrawQueueInfo()) {
+            case (#ok(data)) { data.items };
+            case (#err(code)) { return #err(_setBackupError(poolCid, "Get withdraw queue failed: " # debug_show(code))); };
+        };
         _poolBackupMap.put(poolCid, {
             isDone = true;
             isFailed = false;
@@ -162,6 +167,7 @@ shared (initMsg) actor class SwapDataBackup(
             feeGrowthGlobal = feeGrowthGlobal;
             limitOrders = limitOrders;
             limitOrderStack = limitOrderStack;
+            withdrawQueue = withdrawQueue;
         });
         return #ok();
     };
@@ -248,7 +254,6 @@ shared (initMsg) actor class SwapDataBackup(
             initArgs = {
                 token0 = { address = ""; standard = "" };
                 token1 = { address = ""; standard = "" };
-                infoCid = Principal.fromActor(this);
                 feeReceiverCid = Principal.fromActor(this);
                 trustedCanisterManagerCid = Principal.fromActor(this);
                 positionIndexCid = Principal.fromActor(this);
@@ -283,6 +288,7 @@ shared (initMsg) actor class SwapDataBackup(
             };
             limitOrders = { lowerLimitOrders = []; upperLimitOrders = []; };
             limitOrderStack = [];
+            withdrawQueue = [];
         };
         _poolBackupMap.put(poolCid, errorData);
         #InternalError(errorMsg);
