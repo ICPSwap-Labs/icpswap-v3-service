@@ -96,7 +96,7 @@ actor class SwapPoolInstaller(
     // --------------------------- WasmManager Functions -------------------------------
     public shared (msg) func uploadWasmChunk(chunk : [Nat8]) : async Nat {
         _checkAdminPermission(msg.caller);
-        _wasmManager.uploadChunk(chunk);
+        _wasmManager.uploadChunk(msg.caller, chunk);
     };
 
     public shared (msg) func combineWasmChunks() : async () {
