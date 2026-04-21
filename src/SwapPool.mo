@@ -3172,6 +3172,7 @@ shared (initMsg) actor class SwapPool(
         ignore Timer.setTimer<system>(#nanoseconds (0), _syncTokenFeeJob);
         if (not List.isNil(_withdrawQueue)) { _tryStartProcessing<system>(); };
         if (Option.isSome(_pendingExecution) or not List.isNil(_limitOrderStack)) { ignore Timer.setTimer<system>(#nanoseconds(0), _autoDecrease); };
+        _jobService.active();
     };
     
     system func inspect({
