@@ -2291,9 +2291,9 @@ shared (initMsg) actor class SwapPool(
                 if (ListUtils.arrayContains(positionArray, positionId, Nat.equal)) {
                     let txIndex = _txState.startTransferPosition(msg.caller, _getCanisterId(), positionId, { owner = from; subaccount = null }, { owner = to; subaccount = null });
 
+                    _positionTickService.deleteAllowancedUserPosition(positionId);
                     _positionTickService.removeUserPositionId(owner, positionId);
                     _positionTickService.putUserPositionId(PrincipalUtils.toAddress(to), positionId);
-                    _positionTickService.deleteAllowancedUserPosition(positionId);
 
                     switch (_txState.getTransaction(txIndex)) {
                         case (null) { Debug.print("[WARN][transferPosition] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
