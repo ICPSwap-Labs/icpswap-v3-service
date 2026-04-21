@@ -315,6 +315,7 @@ shared (initMsg) actor class SwapPool(
     
     private stable var _withdrawQueue = List.nil<Types.WithdrawQueueItem>();
     private var _isProcessingWithdrawQueue : Bool = false;
+    private var _withdrawQueueGeneration : Nat = 0;
     
     private func _enqueueWithdraw<system>(txIndex: Nat, token: Types.Token, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : () {
         _withdrawQueue := List.append(_withdrawQueue, List.make({
@@ -331,6 +332,7 @@ shared (initMsg) actor class SwapPool(
     };
     
     private func _processWithdrawQueue() : async () {
+        let myGeneration = _withdrawQueueGeneration;
         switch (List.pop(_withdrawQueue)) {
             case (null, _) { _isProcessingWithdrawQueue := false; return; };
             case (?item, rest) {
@@ -349,7 +351,7 @@ shared (initMsg) actor class SwapPool(
                             case (#OneStepSwap(info)) { info.status == #SwapCompleted or info.status == #WithdrawCreditCompleted };
                             case (_) { false };
                         };
-                        
+
                         if (not shouldProcess) {
                             _withdrawQueue := rest;
                             if (not List.isNil(rest)) { ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processWithdrawQueue); } else { _isProcessingWithdrawQueue := false; };
@@ -357,14 +359,17 @@ shared (initMsg) actor class SwapPool(
                             // Normal processing
                             _withdrawQueue := rest;
                             let tokenAct = if (item.token.address == _token0.address) { _token0Act } else { _token1Act };
-                            
+
                             try {
                                 ignore await _withdraw(item.txIndex, item.token, tokenAct, item.caller, item.from, item.to, item.amount, item.fee, item.memo);
                             } catch (e) {
                                 // Log error but continue processing queue
                                 Debug.print("[ERROR][_processWithdrawQueue] Withdraw failed: txIndex=" # Nat.toText(item.txIndex) # ", error=" # Error.message(e));
                             };
-                            
+
+                            // Superseded by force restart — stop this processor
+                            if (myGeneration != _withdrawQueueGeneration) { return; };
+
                             if (not List.isNil(_withdrawQueue)) { ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processWithdrawQueue); }
                             else { _isProcessingWithdrawQueue := false; };
                         };
@@ -474,7 +479,10 @@ shared (initMsg) actor class SwapPool(
         if (List.isNil(_withdrawQueue)) { return #ok("Queue is empty, no need to restart"); };
         if (not force and _isProcessingWithdrawQueue) { return #ok("Processing is already active. Use force=true to force restart"); };
         
-        if (force) { _isProcessingWithdrawQueue := false; };
+        if (force) {
+            _withdrawQueueGeneration += 1;
+            _isProcessingWithdrawQueue := false;
+        };
         _tryStartProcessing<system>();
         
         if (force) { return #ok("Processing force restarted"); }
@@ -709,9 +717,11 @@ shared (initMsg) actor class SwapPool(
         let positionKey = "" # Int.toText(userPositionInfo.tickLower) # "_" # Int.toText(userPositionInfo.tickUpper) # "";
         var positionInfo = _positionTickService.getPosition(positionKey);
         var amount0Collect = if (userPositionInfo.tokensOwed0 > positionInfo.tokensOwed0) {
+            Debug.print("[WARN][_collect] tokensOwed0 invariant violated: user=" # Nat.toText(userPositionInfo.tokensOwed0) # " > position=" # Nat.toText(positionInfo.tokensOwed0) # ", positionId=" # Nat.toText(positionId));
             positionInfo.tokensOwed0;
         } else { userPositionInfo.tokensOwed0 };
         var amount1Collect = if (userPositionInfo.tokensOwed1 > positionInfo.tokensOwed1) {
+            Debug.print("[WARN][_collect] tokensOwed1 invariant violated: user=" # Nat.toText(userPositionInfo.tokensOwed1) # " > position=" # Nat.toText(positionInfo.tokensOwed1) # ", positionId=" # Nat.toText(positionId));
             positionInfo.tokensOwed1;
         } else { userPositionInfo.tokensOwed1 };
         _positionTickService.putPosition(
