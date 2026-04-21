@@ -162,6 +162,9 @@ shared (initMsg) actor class SwapPool(
             // Clear both RB trees
             _lowerLimitOrders := RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
             _upperLimitOrders := RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
+            // Clear pending execution state
+            _pendingExecution := null;
+            _pendingRetryCount := 0;
         };
         _isLimitOrderAvailable := available;
     };
@@ -171,6 +174,15 @@ shared (initMsg) actor class SwapPool(
     private func _pushLimitOrderStack(limitOrder : (Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)) : () { _limitOrderStack := ?(limitOrder, _limitOrderStack); };
     private func _popLimitOrderStack() : ?(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue) { switch _limitOrderStack { case null { null }; case (?(h, t)) { _limitOrderStack := t; ?h }; }; };
     public query func getLimitOrderStack() : async Result.Result<[(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)], Types.Error> { return #ok(List.toArray(_limitOrderStack)); };
+
+    private stable var _pendingExecution : ?(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue) = null;
+    private stable var _pendingRetryCount : Nat = 0;
+    private let _MAX_LIMIT_ORDER_RETRIES : Nat = 3;
+    private stable var _failedLimitOrders : [(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)] = [];
+    private var _failedLimitOrderBuffer : Buffer.Buffer<(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)> = Buffer.Buffer<(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)>(0);
+    public query func getFailedLimitOrders() : async Result.Result<[(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)], Types.Error> {
+        return #ok(Buffer.toArray(_failedLimitOrderBuffer));
+    };
 
     private func _limitOrderKeyCompare(x : Types.LimitOrderKey, y : Types.LimitOrderKey) : { #less; #equal; #greater } {
         if (x.tickLimit < y.tickLimit) { #less } 
@@ -185,71 +197,119 @@ shared (initMsg) actor class SwapPool(
     private var _upperLimitOrders = RBTree.RBTree<Types.LimitOrderKey, Types.LimitOrderValue>(_limitOrderKeyCompare);
     private func _checkLimitOrder() : async () {
         if (not _isLimitOrderAvailable) { return; };
-        // backward iteration
+        var count : Nat = 0;
+        // backward iteration — find all matching lower limit orders
         label lt {
             for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
                 if (_tick <= key.tickLimit) {
                     _lowerLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
                     _pushLimitOrderStack((#Lower, key, value));
-                    ignore Timer.setTimer<system>(#nanoseconds (0), _autoDecrease);
-                    ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
-                    return;
+                    count += 1;
                 } else { break lt; };
             };
         };
-        // forward iteration
+        // forward iteration — find all matching upper limit orders
         label ut {
             for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
                 if (_tick >= key.tickLimit) {
                     _upperLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
                     _pushLimitOrderStack((#Upper, key, value));
-                    ignore Timer.setTimer<system>(#nanoseconds (0), _autoDecrease);
-                    ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
-                    return;
+                    count += 1;
                 } else { break ut; };
             };
         };
+        if (count > 0) {
+            ignore Timer.setTimer<system>(#nanoseconds(0), _autoDecrease);
+        };
     };
+
+    // Message 1: pop from stack, set _pendingExecution, schedule execution in separate message.
+    // If _pendingExecution is already set, a previous _executeAutoDecrease must have trapped — handle retry.
     private func _autoDecrease() : async () {
-        switch (_popLimitOrderStack()) {
+        switch (_pendingExecution) {
+            case (?pending) {
+                _pendingRetryCount += 1;
+                if (_pendingRetryCount >= _MAX_LIMIT_ORDER_RETRIES) {
+                    _failedLimitOrderBuffer.add(pending);
+                    Debug.print("[WARN][_autoDecrease] Limit order skipped after " # Nat.toText(_MAX_LIMIT_ORDER_RETRIES) # " retries: " # debug_show(pending));
+                    _pendingExecution := null;
+                    _pendingRetryCount := 0;
+                    // Fall through to process remaining stack items
+                } else {
+                    ignore Timer.setTimer<system>(#nanoseconds(0), _executeAutoDecrease);
+                    // Watchdog: if _executeAutoDecrease traps, restart the chain
+                    ignore Timer.setTimer<system>(#seconds(10), _autoDecrease);
+                    return;
+                };
+            };
+            case null {};
+        };
+        label scan loop {
+            switch (_popLimitOrderStack()) {
+                case (?(limitOrderType, key, value)) {
+                    // If tick bounced back, return order to RBTree and try next
+                    switch (limitOrderType) {
+                        case (#Lower) { if (_tick > key.tickLimit) { _lowerLimitOrders.put(key, value); continue scan; }; };
+                        case (#Upper) { if (_tick < key.tickLimit) { _upperLimitOrders.put(key, value); continue scan; }; };
+                    };
+                    _pendingExecution := ?(limitOrderType, key, value);
+                    _pendingRetryCount := 0;
+                    ignore Timer.setTimer<system>(#nanoseconds(0), _executeAutoDecrease);
+                    // Watchdog: if _executeAutoDecrease traps, restart the chain
+                    ignore Timer.setTimer<system>(#seconds(10), _autoDecrease);
+                    return;
+                };
+                case null {};
+            };
+            break scan;
+        };
+    };
+
+    // Message 2: execute the pending limit order. If _decreaseLiquidity traps,
+    // _pendingExecution survives (committed in message 1) and _autoDecrease retries.
+    private func _executeAutoDecrease() : async () {
+        switch (_pendingExecution) {
             case (?(limitOrderType, key, value)) {
                 var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
-                switch (limitOrderType) {
-                    case (#Lower) { if (_tick > key.tickLimit) { _lowerLimitOrders.put(key, value); return; }; };
-                    case (#Upper) { if (_tick < key.tickLimit) { _upperLimitOrders.put(key, value); return; }; };
-                };
-
                 let txIndex = _txState.startExecuteLimitOrder(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), value.token0InAmount, value.token1InAmount, key.tickLimit);
                 let result = _decreaseLiquidity(
-                    value.owner, 
-                    { removeLimitOrder = false; }, 
+                    value.owner,
+                    { removeLimitOrder = false; },
                     { positionId = value.userPositionId; liquidity = Nat.toText(userPositionInfo.liquidity); }
                 );
                 switch (result) {
                     case (#ok(res)) {
                         switch (_txState.getTransaction(txIndex)) {
-                            case (null) { Debug.print("[WARN][executeLimitOrder] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
+                            case (null) { Debug.print("[WARN][_executeAutoDecrease] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
                             case (?_tx) {
-                                try { _pushSwapInfoCache(_txState.executeLimitOrderCompleted(txIndex, res.amount0, res.amount1)); } catch (e) { Debug.print("[WARN][_autoDecrease] Push swap info cache failed (executeLimitOrder): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
-                                try { _pushSwapInfoCache(_txState.createCompletedDecreaseLiquidity(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), userPositionInfo.liquidity, res.amount0, res.amount1)); } catch (e) { Debug.print("[WARN][_autoDecrease] Push swap info cache failed (decreaseLiquidity): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                                try { _pushSwapInfoCache(_txState.executeLimitOrderCompleted(txIndex, res.amount0, res.amount1)); } catch (e) { Debug.print("[WARN][_executeAutoDecrease] Push swap info cache failed (executeLimitOrder): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                                try { _pushSwapInfoCache(_txState.createCompletedDecreaseLiquidity(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), userPositionInfo.liquidity, res.amount0, res.amount1)); } catch (e) { Debug.print("[WARN][_executeAutoDecrease] Push swap info cache failed (decreaseLiquidity): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
                             };
                         };
                         let from = { owner = _getCanisterId(); subaccount = null; };
                         let to = { owner = value.owner; subaccount = null; };
                         if (res.amount0 > _token0Fee) {
-                            let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken0Principal(), from, to, res.amount0, _token0Fee, _token0.standard);
-                            _enqueueWithdraw<system>(txIndex, _token0, value.owner, from, to, res.amount0, _token0Fee, ?PoolUtils.natToBlob(txIndex));
+                            let wTxIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken0Principal(), from, to, res.amount0, _token0Fee, _token0.standard);
+                            _enqueueWithdraw<system>(wTxIndex, _token0, value.owner, from, to, res.amount0, _token0Fee, ?PoolUtils.natToBlob(wTxIndex));
                         };
                         if (res.amount1 > _token1Fee) {
-                            let txIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken1Principal(), from, to, res.amount1, _token1Fee, _token1.standard);
-                            _enqueueWithdraw<system>(txIndex, _token1, value.owner, from, to, res.amount1, _token1Fee, ?PoolUtils.natToBlob(txIndex));
+                            let wTxIndex = _txState.startWithdraw(value.owner, _getCanisterId(), _getToken1Principal(), from, to, res.amount1, _token1Fee, _token1.standard);
+                            _enqueueWithdraw<system>(wTxIndex, _token1, value.owner, from, to, res.amount1, _token1Fee, ?PoolUtils.natToBlob(wTxIndex));
                         };
-                        ignore Timer.setTimer<system>(#seconds (3), func() : async () { _jobService.onActivity<system>(); });
                     };
-                    case (#err(err)) { ignore _txState.executeLimitOrderFailed(txIndex, debug_show(err)); };
+                    case (#err(err)) {
+                        ignore _txState.executeLimitOrderFailed(txIndex, debug_show(err));
+                        _failedLimitOrderBuffer.add((limitOrderType, key, value));
+                    };
+                };
+                _pendingExecution := null;
+                _pendingRetryCount := 0;
+                // Continue draining remaining stack items
+                if (not List.isNil(_limitOrderStack)) {
+                    ignore Timer.setTimer<system>(#nanoseconds(0), _autoDecrease);
                 };
             };
-            case (_) {};
+            case null {};
         };
     };
     
@@ -3047,6 +3107,7 @@ shared (initMsg) actor class SwapPool(
         _upperLimitOrderEntries := Iter.toArray(_upperLimitOrders.entries());
         _txsEntries := _txState.getTransactions();
         _txIndex := _txState.getIndex();
+        _failedLimitOrders := Buffer.toArray(_failedLimitOrderBuffer);
     };
 
     system func postupgrade() {
@@ -3062,10 +3123,13 @@ shared (initMsg) actor class SwapPool(
         _ticksEntries := [];
         _lowerLimitOrderEntries := [];
         _upperLimitOrderEntries := [];
+        _failedLimitOrderBuffer := Buffer.fromArray(_failedLimitOrders);
+        _failedLimitOrders := [];
         _txsEntries := [];
         _txIndex := 0;
         ignore Timer.setTimer<system>(#nanoseconds (0), _syncTokenFeeJob);
         if (not List.isNil(_withdrawQueue)) { _tryStartProcessing<system>(); };
+        if (Option.isSome(_pendingExecution) or not List.isNil(_limitOrderStack)) { ignore Timer.setTimer<system>(#nanoseconds(0), _autoDecrease); };
     };
     
     system func inspect({

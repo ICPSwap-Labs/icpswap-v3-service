@@ -423,6 +423,7 @@ module {
         #getCachedTokenFee : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
+        #getFailedLimitOrders : () -> ();
         #getFailedTransactions : () -> ();
         #getFeeGrowthGlobal : () -> ();
         #getInitArgs : () -> ();
