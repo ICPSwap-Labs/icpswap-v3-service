@@ -152,7 +152,8 @@ module {
         let _args: ?Types.SwapArgs = from_candid(args_candid);
         switch (_args) {
             case (?args) {
-                return Option.make("swap({amountIn: " # args.amountIn # ", amountOutMinimum: " # args.amountOutMinimum # "})");
+                return Option.make("swap({zeroForOne: " # debug_show(args.zeroForOne) # ", amountIn: " # args.amountIn # ", amountOutMinimum: " # args.amountOutMinimum # "})");
+
             };
             case (_) {
                 return null;
@@ -163,7 +164,7 @@ module {
         let _args: ?(Principal, Principal, Nat) = from_candid(args_candid);
         switch (_args) {
             case (?args) {
-                return Option.make("transferPosition({positionId: " # Nat.toText(args.2) # ", to: " # Principal.toText(args.1) # "})");
+                return Option.make("transferPosition({from: " # Principal.toText(args.0) # ", to: " # Principal.toText(args.1) # ", positionId: " # Nat.toText(args.2) # "})");
             };
             case (_) {
                 return null;
