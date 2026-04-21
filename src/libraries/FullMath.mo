@@ -1,6 +1,4 @@
-import Debug "mo:base/Debug";
 import Nat "mo:base/Nat";
-import Nat64 "mo:base/Nat64";
 import Result "mo:base/Result";
 import SafeUint "mo:commons/math/SafeUint";
 
