@@ -388,6 +388,24 @@ shared (initMsg) actor class SwapPool(
         for ((_, value) in RBTree.iter(_lowerLimitOrders.share(), #fwd)) {
             if (value.userPositionId == userPositionId) { return true; };
         };
+        // Check pending execution
+        switch (_pendingExecution) {
+            case (?(_, _, value)) { if (value.userPositionId == userPositionId) { return true; }; };
+            case null {};
+        };
+        // Check limit order stack
+        var stack = _limitOrderStack;
+        label scan loop {
+            switch stack {
+                case (?(( _, _, value), rest)) {
+                    if (value.userPositionId == userPositionId) { return true; };
+                    stack := rest;
+                    continue scan;
+                };
+                case null {};
+            };
+            break scan;
+        };
         return false;
     };
     private func _deleteLimitOrderByPositionId(userPositionId: Nat) : () {
