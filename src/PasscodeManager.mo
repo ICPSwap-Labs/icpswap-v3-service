@@ -55,20 +55,24 @@ actor class PasscodeManager(
     private var _wallet : HashMap.HashMap<Principal, Nat> = HashMap.fromIter(_walletArray.vals(), _walletArray.size(), Principal.equal, Principal.hash);
     private stable var _transferIndex : Nat = 0;
 
-    // Logging related code
+    // Logging related code — circular buffer
     private let MAX_LOGS = 5000;
     private stable var _logsArray : [LogEntry] = [];
     private var _logs : Buffer.Buffer<LogEntry> = Buffer.fromArray<LogEntry>(_logsArray);
+    private stable var _logsWriteIndex : Nat = 0;
     private func _addLog(caller : Principal, message : Text, amount : ?Nat) {
-        if (_logs.size() >= MAX_LOGS) {
-            ignore _logs.remove(0); // Remove oldest log
-        };
-        _logs.add({
+        let entry = {
             timestamp = Time.now();
             caller = caller;
             message = message;
             amount = amount;
-        });
+        };
+        if (_logs.size() < MAX_LOGS) {
+            _logs.add(entry);
+        } else {
+            _logs.put(_logsWriteIndex % MAX_LOGS, entry);
+        };
+        _logsWriteIndex += 1;
     };
 
     private func _walletDeposit(principal : Principal, amount : Nat) {
@@ -321,14 +325,16 @@ actor class PasscodeManager(
     };
 
     public query func getLogs(count : ?Nat) : async [LogEntry] {
-        let logs = Buffer.toArray(_logs);
-        switch (count) {
-            case (null) { logs };
-            case (?n) {
-                let size = logs.size();
-                let start = if (size > n) { size - n } else { 0 };
-                Array.tabulate(size - start, func(i : Nat) : LogEntry = logs[start + i]);
-            };
+        let size = _logs.size();
+        if (size == 0) { return []; };
+        let n = switch (count) { case (null) { size }; case (?c) { if (c > size) { size } else { c }; }; };
+        if (size < MAX_LOGS) {
+            let start = if (size > n) { size - n } else { 0 };
+            Array.tabulate(size - start, func(i : Nat) : LogEntry = _logs.get(start + i));
+        } else {
+            Array.tabulate(n, func(i : Nat) : LogEntry {
+                _logs.get((_logsWriteIndex + MAX_LOGS - n + i) % MAX_LOGS);
+            });
         };
     };
 
