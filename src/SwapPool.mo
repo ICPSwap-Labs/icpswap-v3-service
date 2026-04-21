@@ -926,37 +926,63 @@ shared (initMsg) actor class SwapPool(
             return #ok(amount);
         };
         
-        if (_tokenHolderService.withdraw(caller, token, amount)) {
-            // Update transaction state (will gracefully handle if transaction was already deleted)
-            _txState.withdrawCredited(txIndex);
-            switch (_txState.getTransaction(txIndex)) {
-                case (?tx) {
-                    switch (tx.action) {
-                        case (#Withdraw(info)) {
-                            switch (info.status) {
-                                case (#CreditCompleted) { await __withdraw(); return #ok(amount); };
-                                case (_) { return #err(#InternalError("Invalid withdraw status: expected CreditCompleted")); };
-                            };
-                        };
-                        case (#OneStepSwap(info)) {
-                            if (amount <= fee) {
-                                try { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, null)); } catch (e) { Debug.print("[WARN][_withdraw] OneStepSwap withdraw completion failed (amount<=fee): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+        switch (_txState.getTransaction(txIndex)) {
+            case (?tx) {
+                switch (tx.action) {
+                    case (#Withdraw(info)) {
+                        switch (info.status) {
+                            case (#CreditCompleted) {
+                                // Already deducted by withdraw/withdrawToSubaccount
+                                await __withdraw();
                                 return #ok(amount);
                             };
-                            switch (info.status) {
-                                case (#WithdrawCreditCompleted) { await __withdraw(); return #ok(amount); };
-                                case (_) { return #err(#InternalError("Invalid one-step swap status: expected WithdrawCreditCompleted")); };
+                            case (#Created) {
+                                // Auto-withdraw from decreaseLiquidity/claim/limitOrder — deduct now
+                                if (_tokenHolderService.withdraw(caller, token, amount)) {
+                                    _txState.withdrawCredited(txIndex);
+                                    await __withdraw();
+                                    return #ok(amount);
+                                } else {
+                                    Debug.print("[INFO][_withdraw] Insufficient funds, deleting transaction: txIndex=" # Nat.toText(txIndex));
+                                    _txState.delete(txIndex);
+                                    return #err(#InsufficientFunds);
+                                };
                             };
+                            case (_) { return #err(#InternalError("Invalid withdraw status")); };
                         };
-                        case (_) { return #err(#InternalError("Unsupported transaction type for withdraw")); };
                     };
+                    case (#OneStepSwap(info)) {
+                        if (amount <= fee) {
+                            try { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, null)); } catch (e) { Debug.print("[WARN][_withdraw] OneStepSwap withdraw completion failed (amount<=fee): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                            return #ok(amount);
+                        };
+                        if (_tokenHolderService.withdraw(caller, token, amount)) {
+                            _txState.withdrawCredited(txIndex);
+                            // Re-read transaction to get updated status after withdrawCredited
+                            switch (_txState.getTransaction(txIndex)) {
+                                case (?updatedTx) {
+                                    switch (updatedTx.action) {
+                                        case (#OneStepSwap(updatedInfo)) {
+                                            switch (updatedInfo.status) {
+                                                case (#WithdrawCreditCompleted) { await __withdraw(); return #ok(amount); };
+                                                case (_) { return #err(#InternalError("Invalid one-step swap status: expected WithdrawCreditCompleted")); };
+                                            };
+                                        };
+                                        case (_) { return #err(#InternalError("Transaction type changed unexpectedly")); };
+                                    };
+                                };
+                                case (_) { return #err(#InternalError("Transaction not found after credit")); };
+                            };
+                        } else {
+                            Debug.print("[INFO][_withdraw] Insufficient funds, deleting transaction: txIndex=" # Nat.toText(txIndex));
+                            _txState.delete(txIndex);
+                            return #err(#InsufficientFunds);
+                        };
+                    };
+                    case (_) { return #err(#InternalError("Unsupported transaction type for withdraw")); };
                 };
-                case (_) { return #err(#InternalError("Transaction not found")); };
-            }
-        } else {
-            Debug.print("[INFO][_withdraw] Insufficient funds, deleting transaction to avoid accumulation of duplicate withdraw requests: txIndex=" # Nat.toText(txIndex));
-            _txState.delete(txIndex);
-            return #err(#InsufficientFunds);
+            };
+            case (_) { return #err(#InternalError("Transaction not found")); };
         };
     };
 
@@ -1481,14 +1507,17 @@ shared (initMsg) actor class SwapPool(
         if (args.amount > balance) { return #err(#InsufficientFunds) };
         if (not (args.amount > fee)) { return #err(#InsufficientFunds) };
 
+        if (not _tokenHolderService.withdraw(caller, token, args.amount)) {
+            return #err(#InsufficientFunds);
+        };
         let from = {owner = canisterId; subaccount = null;};
-        let to = { owner = caller; subaccount = null }; 
+        let to = { owner = caller; subaccount = null };
         let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee, token.standard);
-        
+        _txState.withdrawCredited(txIndex);
         _enqueueWithdraw<system>(txIndex, token, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
         return #ok(args.amount);
     };
-    
+
     public shared ({ caller }) func withdrawToSubaccount(args : Types.WithdrawToSubaccountArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
         _assertNotAnonymous(caller);
@@ -1503,11 +1532,14 @@ shared (initMsg) actor class SwapPool(
         if (not (args.amount > 0)) { return #err(#InternalError("Amount cannot be 0")); };
         if (args.amount > balance) { return #err(#InsufficientFunds) };
         if (not (args.amount > fee)) { return #err(#InsufficientFunds) };
+        if (not _tokenHolderService.withdraw(caller, token, args.amount)) {
+            return #err(#InsufficientFunds);
+        };
         let from = {owner = canisterId; subaccount = null;};
-        let to = { owner = caller; subaccount = ?args.subaccount }; 
+        let to = { owner = caller; subaccount = ?args.subaccount };
 
         let txIndex = _txState.startWithdraw(caller, canisterId, tokenPrincipal, from, to, args.amount, args.fee, token.standard);
-
+        _txState.withdrawCredited(txIndex);
         _enqueueWithdraw<system>(txIndex, token, caller, from, to, args.amount, args.fee, ?PoolUtils.natToBlob(txIndex));
         return #ok(args.amount);
     };
