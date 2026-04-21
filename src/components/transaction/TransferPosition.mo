@@ -35,7 +35,7 @@ module {
     };
 
     public func fail(info: Types.TransferPositionInfo, error: Text): Types.TransferPositionInfo {
-        assert(info.status != #Completed);
+        if (info.status == #Completed or info.status == #Failed) { return info; };
         _updateStatus(info, #Failed, ?error)
     };
 };

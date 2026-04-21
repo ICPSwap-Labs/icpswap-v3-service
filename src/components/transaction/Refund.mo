@@ -41,7 +41,7 @@ module {
     };
 
     public func fail(refund: Types.RefundInfo, error: Text): Types.RefundInfo {
-        assert(refund.status != #Completed);
+        if (refund.status == #Completed or refund.status == #Failed) { return refund; };
         _updateStatus(refund, #Failed, ?error)
     };
 };

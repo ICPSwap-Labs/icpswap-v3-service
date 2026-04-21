@@ -36,7 +36,7 @@ module {
     };
 
     public func fail(info: Types.SwapInfo, error: Text): Types.SwapInfo {
-        assert(info.status != #Completed);
+        if (info.status == #Completed or info.status == #Failed) { return info; };
         _updateStatus(info, #Failed, ?error)
     };
 };
