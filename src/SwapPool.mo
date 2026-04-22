@@ -8,7 +8,6 @@ import Cycles "mo:base/ExperimentalCycles";
 import Text "mo:base/Text";
 import Result "mo:base/Result";
 import Principal "mo:base/Principal";
-import Debug "mo:base/Debug";
 import Option "mo:base/Option";
 import Error "mo:base/Error";
 import Time "mo:base/Time";
@@ -61,6 +60,35 @@ shared (initMsg) actor class SwapPool(
     trustedCanisterManagerCid : Principal,
     positionIndexCid : Principal
 ) = this {
+
+    // --------------------------- Debug Log Buffer ------------------------------------
+    private let _MAX_DEBUG_LOGS : Nat = 1000;
+    private stable var _debugLogArray : [Text] = [];
+    private var _debugLog : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
+    private stable var _debugLogWriteIndex : Nat = 0;
+    private func _log(msg : Text) {
+        let entry = Nat.toText(BlockTimestamp.blockTimestamp()) # " " # msg;
+        if (_debugLog.size() < _MAX_DEBUG_LOGS) {
+            _debugLog.add(entry);
+        } else {
+            _debugLog.put(_debugLogWriteIndex % _MAX_DEBUG_LOGS, entry);
+        };
+        _debugLogWriteIndex += 1;
+    };
+    public query ({ caller }) func getDebugLog(count : ?Nat) : async [Text] {
+        _checkAdminPermission(caller);
+        let size = _debugLog.size();
+        if (size == 0) { return []; };
+        let n = switch (count) { case (null) { size }; case (?c) { if (c > size) { size } else { c }; }; };
+        if (size < _MAX_DEBUG_LOGS) {
+            let start = if (size > n) { size - n } else { 0 };
+            Array.tabulate(size - start, func(i : Nat) : Text = _debugLog.get(start + i));
+        } else {
+            Array.tabulate(n, func(i : Nat) : Text {
+                _debugLog.get((_debugLogWriteIndex + _MAX_DEBUG_LOGS - n + i) % _MAX_DEBUG_LOGS);
+            });
+        };
+    };
 
     private stable var _inited : Bool = false;
     public shared ({ caller }) func init (
@@ -231,7 +259,7 @@ shared (initMsg) actor class SwapPool(
                 _pendingRetryCount += 1;
                 if (_pendingRetryCount >= _MAX_LIMIT_ORDER_RETRIES) {
                     _failedLimitOrderBuffer.add(pending);
-                    Debug.print("[WARN][_autoDecrease] Limit order skipped after " # Nat.toText(_MAX_LIMIT_ORDER_RETRIES) # " retries: " # debug_show(pending));
+                    _log("[WARN][_autoDecrease] Limit order skipped after " # Nat.toText(_MAX_LIMIT_ORDER_RETRIES) # " retries: " # debug_show(pending));
                     _pendingExecution := null;
                     _pendingRetryCount := 0;
                     // Fall through to process remaining stack items
@@ -280,10 +308,10 @@ shared (initMsg) actor class SwapPool(
                 switch (result) {
                     case (#ok(res)) {
                         switch (_txState.getTransaction(txIndex)) {
-                            case (null) { Debug.print("[WARN][_executeAutoDecrease] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
+                            case (null) { _log("[WARN][_executeAutoDecrease] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
                             case (?_tx) {
-                                try { _pushSwapInfoCache(_txState.executeLimitOrderCompleted(txIndex, res.amount0, res.amount1)); } catch (e) { Debug.print("[WARN][_executeAutoDecrease] Push swap info cache failed (executeLimitOrder): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
-                                try { _pushSwapInfoCache(_txState.createCompletedDecreaseLiquidity(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), userPositionInfo.liquidity, res.amount0, res.amount1)); } catch (e) { Debug.print("[WARN][_executeAutoDecrease] Push swap info cache failed (decreaseLiquidity): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                                try { _pushSwapInfoCache(_txState.executeLimitOrderCompleted(txIndex, res.amount0, res.amount1)); } catch (e) { _log("[WARN][_executeAutoDecrease] Push swap info cache failed (executeLimitOrder): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                                try { _pushSwapInfoCache(_txState.createCompletedDecreaseLiquidity(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), userPositionInfo.liquidity, res.amount0, res.amount1)); } catch (e) { _log("[WARN][_executeAutoDecrease] Push swap info cache failed (decreaseLiquidity): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
                             };
                         };
                         let from = { owner = _getCanisterId(); subaccount = null; };
@@ -364,7 +392,7 @@ shared (initMsg) actor class SwapPool(
                                 ignore await _withdraw(item.txIndex, item.token, tokenAct, item.caller, item.from, item.to, item.amount, item.fee, item.memo);
                             } catch (e) {
                                 // Log error but continue processing queue
-                                Debug.print("[ERROR][_processWithdrawQueue] Withdraw failed: txIndex=" # Nat.toText(item.txIndex) # ", error=" # Error.message(e));
+                                _log("[ERROR][_processWithdrawQueue] Withdraw failed: txIndex=" # Nat.toText(item.txIndex) # ", error=" # Error.message(e));
                             };
 
                             // Superseded by force restart — stop this processor
@@ -735,11 +763,11 @@ shared (initMsg) actor class SwapPool(
         let positionKey = "" # Int.toText(userPositionInfo.tickLower) # "_" # Int.toText(userPositionInfo.tickUpper) # "";
         var positionInfo = _positionTickService.getPosition(positionKey);
         var amount0Collect = if (userPositionInfo.tokensOwed0 > positionInfo.tokensOwed0) {
-            Debug.print("[WARN][_collect] tokensOwed0 invariant violated: user=" # Nat.toText(userPositionInfo.tokensOwed0) # " > position=" # Nat.toText(positionInfo.tokensOwed0) # ", positionId=" # Nat.toText(positionId));
+            _log("[WARN][_collect] tokensOwed0 invariant violated: user=" # Nat.toText(userPositionInfo.tokensOwed0) # " > position=" # Nat.toText(positionInfo.tokensOwed0) # ", positionId=" # Nat.toText(positionId));
             positionInfo.tokensOwed0;
         } else { userPositionInfo.tokensOwed0 };
         var amount1Collect = if (userPositionInfo.tokensOwed1 > positionInfo.tokensOwed1) {
-            Debug.print("[WARN][_collect] tokensOwed1 invariant violated: user=" # Nat.toText(userPositionInfo.tokensOwed1) # " > position=" # Nat.toText(positionInfo.tokensOwed1) # ", positionId=" # Nat.toText(positionId));
+            _log("[WARN][_collect] tokensOwed1 invariant violated: user=" # Nat.toText(userPositionInfo.tokensOwed1) # " > position=" # Nat.toText(positionInfo.tokensOwed1) # ", positionId=" # Nat.toText(positionId));
             positionInfo.tokensOwed1;
         } else { userPositionInfo.tokensOwed1 };
         _positionTickService.putPosition(
@@ -782,7 +810,7 @@ shared (initMsg) actor class SwapPool(
                                         _txState.depositTransferred(txIndex, index);
                                         ignore _tokenHolderService.deposit(caller, token, amount);
                                         _txState.depositCredited(txIndex, amount);
-                                        try { _pushSwapInfoCache(txIndex); } catch (e) { Debug.print("[WARN][_depositFrom] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                                        try { _pushSwapInfoCache(txIndex); } catch (e) { _log("[WARN][_depositFrom] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
                                     };
                                     case (#OneStepSwap(_)) {
                                         _txState.oneStepSwapDepositTransferred(txIndex, index);
@@ -798,14 +826,14 @@ shared (initMsg) actor class SwapPool(
                     };
                     case (#Err(msg)) {
                         let errorMsg = debug_show(msg);
-                        Debug.print("[ERROR][_depositFrom] Deposit failed: " # errorMsg);
+                        _log("[ERROR][_depositFrom] Deposit failed: " # errorMsg);
                         _txState.delete(txIndex);
                         return #err(#InternalError(errorMsg));
                     };
                 };
             } catch (e) {
                 let errorMsg = Error.message(e);
-                Debug.print("[ERROR][_depositFrom] Exception occurred: " # errorMsg);
+                _log("[ERROR][_depositFrom] Exception occurred: " # errorMsg);
                 if (Text.contains(errorMsg, #text("Unsupport method 'transferFrom'")) 
                     or Text.contains(errorMsg, #text("Unsupported method 'transferFrom'"))
                 ) {
@@ -854,7 +882,7 @@ shared (initMsg) actor class SwapPool(
                                         _txState.depositTransferred(txIndex, index);
                                         ignore _tokenHolderService.deposit(caller, token, amountDeposit);
                                         _txState.depositCredited(txIndex, amountDeposit);
-                                        try { _pushSwapInfoCache(txIndex); } catch (e) { Debug.print("[WARN][_depositFrom] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                                        try { _pushSwapInfoCache(txIndex); } catch (e) { _log("[WARN][_depositFrom] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
                                     };
                                     case (#OneStepSwap(_)) {
                                         _txState.oneStepSwapDepositTransferred(txIndex, index);
@@ -870,7 +898,7 @@ shared (initMsg) actor class SwapPool(
                     };
                     case (#Err(msg)) {
                         let errorMsg = debug_show(msg);
-                        Debug.print("[ERROR][_deposit] Deposit failed: " # errorMsg);
+                        _log("[ERROR][_deposit] Deposit failed: " # errorMsg);
                         _txState.delete(txIndex);
                         return #err(#InternalError(errorMsg));
                     };
@@ -919,7 +947,7 @@ shared (initMsg) actor class SwapPool(
                     case (#Ok(index)) { 
                         switch (_txState.getTransaction(txIndex)) {
                             case (null) { };
-                            case (?_tx) { try { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, ?index)); } catch (e) { Debug.print("[WARN][__withdraw] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
+                            case (?_tx) { try { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, ?index)); } catch (e) { _log("[WARN][__withdraw] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
                         };
                     };
                     case (#Err(e)) { 
@@ -933,14 +961,14 @@ shared (initMsg) actor class SwapPool(
             } catch (e) {
                 // Check if transaction still exists before updating failure status
                 switch (_txState.getTransaction(txIndex)) {
-                    case (null) { Debug.print("[WARN][__withdraw] Transaction not found when marking as failed: txIndex=" # Nat.toText(txIndex)); };
+                    case (null) { _log("[WARN][__withdraw] Transaction not found when marking as failed: txIndex=" # Nat.toText(txIndex)); };
                     case (?_) { ignore _txState.withdrawFailed(txIndex, debug_show (Error.message(e))); };
                 };
             };
         };
 
         if (amount <= fee) {
-            try { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, null)); } catch (e) { Debug.print("[WARN][_withdraw] Withdraw completion failed (amount<=fee): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+            try { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, null)); } catch (e) { _log("[WARN][_withdraw] Withdraw completion failed (amount<=fee): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
             return #ok(amount);
         };
         
@@ -961,7 +989,7 @@ shared (initMsg) actor class SwapPool(
                                     await __withdraw();
                                     return #ok(amount);
                                 } else {
-                                    Debug.print("[INFO][_withdraw] Insufficient funds, deleting transaction: txIndex=" # Nat.toText(txIndex));
+                                    _log("[INFO][_withdraw] Insufficient funds, deleting transaction: txIndex=" # Nat.toText(txIndex));
                                     _txState.delete(txIndex);
                                     return #err(#InsufficientFunds);
                                 };
@@ -971,7 +999,7 @@ shared (initMsg) actor class SwapPool(
                     };
                     case (#OneStepSwap(info)) {
                         if (amount <= fee) {
-                            try { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, null)); } catch (e) { Debug.print("[WARN][_withdraw] OneStepSwap withdraw completion failed (amount<=fee): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                            try { _pushSwapInfoCache(_txState.withdrawCompleted(txIndex, null)); } catch (e) { _log("[WARN][_withdraw] OneStepSwap withdraw completion failed (amount<=fee): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
                             return #ok(amount);
                         };
                         if (_tokenHolderService.withdraw(caller, token, amount)) {
@@ -992,7 +1020,7 @@ shared (initMsg) actor class SwapPool(
                                 case (_) { return #err(#InternalError("Transaction not found after credit")); };
                             };
                         } else {
-                            Debug.print("[INFO][_withdraw] Insufficient funds, deleting transaction: txIndex=" # Nat.toText(txIndex));
+                            _log("[INFO][_withdraw] Insufficient funds, deleting transaction: txIndex=" # Nat.toText(txIndex));
                             _txState.delete(txIndex);
                             return #err(#InsufficientFunds);
                         };
@@ -1012,7 +1040,7 @@ shared (initMsg) actor class SwapPool(
                     switch (await tokenAct.transfer({from = from; from_subaccount = null; to = to; amount = amountOut; fee = ?fee; memo = memo; created_at_time = null})) {
                         case (#Ok(index)) {
                             let (refundTxIndex, relatedTxIndex) = _txState.refundCompleted(txIndex, index);
-                            try { _pushSwapInfoCache(refundTxIndex); } catch (e) { Debug.print("[WARN][_refund] Push swap info cache failed (refund): txIndex=" # Nat.toText(refundTxIndex) # ", error=" # Error.message(e)); };
+                            try { _pushSwapInfoCache(refundTxIndex); } catch (e) { _log("[WARN][_refund] Push swap info cache failed (refund): txIndex=" # Nat.toText(refundTxIndex) # ", error=" # Error.message(e)); };
                             // Only delete related transaction if it's actually completed
                             switch (relatedTxIndex) { 
                                 case (?relatedTxIndex) { 
@@ -1026,7 +1054,7 @@ shared (initMsg) actor class SwapPool(
                                                 case (_) { true };
                                             };
                                             if (isFinalState) {
-                                                try { _pushSwapInfoCache(relatedTxIndex); } catch (e) { Debug.print("[WARN][_refund] Push swap info cache failed (related): txIndex=" # Nat.toText(relatedTxIndex) # ", error=" # Error.message(e)); };
+                                                try { _pushSwapInfoCache(relatedTxIndex); } catch (e) { _log("[WARN][_refund] Push swap info cache failed (related): txIndex=" # Nat.toText(relatedTxIndex) # ", error=" # Error.message(e)); };
                                             };
                                         };
                                         case (null) { };
@@ -1425,7 +1453,7 @@ shared (initMsg) actor class SwapPool(
     private func _pushSwapInfoCache(txIndex: Nat) : () {
         let tx = _txState.getTransaction(txIndex);
         switch (tx) {
-            case (null) { Debug.print("[WARN][_pushSwapInfoCache] Transaction not found: txIndex=" # Nat.toText(txIndex)); return; };
+            case (null) { _log("[WARN][_pushSwapInfoCache] Transaction not found: txIndex=" # Nat.toText(txIndex)); return; };
             case (?tx) {
                 _swapRecordService.addRecord({
                     txInfo = tx;
@@ -1678,8 +1706,8 @@ shared (initMsg) actor class SwapPool(
             ignore _tokenHolderService.withdraw2(args.positionOwner, _token0, addResult.amount0, _token1, addResult.amount1);
             
             switch (_txState.getTransaction(txIndex)) {
-                case (null) { Debug.print("[WARN][depositAllAndMint] Transaction not found after mint: txIndex=" # Nat.toText(txIndex)); };
-                case (?_tx) { try { _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta)); } catch (e) { Debug.print("[WARN][depositAllAndMint] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
+                case (null) { _log("[WARN][depositAllAndMint] Transaction not found after mint: txIndex=" # Nat.toText(txIndex)); };
+                case (?_tx) { try { _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta)); } catch (e) { _log("[WARN][depositAllAndMint] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
             };
         } catch (e) {
             _rollback("DepositAllAndMint.mint failed: " # Error.message(e));
@@ -1891,8 +1919,8 @@ shared (initMsg) actor class SwapPool(
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
 
             switch (_txState.getTransaction(txIndex)) {
-                case (null) { Debug.print("[WARN][mint] Transaction not found after addLiquidity: txIndex=" # Nat.toText(txIndex)); };
-                case (?_tx) { try { _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta)); } catch (e) { Debug.print("[WARN][mint] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
+                case (null) { _log("[WARN][mint] Transaction not found after addLiquidity: txIndex=" # Nat.toText(txIndex)); };
+                case (?_tx) { try { _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta)); } catch (e) { _log("[WARN][mint] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
             };
 
             // Check if there are unused tokens that need to be refunded
@@ -1945,15 +1973,15 @@ shared (initMsg) actor class SwapPool(
         if (tickCurrent < tickLower and tickLimit > tickLower and tickLimit <= tickUpper) {
             _upperLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
             switch (_txState.getTransaction(txIndex)) {
-                case (null) { Debug.print("[WARN][addLimitOrder] Transaction not found (upper): txIndex=" # Nat.toText(txIndex)); };
-                case (?_tx) { try { _pushSwapInfoCache(_txState.addLimitOrderCompleted(txIndex)); } catch (e) { Debug.print("[WARN][addLimitOrder] Push swap info cache failed (upper): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
+                case (null) { _log("[WARN][addLimitOrder] Transaction not found (upper): txIndex=" # Nat.toText(txIndex)); };
+                case (?_tx) { try { _pushSwapInfoCache(_txState.addLimitOrderCompleted(txIndex)); } catch (e) { _log("[WARN][addLimitOrder] Push swap info cache failed (upper): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
             };
             return #ok(true);
         } else if (tickCurrent > tickUpper and tickLimit < tickUpper and tickLimit >= tickLower) {
             _lowerLimitOrders.put({ timestamp = timestamp; tickLimit = tickLimit; }, { userPositionId = args.positionId; owner = msg.caller; token0InAmount = tokenAmount.amount0; token1InAmount = tokenAmount.amount1; });
             switch (_txState.getTransaction(txIndex)) {
-                case (null) { Debug.print("[WARN][addLimitOrder] Transaction not found (lower): txIndex=" # Nat.toText(txIndex)); };
-                case (?_tx) { try { _pushSwapInfoCache(_txState.addLimitOrderCompleted(txIndex)); } catch (e) { Debug.print("[WARN][addLimitOrder] Push swap info cache failed (lower): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
+                case (null) { _log("[WARN][addLimitOrder] Transaction not found (lower): txIndex=" # Nat.toText(txIndex)); };
+                case (?_tx) { try { _pushSwapInfoCache(_txState.addLimitOrderCompleted(txIndex)); } catch (e) { _log("[WARN][addLimitOrder] Push swap info cache failed (lower): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
             };
             return #ok(true);
         } else {
@@ -2006,10 +2034,10 @@ shared (initMsg) actor class SwapPool(
         )) {
             case (#ok(result)) {
                 switch (_txState.getTransaction(txIndex)) {
-                    case (null) { Debug.print("[WARN][removeLimitOrder] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
+                    case (null) { _log("[WARN][removeLimitOrder] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
                     case (?_tx) {
-                        try { _pushSwapInfoCache(_txState.removeLimitOrderCompleted(txIndex, result.amount0, result.amount1)); } catch (e) { Debug.print("[WARN][removeLimitOrder] Push swap info cache failed (removeLimitOrder): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
-                        try { _pushSwapInfoCache(_txState.createCompletedDecreaseLiquidity(msg.caller, _getCanisterId(), positionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), userPositionInfo.liquidity, result.amount0, result.amount1)); } catch (e) { Debug.print("[WARN][removeLimitOrder] Push swap info cache failed (decreaseLiquidity): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                        try { _pushSwapInfoCache(_txState.removeLimitOrderCompleted(txIndex, result.amount0, result.amount1)); } catch (e) { _log("[WARN][removeLimitOrder] Push swap info cache failed (removeLimitOrder): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+                        try { _pushSwapInfoCache(_txState.createCompletedDecreaseLiquidity(msg.caller, _getCanisterId(), positionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), userPositionInfo.liquidity, result.amount0, result.amount1)); } catch (e) { _log("[WARN][removeLimitOrder] Push swap info cache failed (decreaseLiquidity): txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
                     };
                 };
                 // auto withdraw
@@ -2094,8 +2122,8 @@ shared (initMsg) actor class SwapPool(
             ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
 
             switch (_txState.getTransaction(txIndex)) {
-                case (null) { Debug.print("[WARN][increaseLiquidity] Transaction not found after mint: txIndex=" # Nat.toText(txIndex)); };
-                case (?_tx) { try { _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta)); } catch (e) { Debug.print("[WARN][increaseLiquidity] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
+                case (null) { _log("[WARN][increaseLiquidity] Transaction not found after mint: txIndex=" # Nat.toText(txIndex)); };
+                case (?_tx) { try { _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta)); } catch (e) { _log("[WARN][increaseLiquidity] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
             };
 
             // Check if there are unused tokens that need to be refunded
@@ -2134,8 +2162,8 @@ shared (initMsg) actor class SwapPool(
         switch (result) {
             case (#ok(res)) {
                 switch (_txState.getTransaction(txIndex)) {
-                    case (null) { Debug.print("[WARN][decreaseLiquidity] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
-                    case (?_tx) { try { _pushSwapInfoCache(_txState.decreaseLiquidityCompleted(txIndex, res.amount0, res.amount1)); } catch (e) { Debug.print("[WARN][decreaseLiquidity] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
+                    case (null) { _log("[WARN][decreaseLiquidity] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
+                    case (?_tx) { try { _pushSwapInfoCache(_txState.decreaseLiquidityCompleted(txIndex, res.amount0, res.amount1)); } catch (e) { _log("[WARN][decreaseLiquidity] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
                 };
                 
                 // auto withdraw
@@ -2181,8 +2209,8 @@ shared (initMsg) actor class SwapPool(
             };
             
             switch (_txState.getTransaction(txIndex)) {
-                case (null) { Debug.print("[WARN][claim] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
-                case (?_tx) { try { _pushSwapInfoCache(_txState.claimCompleted(txIndex, collectResult.amount0, collectResult.amount1)); } catch (e) { Debug.print("[WARN][claim] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
+                case (null) { _log("[WARN][claim] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
+                case (?_tx) { try { _pushSwapInfoCache(_txState.claimCompleted(txIndex, collectResult.amount0, collectResult.amount1)); } catch (e) { _log("[WARN][claim] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
             };
             
             // auto withdraw
@@ -2244,7 +2272,7 @@ shared (initMsg) actor class SwapPool(
             };
             swapAmount := _executeSwap(args, msg.caller, swapResult);
             
-            try { _pushSwapInfoCache(_txState.swapCompleted(txIndex, swapAmount)); } catch (e) { Debug.print("[WARN][_swap] Swap completion failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
+            try { _pushSwapInfoCache(_txState.swapCompleted(txIndex, swapAmount)); } catch (e) { _log("[WARN][_swap] Swap completion failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
         } catch (e) {
             _rollback("swap failed: " # Error.message(e));
         };
@@ -2296,8 +2324,8 @@ shared (initMsg) actor class SwapPool(
                     _positionTickService.putUserPositionId(PrincipalUtils.toAddress(to), positionId);
 
                     switch (_txState.getTransaction(txIndex)) {
-                        case (null) { Debug.print("[WARN][transferPosition] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
-                        case (?_tx) { try { _pushSwapInfoCache(_txState.transferPositionCompleted(txIndex)); } catch (e) { Debug.print("[WARN][transferPosition] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
+                        case (null) { _log("[WARN][transferPosition] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
+                        case (?_tx) { try { _pushSwapInfoCache(_txState.transferPositionCompleted(txIndex)); } catch (e) { _log("[WARN][transferPosition] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
                     };
                     
                     // Update the user pool cache
@@ -2364,8 +2392,8 @@ shared (initMsg) actor class SwapPool(
                 if(not refund) {
                     if (_adminSkipRedundantSetFailed(transaction)) { return #ok(true); };
                     switch (_txState.getTransaction(txId)) {
-                        case (null) { Debug.print("[WARN][deleteFailedTransaction] Transaction not found: txId=" # Nat.toText(txId)); };
-                        case (?_tx) { try { _pushSwapInfoCache(_txState.setFailed(txId, "Manually set as an exception")); } catch (e) { Debug.print("[WARN][deleteFailedTransaction] Push swap info cache failed: txId=" # Nat.toText(txId) # ", error=" # Error.message(e)); }; };
+                        case (null) { _log("[WARN][deleteFailedTransaction] Transaction not found: txId=" # Nat.toText(txId)); };
+                        case (?_tx) { try { _pushSwapInfoCache(_txState.setFailed(txId, "Manually set as an exception")); } catch (e) { _log("[WARN][deleteFailedTransaction] Push swap info cache failed: txId=" # Nat.toText(txId) # ", error=" # Error.message(e)); }; };
                     };
                     return #ok(true);
                 };
@@ -2420,7 +2448,7 @@ shared (initMsg) actor class SwapPool(
                     };
                     case (_) {
                         if (Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) { return #err(#InternalError("Transaction is not expired")); };
-                        try { _pushSwapInfoCache(txId); } catch (e) { Debug.print("[WARN][deleteFailedTransaction] Push swap info cache failed: txId=" # Nat.toText(txId) # ", error=" # Error.message(e)); };
+                        try { _pushSwapInfoCache(txId); } catch (e) { _log("[WARN][deleteFailedTransaction] Push swap info cache failed: txId=" # Nat.toText(txId) # ", error=" # Error.message(e)); };
                     };  
                 };
                 return #ok(true);
@@ -2480,8 +2508,8 @@ shared (initMsg) actor class SwapPool(
     
     public shared (msg) func updateTokenFee() : async () {
         _checkAdminPermission(msg.caller);
-        try { _token0Fee := await _token0Act.fee(); } catch (e) { Debug.print("[WARN][updateTokenFee] Update token fee failed: error=" # Error.message(e)); };
-        try { _token1Fee := await _token1Act.fee(); } catch (e) { Debug.print("[WARN][updateTokenFee] Update token fee failed: error=" # Error.message(e)); };
+        try { _token0Fee := await _token0Act.fee(); } catch (e) { _log("[WARN][updateTokenFee] Update token fee failed: error=" # Error.message(e)); };
+        try { _token1Fee := await _token1Act.fee(); } catch (e) { _log("[WARN][updateTokenFee] Update token fee failed: error=" # Error.message(e)); };
     };
 
     public query (msg) func quote(args : Types.SwapArgs) : async Result.Result<Nat, Types.Error> {
@@ -2889,7 +2917,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     public query (msg) func allTokenBalance(offset : Nat, limit : Nat) : async Result.Result<Types.Page<(Principal, TokenHolder.AccountBalance)>, Types.Error> {
-        Debug.print("[INFO][allTokenBalance] Request received: caller=" # debug_show(msg.caller) # ", timestamp=" # debug_show(Time.now()));
+        _log("[INFO][allTokenBalance] Request received: caller=" # debug_show(msg.caller) # ", timestamp=" # debug_show(Time.now()));
         let resultArr : Buffer.Buffer<(Principal, TokenHolder.AccountBalance)> = Buffer.Buffer<(Principal, TokenHolder.AccountBalance)>(0);
         var begin : Nat = 0;
         label l {
@@ -3007,6 +3035,7 @@ shared (initMsg) actor class SwapPool(
             case (#setAdmins _)              { Prim.isController(caller) };
             case (#upgradeTokenStandard _)   { Prim.isController(caller) };
             // Admin
+            case (#getDebugLog _)            { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#deleteSyncedData _)       { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#depositAllAndMint _)      { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
             case (#setAvailable _)           { CollectionUtils.arrayContains<Principal>(_admins, caller, Principal.equal) or Prim.isController(caller) };
@@ -3117,12 +3146,12 @@ shared (initMsg) actor class SwapPool(
     // clear failed logs older than 30 days everyday.
     private func _clearExpiredFailedTransactionJob(): async () {
         for((index, transaction) in _txState.getTransactions().vals()) {
-            Debug.print("[INFO][cleanupExpiredTransactions] Checking transaction: now=" # debug_show(Time.now()) # ", txTimestamp=" # debug_show(transaction.timestamp));
+            _log("[INFO][cleanupExpiredTransactions] Checking transaction: now=" # debug_show(Time.now()) # ", txTimestamp=" # debug_show(transaction.timestamp));
             // 30 days in nanoseconds
             if (Int.abs(Time.now() - transaction.timestamp) > 30 * 24 * 60 * 60 * 1000000000) {
                 switch (_txState.getTransaction(index)) {
-                    case (null) { Debug.print("[WARN][cleanupExpiredTransactions] Transaction not found: index=" # Nat.toText(index)); };
-                    case (?_tx) { try { _pushSwapInfoCache(_txState.setFailed(index, "Manually set as expired")); } catch (e) { Debug.print("[WARN][_clearExpiredFailedTransactionJob] Push swap info cache failed: index=" # Nat.toText(index) # ", error=" # Error.message(e)); }; };
+                    case (null) { _log("[WARN][cleanupExpiredTransactions] Transaction not found: index=" # Nat.toText(index)); };
+                    case (?_tx) { try { _pushSwapInfoCache(_txState.setFailed(index, "Manually set as expired")); } catch (e) { _log("[WARN][_clearExpiredFailedTransactionJob] Push swap info cache failed: index=" # Nat.toText(index) # ", error=" # Error.message(e)); }; };
                 };
                 _txState.delete(index);
             };
@@ -3132,7 +3161,7 @@ shared (initMsg) actor class SwapPool(
     // sync token fee
     private func _syncTokenFeeJob() : async () { _token0Fee := await _token0Act.fee(); _token1Fee := await _token1Act.fee(); };
     
-    let _jobService: Job.JobService = Job.JobService();
+    let _jobService: Job.JobService = Job.JobService(_log);
     public shared({caller}) func stopJobs(names: [Text]) : async () {
         _checkAdminPermission(caller);
         _jobService.stopJobs(names);
@@ -3168,6 +3197,7 @@ shared (initMsg) actor class SwapPool(
         _txsEntries := _txState.getTransactions();
         _txIndex := _txState.getIndex();
         _failedLimitOrders := Buffer.toArray(_failedLimitOrderBuffer);
+        _debugLogArray := Buffer.toArray(_debugLog);
     };
 
     system func postupgrade() {
@@ -3185,6 +3215,8 @@ shared (initMsg) actor class SwapPool(
         _upperLimitOrderEntries := [];
         _failedLimitOrderBuffer := Buffer.fromArray(_failedLimitOrders);
         _failedLimitOrders := [];
+        _debugLog := Buffer.fromArray(_debugLogArray);
+        _debugLogArray := [];
         _txsEntries := [];
         _txIndex := 0;
         ignore Timer.setTimer<system>(#nanoseconds (0), _syncTokenFeeJob);
