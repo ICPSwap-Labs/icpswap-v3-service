@@ -39,6 +39,10 @@ shared (initMsg) actor class SwapFeeReceiver(
     private stable var _ICSFee : Nat = 0;
     private stable var _lastSyncTime : Nat = 0;
     private stable var _lastICPPoolClaimTime : Nat = 0;
+    private stable var _lastNoICPPoolClaimTime : Nat = 0;
+    // Set during chunked claim (one pool per message); used when the cycle completes to update *_last*PoolClaimTime.
+    private stable var _claimCycleHadICP : Bool = false;
+    private stable var _claimCycleHadNoICP : Bool = false;
     private stable var _icpPoolClaimInterval : Nat = 2592000; // Default 30 days in seconds
     private stable var _noIcpPoolClaimInterval : Nat = 15552000; // Default 180 days in seconds
     private stable var _autoSwapToIcsEnabled : Bool = false;
@@ -646,10 +650,27 @@ shared (initMsg) actor class SwapFeeReceiver(
                 // clear history
                 _tokenClaimLog := Buffer.Buffer<Types.ReceiverClaimLog>(0);
                 _tokenSwapLog := Buffer.Buffer<Types.ReceiverSwapLog>(0);
+                _claimCycleHadICP := false;
+                _claimCycleHadNoICP := false;
                 true;
             };
             case (#err(_)) { false; };
         };
+    };
+
+    private func _hasUnclaimedPool() : Bool {
+        for ((_, data) in _poolMap.entries()) {
+            if (not data.claimed) { return true };
+        };
+        false;
+    };
+
+    private func _finalizeClaimIntervalTimestamps(currentTime : Nat) {
+        if (_hasUnclaimedPool()) { return };
+        if (_claimCycleHadICP) { _lastICPPoolClaimTime := currentTime };
+        if (_claimCycleHadNoICP) { _lastNoICPPoolClaimTime := currentTime };
+        _claimCycleHadICP := false;
+        _claimCycleHadNoICP := false;
     };
 
     private func _autoSwap() : async () {
@@ -686,15 +707,11 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    private stable var _lastNoICPPoolClaimTime : Nat = 0;
-    
     // Force claim all pools ignoring time restrictions
     private func _forceAutoClaim() : async () {
         try {
             var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
             let currentTime = BlockTimestamp.blockTimestamp();
-            var hasClaimedICPPool = false;
-            var hasClaimedNoICPPool = false;
             
             // Force claim all pools (both ICP and non-ICP) ignoring time restrictions
             label claimLoop for ((cid, data) in _poolMap.entries()) {
@@ -702,9 +719,9 @@ shared (initMsg) actor class SwapFeeReceiver(
                     let hasICP = Functions.tokenEqual(data.token0, ICP) or Functions.tokenEqual(data.token1, ICP);
                     
                     if (hasICP) {
-                        hasClaimedICPPool := true;
+                        _claimCycleHadICP := true;
                     } else {
-                        hasClaimedNoICPPool := true;
+                        _claimCycleHadNoICP := true;
                     };
                     
                     _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
@@ -720,20 +737,17 @@ shared (initMsg) actor class SwapFeeReceiver(
                         });
                     };
                     
-                    // Schedule next claim immediately and return to process one pool at a time
-                    ignore Timer.setTimer<system>(#nanoseconds (1), _forceAutoClaim);
+                    _finalizeClaimIntervalTimestamps(currentTime);
+                    if (not _hasUnclaimedPool()) {
+                        ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+                    } else {
+                        ignore Timer.setTimer<system>(#nanoseconds (1), _forceAutoClaim);
+                    };
                     return;
                 };
             };
             
-            // Update time after all pools have been processed
-            if (hasClaimedICPPool) {
-                _lastICPPoolClaimTime := currentTime;
-            };
-            if (hasClaimedNoICPPool) {
-                _lastNoICPPoolClaimTime := currentTime;
-            };
-            
+            _finalizeClaimIntervalTimestamps(currentTime);
             ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
         } catch (e) {
             _tokenClaimLog.add({
@@ -752,8 +766,6 @@ shared (initMsg) actor class SwapFeeReceiver(
         try {
             var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
             let currentTime = BlockTimestamp.blockTimestamp();
-            var hasClaimedICPPool = false;
-            var hasClaimedNoICPPool = false;
             
             // Check if we should claim ICP pools (30 days interval)
             let shouldClaimICPPools = currentTime >= (_icpPoolClaimInterval + _lastICPPoolClaimTime);
@@ -773,13 +785,13 @@ shared (initMsg) actor class SwapFeeReceiver(
                     
                     if (hasICP) {
                         // Always claim ICP pools when shouldClaimICPPools is true
-                        hasClaimedICPPool := true;
+                        _claimCycleHadICP := true;
                     } else {
                         // For non-ICP pools: only claim if 180 days have passed (checked when ICP pools are claimed)
                         if (not shouldClaimNoICPPools) {
                             continue claimLoop;
                         };
-                        hasClaimedNoICPPool := true;
+                        _claimCycleHadNoICP := true;
                     };
                     
                     _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
@@ -795,20 +807,17 @@ shared (initMsg) actor class SwapFeeReceiver(
                         });
                     };
                     
-                    // Schedule next claim immediately and return to process one pool at a time
-                    ignore Timer.setTimer<system>(#nanoseconds (1), _autoClaim);
+                    _finalizeClaimIntervalTimestamps(currentTime);
+                    if (not _hasUnclaimedPool()) {
+                        ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+                    } else {
+                        ignore Timer.setTimer<system>(#nanoseconds (1), _autoClaim);
+                    };
                     return;
                 };
             };
             
-            // Update time only after all eligible pools in this batch have been processed
-            if (hasClaimedICPPool) {
-                _lastICPPoolClaimTime := currentTime;
-            };
-            if (hasClaimedNoICPPool) {
-                _lastNoICPPoolClaimTime := currentTime;
-            };
-            
+            _finalizeClaimIntervalTimestamps(currentTime);
             ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
         } catch (e) {
             _tokenClaimLog.add({
