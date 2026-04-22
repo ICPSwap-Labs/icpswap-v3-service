@@ -41,6 +41,10 @@ module {
             transfer_position_consent_msg(request.arg)
         } else if (Text.equal(request.method, "withdraw")) {
             withdraw_consent_msg(request.arg)
+        } else if (Text.equal(request.method, "withdrawToSubaccount")) {
+            withdraw_to_subaccount_consent_msg(request.arg)
+        } else if (Text.equal(request.method, "claimToSubaccount")) {
+            claim_to_subaccount_consent_msg(request.arg)
         } else if (Text.equal(request.method, "depositFromAndSwap") or Text.equal(request.method, "depositAndSwap")) {
             deposit_and_swap_consent_msg(request.arg)
         } else if (Text.equal(request.method, "addLimitOrder")) {
@@ -176,6 +180,28 @@ module {
         switch (_args) {
             case (?args) {
                 return Option.make("withdraw({token: " # args.token # ", amount: " # Nat.toText(args.amount) # ", fee: " # Nat.toText(args.fee) # "})");
+            };
+            case (_) {
+                return null;
+            };
+        };
+    };
+    private func withdraw_to_subaccount_consent_msg(args_candid: Blob): ?Text {
+        let _args: ?Types.WithdrawToSubaccountArgs = from_candid(args_candid);
+        switch (_args) {
+            case (?args) {
+                return Option.make("withdrawToSubaccount({token: " # args.token # ", amount: " # Nat.toText(args.amount) # ", fee: " # Nat.toText(args.fee) # ", subaccount: " # debug_show(args.subaccount) # "})");
+            };
+            case (_) {
+                return null;
+            };
+        };
+    };
+    private func claim_to_subaccount_consent_msg(args_candid: Blob): ?Text {
+        let _args: ?Types.ClaimToSubaccountArgs = from_candid(args_candid);
+        switch (_args) {
+            case (?args) {
+                return Option.make("claimToSubaccount({positionId: " # Nat.toText(args.positionId) # ", subaccount: " # debug_show(args.subaccount) # "})");
             };
             case (_) {
                 return null;
