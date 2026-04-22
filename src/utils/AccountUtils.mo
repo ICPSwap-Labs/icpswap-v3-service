@@ -2,7 +2,6 @@ import Principal "mo:base/Principal";
 import Blob "mo:base/Blob";
 import Nat8 "mo:base/Nat8";
 import Array "mo:base/Array";
-import Text "mo:base/Text";
 
 module {
 
@@ -16,13 +15,5 @@ module {
             ind := ind + 1;
         };
         return Blob.fromArray(Array.freeze(defaultArr));
-    };
-
-    public func isEmptyIdentity(caller: Principal): Bool {
-        var principal = Principal.toText(caller);
-        if (Text.equal(principal, "2vxsx-fae")) {
-            return true;
-        };
-        return false;
     };
 }

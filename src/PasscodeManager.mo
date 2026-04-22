@@ -168,7 +168,6 @@ actor class PasscodeManager(
 
     public shared ({ caller }) func withdraw(args : WithdrawArgs) : async Result.Result<Nat, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
-        if (AccountUtils.isEmptyIdentity(caller)) { return #err(#InternalError("Do not accept anonymous calls")); };
         var canisterId = Principal.fromActor(this);
         var balance : Nat = _walletBalanceOf(caller);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };

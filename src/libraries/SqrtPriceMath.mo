@@ -94,9 +94,7 @@ module SqrtPriceMath {
             };
             if(sqrtPX96.val() <= quotient.val()){ return #err("SqrtPriceMath illegal args"); };
             // always fits 160 bits
-            if(sqrtPX96.val() > quotient.val()){ 
-                return #ok(SafeUint.Uint160(SafeUint.Uint256(sqrtPX96.val()).sub(quotient).val()).val());
-            } else{ return #ok(0); };
+            return #ok(SafeUint.Uint160(SafeUint.Uint256(sqrtPX96.val()).sub(quotient).val()).val());
         };
     };
 
