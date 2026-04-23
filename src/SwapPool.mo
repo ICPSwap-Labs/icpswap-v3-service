@@ -1762,22 +1762,28 @@ shared (initMsg) actor class SwapPool(
                     return #err(#InternalError("Slippage check failed: " # checkFailedMsg));
                 };
                 _txState.oneStepSwapPreSwapCompleted(txIndex);
-                
-                switch(await _swap(caller, swapArgs)) {
-                    case (#ok(swapResult)) {
-                        _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
-                        _enqueueWithdraw<system>(txIndex, tokenOut, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
-                        if(amountIn > swapResult.effectiveAmount) {
-                            let refundAmount = amountIn - swapResult.effectiveAmount;
-                            ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, refundAmount, feeIn, memo, txIndex);
+
+                try {
+                    switch(await _swap(caller, swapArgs)) {
+                        case (#ok(swapResult)) {
+                            _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
+                            _enqueueWithdraw<system>(txIndex, tokenOut, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
+                            if(amountIn > swapResult.effectiveAmount) {
+                                let refundAmount = amountIn - swapResult.effectiveAmount;
+                                ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, refundAmount, feeIn, memo, txIndex);
+                            };
+                            return #ok(swapResult.swapAmount);
                         };
-                        return #ok(swapResult.swapAmount);
+                        case (#err(e)) {
+                            _txState.oneStepSwapSwapFailed(txIndex, "Swap failed:" # debug_show(e));
+                            ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, depositAmount, feeIn, memo, txIndex);
+                            return #err(e);
+                        };
                     };
-                    case (#err(e)) {
-                        _txState.oneStepSwapSwapFailed(txIndex, "Swap failed:" # debug_show(e));
-                        ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
-                        return #err(e);
-                    };
+                } catch (e) {
+                    _txState.oneStepSwapSwapFailed(txIndex, "Swap trapped: " # Error.message(e));
+                    ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, depositAmount, feeIn, memo, txIndex);
+                    return #err(#InternalError("Swap trapped: " # Error.message(e)));
                 };
             };
             case (#err(e)) { return #err(e); };
@@ -1839,20 +1845,26 @@ shared (initMsg) actor class SwapPool(
                 };
                 _txState.oneStepSwapPreSwapCompleted(txIndex);
 
-                switch(await _swap(caller, swapArgs)) {
-                    case (#ok(swapResult)) {
-                        _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
-                        _enqueueWithdraw<system>(txIndex, tokenOut, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
-                        if(amountIn > swapResult.effectiveAmount) {
-                            ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn - swapResult.effectiveAmount, feeIn, memo, txIndex);
+                try {
+                    switch(await _swap(caller, swapArgs)) {
+                        case (#ok(swapResult)) {
+                            _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
+                            _enqueueWithdraw<system>(txIndex, tokenOut, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
+                            if(amountIn > swapResult.effectiveAmount) {
+                                ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn - swapResult.effectiveAmount, feeIn, memo, txIndex);
+                            };
+                            return #ok(swapResult.swapAmount);
                         };
-                        return #ok(swapResult.swapAmount);
+                        case (#err(e)) {
+                            _txState.oneStepSwapSwapFailed(txIndex, "Swap failed:" # debug_show(e));
+                            ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, depositAmount, feeIn, memo, txIndex);
+                            return #err(e);
+                        };
                     };
-                    case (#err(e)) {
-                        _txState.oneStepSwapSwapFailed(txIndex, "Swap failed:" # debug_show(e));
-                        ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn, feeIn, memo, txIndex);
-                        return #err(e);
-                    };
+                } catch (e) {
+                    _txState.oneStepSwapSwapFailed(txIndex, "Swap trapped: " # Error.message(e));
+                    ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, depositAmount, feeIn, memo, txIndex);
+                    return #err(#InternalError("Swap trapped: " # Error.message(e)));
                 };
             };
             case (#err(e)) { return #err(#InternalError("Swap failed: " # debug_show(e))); };
