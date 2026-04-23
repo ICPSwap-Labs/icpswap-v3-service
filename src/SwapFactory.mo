@@ -991,12 +991,14 @@ shared (initMsg) actor class SwapFactory(
                 return Option.make(fun);
             };
             case (?#Local) {
+                let activeWasm = _wasmManager.getActiveWasm();
+                assert(activeWasm.size() > 0);
                 let fun = func (token0: Types.Token, token1: Types.Token, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal, positionIndexCid: Principal) : async Types.SwapPoolActor {
                     Cycles.add<system>(_initCycles);
                     let createCanisterResult = await IC0Utils.create_canister(null, null, _initCycles);
                     let canisterId = createCanisterResult.canister_id;
                     await IC0Utils.deposit_cycles(canisterId, _initCycles);
-                    await IC0Utils.install_code(canisterId, to_candid(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
+                    await IC0Utils.install_code(canisterId, to_candid(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), activeWasm, #install);
                     return actor(Principal.toText(canisterId)) : Types.SwapPoolActor;
                 };
                 return Option.make(fun);

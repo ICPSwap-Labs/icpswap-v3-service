@@ -45,10 +45,12 @@ actor class SwapPoolInstaller(
     ) : async Principal {
         assert (_hasPermission(caller));
         assert (Principal.equal(passedPositionIndexCid, positionIndexCid));
+        let activeWasm = _wasmManager.getActiveWasm();
+        assert (activeWasm.size() > 0);
         let createCanisterResult = await IC0Utils.create_canister(null, null, _initCycles);
         let canisterId = createCanisterResult.canister_id;
         await IC0Utils.deposit_cycles(canisterId, _initTopUpCycles);
-        await IC0Utils.install_code(canisterId, to_candid(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
+        await IC0Utils.install_code(canisterId, to_candid(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), activeWasm, #install);
         await IC0Utils.update_settings_add_controller(canisterId, [factoryId, governanceId]);
         return canisterId;
     };
