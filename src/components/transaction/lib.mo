@@ -835,13 +835,15 @@ module {
                     };
                 };
                 case (#OneStepSwap(info)) {
+                    if (info.status != #Completed and info.status != #Failed) {
                         _updateTransaction(txId, tx, #OneStepSwap({
-                            info with status = if (info.status != #Completed and info.status != #Failed) { #Failed } else { info.status };
+                            info with status = #Failed;
                             err = ?err;
                             withdraw = { info.withdraw with status = if (info.withdraw.status != #Completed and info.withdraw.status != #Failed) { #Failed } else { info.withdraw.status }; };
                             swap = { info.swap with status = if (info.swap.status != #Completed and info.swap.status != #Failed) { #Failed } else { info.swap.status }; };
                             deposit = { info.deposit with status = if (info.deposit.status != #Completed and info.deposit.status != #Failed) { #Failed } else { info.deposit.status }; };
                         }), transactions);
+                    };
                 };
             };
             return txId;
