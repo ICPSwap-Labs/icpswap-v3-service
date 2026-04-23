@@ -2450,12 +2450,24 @@ shared (initMsg) actor class SwapPool(
                     case (#OneStepSwap(info)) {
                         if (info.swap.status != #Completed) {
                             let (token, tokenAct, tokenFee) = if (Principal.equal(info.deposit.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
-                            ignore _refund<system>(token, tokenAct, transaction.owner, { owner = _getCanisterId(); subaccount = null }, { owner = transaction.owner; subaccount = null }, info.deposit.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId);
-                        } 
+                            switch (await _refund<system>(token, tokenAct, transaction.owner, { owner = _getCanisterId(); subaccount = null }, { owner = transaction.owner; subaccount = null }, info.deposit.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId)) {
+                                case (#ok(_)) {};
+                                case (#err(e)) {
+                                    _log("[ERROR][deleteFailedTransaction] OneStepSwap deposit refund failed: txId=" # Nat.toText(txId) # ", error=" # debug_show(e));
+                                    return #err(e);
+                                };
+                            };
+                        }
                         else if (info.withdraw.status != #Completed) {
                             let (token, tokenAct, tokenFee) = if (Principal.equal(info.withdraw.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
                             ignore _tokenHolderService.deposit(info.withdraw.transfer.to.owner, token, info.withdraw.transfer.amount);
-                            ignore _refund<system>(token, tokenAct, transaction.owner, info.withdraw.transfer.from, info.withdraw.transfer.to, info.withdraw.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId);
+                            switch (await _refund<system>(token, tokenAct, transaction.owner, info.withdraw.transfer.from, info.withdraw.transfer.to, info.withdraw.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId)) {
+                                case (#ok(_)) {};
+                                case (#err(e)) {
+                                    _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw refund failed: txId=" # Nat.toText(txId) # ", error=" # debug_show(e));
+                                    return #err(e);
+                                };
+                            };
                         };
                     };
                     case (_) {
