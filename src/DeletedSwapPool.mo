@@ -34,6 +34,7 @@ shared (initMsg) actor class DeletedSwapPool(
     private stable var _isRefunding : Bool = false;
     private stable var _refundLog : [Text] = [];
     private var _refundLogBuffer : Buffer.Buffer<Text> = Buffer.fromArray(_refundLog);
+    private stable var _failedRefunds : [(Principal, { balance0 : Nat; balance1 : Nat })] = [];
     private var _token0Fee : Nat = 0;
     private var _token1Fee : Nat = 0;
 
@@ -64,8 +65,8 @@ shared (initMsg) actor class DeletedSwapPool(
         let balances = _tokenHolderState.balances;
         if (_refundIndex >= balances.size()) {
             _isRefunding := false;
-            _tokenHolderState := { token0 = _token0; token1 = _token1; balances = []; };
-            _refundLogBuffer.add("Refund completed. total=" # Nat.toText(balances.size()));
+            let failedCount = _failedRefunds.size();
+            _refundLogBuffer.add("Refund completed. total=" # Nat.toText(balances.size()) # " failed=" # Nat.toText(failedCount));
             return;
         };
         let (user, ab) = balances[_refundIndex];
@@ -73,6 +74,9 @@ shared (initMsg) actor class DeletedSwapPool(
         var r1 : Nat = 0;
         var err0 : Text = "";
         var err1 : Text = "";
+        // Track remaining balance for this user after refund attempts
+        var remaining0 : Nat = ab.balance0;
+        var remaining1 : Nat = ab.balance1;
 
         if (ab.balance0 > _token0Fee) {
             let amount0 = ab.balance0 - _token0Fee;
@@ -86,11 +90,11 @@ shared (initMsg) actor class DeletedSwapPool(
                     memo = null;
                     created_at_time = null;
                 })) {
-                    case (#Ok(_)) { r0 := amount0; };
+                    case (#Ok(_)) { r0 := amount0; remaining0 := 0; };
                     case (#Err(msg)) { err0 := debug_show(msg); };
                 };
             } catch (e) { err0 := Error.message(e); };
-        };
+        } else { remaining0 := 0; };
 
         if (ab.balance1 > _token1Fee) {
             let amount1 = ab.balance1 - _token1Fee;
@@ -104,10 +108,15 @@ shared (initMsg) actor class DeletedSwapPool(
                     memo = null;
                     created_at_time = null;
                 })) {
-                    case (#Ok(_)) { r1 := amount1; };
+                    case (#Ok(_)) { r1 := amount1; remaining1 := 0; };
                     case (#Err(msg)) { err1 := debug_show(msg); };
                 };
             } catch (e) { err1 := Error.message(e); };
+        } else { remaining1 := 0; };
+
+        // If any token failed to refund, preserve the remaining balance
+        if (remaining0 > 0 or remaining1 > 0) {
+            _failedRefunds := _appendFailedRefund(_failedRefunds, user, remaining0, remaining1);
         };
 
         _refundLogBuffer.add("["  # Nat.toText(_refundIndex) # "] user=" # Principal.toText(user)
@@ -120,6 +129,39 @@ shared (initMsg) actor class DeletedSwapPool(
         ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processRefund);
     };
 
+    private func _appendFailedRefund(
+        arr : [(Principal, { balance0 : Nat; balance1 : Nat })],
+        user : Principal, balance0 : Nat, balance1 : Nat
+    ) : [(Principal, { balance0 : Nat; balance1 : Nat })] {
+        let buf = Buffer.fromArray<(Principal, { balance0 : Nat; balance1 : Nat })>(arr);
+        buf.add((user, { balance0 = balance0; balance1 = balance1 }));
+        Buffer.toArray(buf);
+    };
+
+    // Retry failed refunds
+    public shared ({ caller }) func retryFailedRefunds() : async Text {
+        if (not Principal.equal(caller, _controller)) {
+            return "error=Only controller can retry refunds.";
+        };
+        if (_failedRefunds.size() == 0) {
+            return "No failed refunds to retry.";
+        };
+        // Move failed refunds into balances and restart
+        _tokenHolderState := { token0 = _token0; token1 = _token1; balances = _failedRefunds; };
+        _failedRefunds := [];
+        _refundIndex := 0;
+        _isRefunding := true;
+        try { _token0Fee := await _token0Act.fee(); } catch (_) {};
+        try { _token1Fee := await _token1Act.fee(); } catch (_) {};
+        ignore Timer.setTimer<system>(#nanoseconds(0), _processRefund);
+        return "Retry started. total=" # Nat.toText(_tokenHolderState.balances.size());
+    };
+
+    // Query: view failed refunds
+    public query func getFailedRefunds() : async [(Principal, { balance0 : Nat; balance1 : Nat })] {
+        _failedRefunds;
+    };
+
     // Step 2: Transfer remaining tokens to fee receiver
     public shared ({ caller }) func transferAll() : async Text {
         if (not Principal.equal(caller, _controller)) {
@@ -127,6 +169,9 @@ shared (initMsg) actor class DeletedSwapPool(
         };
         if (_isRefunding) {
             return "error=Refund still in progress. Wait for completion.";
+        };
+        if (_failedRefunds.size() > 0) {
+            return "error=Failed refunds pending (" # Nat.toText(_failedRefunds.size()) # " users). Retry or resolve before transferAll.";
         };
         var token0_transferred : Nat = 0;
         var token1_transferred : Nat = 0;
