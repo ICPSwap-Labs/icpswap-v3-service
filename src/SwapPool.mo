@@ -2018,37 +2018,39 @@ shared (initMsg) actor class SwapPool(
         };
         let txIndex = _txState.startRemoveLimitOrder(msg.caller, _getCanisterId(), positionId, _getToken0WithPrincipal(), _getToken1WithPrincipal());
         
-        var isPositionExisted = false;
+        var deletedEntry : ?(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue) = null;
         // Try to remove from both upper and lower order lists
         label ul {
             for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
                 if (value.userPositionId == positionId) {
-                    isPositionExisted := true;
+                    deletedEntry := ?(#Upper, key, value);
                     _upperLimitOrders.delete(key);
                     _txState.removeLimitOrderDeleted(txIndex, value.token0InAmount, value.token1InAmount, key.tickLimit);
                     break ul;
                 };
             };
         };
-        label ll {
-            for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #fwd)) {
-                if (value.userPositionId == positionId) {
-                    isPositionExisted := true;
-                    _lowerLimitOrders.delete(key);
-                    _txState.removeLimitOrderDeleted(txIndex, value.token0InAmount, value.token1InAmount, key.tickLimit);
-                    break ll;
+        if (Option.isNull(deletedEntry)) {
+            label ll {
+                for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #fwd)) {
+                    if (value.userPositionId == positionId) {
+                        deletedEntry := ?(#Lower, key, value);
+                        _lowerLimitOrders.delete(key);
+                        _txState.removeLimitOrderDeleted(txIndex, value.token0InAmount, value.token1InAmount, key.tickLimit);
+                        break ll;
+                    };
                 };
             };
-        };  
-        if (not isPositionExisted) {
+        };
+        if (Option.isNull(deletedEntry)) {
             _txState.delete(txIndex);
             return #err(#InternalError("Limit order not found"));
         };
 
         var userPositionInfo = _positionTickService.getUserPosition(positionId);
         switch (_decreaseLiquidity(
-            msg.caller, 
-            { removeLimitOrder = false; }, 
+            msg.caller,
+            { removeLimitOrder = false; },
             { positionId = positionId; liquidity = Nat.toText(userPositionInfo.liquidity); }
         )) {
             case (#ok(result)) {
@@ -2070,9 +2072,15 @@ shared (initMsg) actor class SwapPool(
                 };
                 return #ok(true);
             };
-            case (#err(code)) { 
+            case (#err(code)) {
+                // Restore deleted order to RBTree
+                switch (deletedEntry) {
+                    case (?(#Upper, key, value)) { _upperLimitOrders.put(key, value); };
+                    case (?(#Lower, key, value)) { _lowerLimitOrders.put(key, value); };
+                    case null {};
+                };
                 _txState.removeLimitOrderFailed(txIndex, debug_show(code));
-                return #err(code); 
+                return #err(code);
             };
         };
     };
