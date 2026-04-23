@@ -205,6 +205,7 @@ shared (initMsg) actor class SwapPool(
 
     private stable var _pendingExecution : ?(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue) = null;
     private stable var _pendingRetryCount : Nat = 0;
+    private var _pendingGeneration : Nat = 0;
     private let _MAX_LIMIT_ORDER_RETRIES : Nat = 3;
     private stable var _failedLimitOrders : [(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)] = [];
     private var _failedLimitOrderBuffer : Buffer.Buffer<(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)> = Buffer.Buffer<(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)>(0);
@@ -265,8 +266,10 @@ shared (initMsg) actor class SwapPool(
                     // Fall through to process remaining stack items
                 } else {
                     ignore Timer.setTimer<system>(#nanoseconds(0), _executeAutoDecrease);
-                    // Watchdog: if _executeAutoDecrease traps, restart the chain
-                    ignore Timer.setTimer<system>(#seconds(10), _autoDecrease);
+                    let gen = _pendingGeneration;
+                    ignore Timer.setTimer<system>(#seconds(10), func() : async () {
+                        if (gen == _pendingGeneration) { await _autoDecrease(); };
+                    });
                     return;
                 };
             };
@@ -282,9 +285,12 @@ shared (initMsg) actor class SwapPool(
                     };
                     _pendingExecution := ?(limitOrderType, key, value);
                     _pendingRetryCount := 0;
+                    _pendingGeneration += 1;
                     ignore Timer.setTimer<system>(#nanoseconds(0), _executeAutoDecrease);
-                    // Watchdog: if _executeAutoDecrease traps, restart the chain
-                    ignore Timer.setTimer<system>(#seconds(10), _autoDecrease);
+                    let gen = _pendingGeneration;
+                    ignore Timer.setTimer<system>(#seconds(10), func() : async () {
+                        if (gen == _pendingGeneration) { await _autoDecrease(); };
+                    });
                     return;
                 };
                 case null {};
@@ -332,6 +338,7 @@ shared (initMsg) actor class SwapPool(
                 };
                 _pendingExecution := null;
                 _pendingRetryCount := 0;
+                _pendingGeneration += 1;
                 // Continue draining remaining stack items
                 if (not List.isNil(_limitOrderStack)) {
                     ignore Timer.setTimer<system>(#nanoseconds(0), _autoDecrease);
@@ -3168,16 +3175,34 @@ shared (initMsg) actor class SwapPool(
     };
     
     // clear failed logs older than 30 days everyday.
+    private func _isTxFailed(transaction: Tx.Transaction): Bool {
+        switch (transaction.action) {
+            case (#Deposit(info)) { info.status == #Failed };
+            case (#Withdraw(info)) { info.status == #Failed };
+            case (#Refund(info)) { info.status == #Failed };
+            case (#AddLiquidity(info)) { info.status == #Failed };
+            case (#DecreaseLiquidity(info)) { info.status == #Failed };
+            case (#Claim(info)) { info.status == #Failed };
+            case (#Swap(info)) { info.status == #Failed };
+            case (#OneStepSwap(info)) { info.status == #Failed };
+            case (#TransferPosition(info)) { info.status == #Failed };
+            case (#AddLimitOrder(info)) { info.status == #Failed };
+            case (#RemoveLimitOrder(info)) { info.status == #Failed };
+            case (#ExecuteLimitOrder(info)) { info.status == #Failed };
+        };
+    };
     private func _clearExpiredFailedTransactionJob(): async () {
         for((index, transaction) in _txState.getTransactions().vals()) {
-            _log("[INFO][cleanupExpiredTransactions] Checking transaction: now=" # debug_show(Time.now()) # ", txTimestamp=" # debug_show(transaction.timestamp));
             // 30 days in nanoseconds
             if (Int.abs(Time.now() - transaction.timestamp) > 30 * 24 * 60 * 60 * 1000000000) {
-                switch (_txState.getTransaction(index)) {
-                    case (null) { _log("[WARN][cleanupExpiredTransactions] Transaction not found: index=" # Nat.toText(index)); };
-                    case (?_tx) { try { _pushSwapInfoCache(_txState.setFailed(index, "Manually set as expired")); } catch (e) { _log("[WARN][_clearExpiredFailedTransactionJob] Push swap info cache failed: index=" # Nat.toText(index) # ", error=" # Error.message(e)); }; };
+                if (_isTxFailed(transaction)) {
+                    switch (_txState.getTransaction(index)) {
+                        case (null) { _log("[WARN][cleanupExpiredTransactions] Transaction not found: index=" # Nat.toText(index)); };
+                        case (?_tx) { try { _pushSwapInfoCache(_txState.setFailed(index, "Expired")); } catch (e) { _log("[WARN][_clearExpiredFailedTransactionJob] Push swap info cache failed: index=" # Nat.toText(index) # ", error=" # Error.message(e)); }; };
+                    };
+                } else {
+                    _log("[WARN][cleanupExpiredTransactions] Expired non-failed tx kept for investigation: index=" # Nat.toText(index) # ", action=" # debug_show(transaction.action));
                 };
-                _txState.delete(index);
             };
         };
     };
