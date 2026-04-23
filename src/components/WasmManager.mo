@@ -63,6 +63,7 @@ module {
         /// Step 3: Activate the staging WASM blob
         /// This will make the staging blob the active one and clear the staging area
         public func activateWasm() : () {
+            assert(stagingWasmBlob.size() > 0);
             activeWasmBlob := stagingWasmBlob;
             stagingWasmBlob := Blob.fromArray([]);
             chunksMap := HashMap.HashMap<Nat, Chunk>(1, Nat.equal, _hash);
