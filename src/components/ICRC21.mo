@@ -46,7 +46,7 @@ module {
         } else if (Text.equal(request.method, "claimToSubaccount")) {
             claim_to_subaccount_consent_msg(request.arg)
         } else if (Text.equal(request.method, "depositFromAndSwap") or Text.equal(request.method, "depositAndSwap")) {
-            deposit_and_swap_consent_msg(request.arg)
+            deposit_and_swap_consent_msg(request.method, request.arg)
         } else if (Text.equal(request.method, "addLimitOrder")) {
             add_limit_order_consent_msg(request.arg)
         } else if (Text.equal(request.method, "removeLimitOrder")) {
@@ -113,16 +113,16 @@ module {
             };
         };
     };
-    private func deposit_and_swap_consent_msg(args_candid: Blob): ?Text {
+    private func deposit_and_swap_consent_msg(method: Text, args_candid: Blob): ?Text {
         let _args: ?Types.DepositAndSwapArgs = from_candid(args_candid);
         switch (_args) {
             case (?args) {
-                return Option.make("depositAndSwap({" # 
-                    "zeroForOne: " # debug_show(args.zeroForOne) # 
-                    ", amountIn: " # args.amountIn # 
-                    ", tokenInFee: " # Nat.toText(args.tokenInFee) # 
-                    ", amountOutMinimum: " # args.amountOutMinimum # 
-                    ", tokenOutFee: " # Nat.toText(args.tokenOutFee) # 
+                return Option.make(method # "({" #
+                    "zeroForOne: " # debug_show(args.zeroForOne) #
+                    ", amountIn: " # args.amountIn #
+                    ", tokenInFee: " # Nat.toText(args.tokenInFee) #
+                    ", amountOutMinimum: " # args.amountOutMinimum #
+                    ", tokenOutFee: " # Nat.toText(args.tokenOutFee) #
                 "})")
             };
             case (_) {
