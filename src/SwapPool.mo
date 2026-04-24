@@ -1018,13 +1018,13 @@ shared (initMsg) actor class SwapPool(
                                         case (#OneStepSwap(updatedInfo)) {
                                             switch (updatedInfo.status) {
                                                 case (#WithdrawCreditCompleted) { await __withdraw(); return #ok(amount); };
-                                                case (_) { return #err(#InternalError("Invalid one-step swap status: expected WithdrawCreditCompleted")); };
+                                                case (_) { _log("[ERROR][_withdraw] Invalid OneStepSwap status after credit: txIndex=" # Nat.toText(txIndex)); return #err(#InternalError("Invalid one-step swap status: expected WithdrawCreditCompleted")); };
                                             };
                                         };
-                                        case (_) { return #err(#InternalError("Transaction type changed unexpectedly")); };
+                                        case (_) { _log("[ERROR][_withdraw] Transaction type changed unexpectedly: txIndex=" # Nat.toText(txIndex)); return #err(#InternalError("Transaction type changed unexpectedly")); };
                                     };
                                 };
-                                case (_) { return #err(#InternalError("Transaction not found after credit")); };
+                                case (_) { _log("[ERROR][_withdraw] Transaction not found after credit: txIndex=" # Nat.toText(txIndex)); return #err(#InternalError("Transaction not found after credit")); };
                             };
                         } else {
                             _log("[INFO][_withdraw] Insufficient funds, deleting transaction: txIndex=" # Nat.toText(txIndex));
@@ -1775,8 +1775,8 @@ shared (initMsg) actor class SwapPool(
                         case (#ok(swapResult)) {
                             _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
                             _enqueueWithdraw<system>(txIndex, tokenOut, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
-                            if(amountIn > swapResult.effectiveAmount) {
-                                let refundAmount = amountIn - swapResult.effectiveAmount;
+                            if(depositAmount > swapResult.effectiveAmount) {
+                                let refundAmount = depositAmount - swapResult.effectiveAmount;
                                 ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, refundAmount, feeIn, memo, txIndex);
                             };
                             return #ok(swapResult.swapAmount);
@@ -1857,8 +1857,8 @@ shared (initMsg) actor class SwapPool(
                         case (#ok(swapResult)) {
                             _txState.oneStepSwapSwapCompleted(txIndex, swapResult.swapAmount, swapResult.effectiveAmount);
                             _enqueueWithdraw<system>(txIndex, tokenOut, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, swapResult.swapAmount, feeOut, memo);
-                            if(amountIn > swapResult.effectiveAmount) {
-                                ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, amountIn - swapResult.effectiveAmount, feeIn, memo, txIndex);
+                            if(depositAmount > swapResult.effectiveAmount) {
+                                ignore _refund<system>(tokenIn, tokenInAct, caller, { owner = canisterId; subaccount = null }, { owner = caller; subaccount = null }, depositAmount - swapResult.effectiveAmount, feeIn, memo, txIndex);
                             };
                             return #ok(swapResult.swapAmount);
                         };
