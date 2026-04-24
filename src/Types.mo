@@ -586,6 +586,8 @@ module {
         #swapWithoutDeposit : () -> (Principal, Bool, Text, Text);
         #transfer : () -> (Token, Principal, Nat);
         #transferAll : () -> (Token, Principal);
+        #resetSyncingFlag : () -> ();
+        #forceReleaseLock : () -> ();
     };
     public type SwapPoolActor = actor {
         init : (Nat, Int, Nat) -> async ();

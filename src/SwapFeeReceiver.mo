@@ -888,6 +888,16 @@ shared (initMsg) actor class SwapFeeReceiver(
         return #ok();
     };
 
+    public shared ({ caller }) func resetSyncingFlag() : async () {
+        _checkPermission(caller);
+        _isSyncing := false;
+    };
+
+    public shared ({ caller }) func forceReleaseLock() : async () {
+        _checkPermission(caller);
+        _releaseLock();
+    };
+
     public query func getConfig() : async Result.Result<{
         icpPoolClaimInterval: Nat;
         noIcpPoolClaimInterval: Nat;
@@ -926,6 +936,7 @@ shared (initMsg) actor class SwapFeeReceiver(
         _tokenSwapLogArray := [];
         _tokenBurnLogArray := [];
         _locked := false;
+        _isSyncing := false;
     };
 
     system func inspect({
@@ -950,6 +961,8 @@ shared (initMsg) actor class SwapFeeReceiver(
             case (#swapWithoutDeposit _)        { Prim.isController(caller) };
             case (#transfer _)                  { Prim.isController(caller) };
             case (#transferAll _)               { Prim.isController(caller) };
+            case (#resetSyncingFlag _)          { Prim.isController(caller) };
+            case (#forceReleaseLock _)          { Prim.isController(caller) };
             // Anyone
             case (_) { true };
         };
