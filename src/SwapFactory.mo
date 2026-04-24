@@ -420,17 +420,21 @@ shared (initMsg) actor class SwapFactory(
         #ok();
     };
 
+    private func _parseVersion(v : Text) : [Nat] {
+        let parts = Iter.toArray(Text.split(v, #text(".")));
+        if (parts.size() != 3) { Prim.trap("Version must be in X.Y.Z format"); };
+        Array.tabulate<Nat>(3, func(i : Nat) : Nat {
+            switch (Nat.fromText(parts[i])) {
+                case (?n) { n };
+                case null { Prim.trap("Invalid version component: " # parts[i]); };
+            };
+        });
+    };
     public shared (msg) func setNextPoolVersion(version : Text) : async () {
         _checkAdminPermission(msg.caller);
-        
-        // Compare versions
-        let v1 = Text.split(_nextPoolVersion, #text("."));
-        let v2 = Text.split(version, #text("."));
-        let v1Iter = Iter.map<Text,Nat>(v1, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
-        let v2Iter = Iter.map<Text,Nat>(v2, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
-        let v1Arr = Iter.toArray(v1Iter);
-        let v2Arr = Iter.toArray(v2Iter);
-        
+        let v1Arr = _parseVersion(_nextPoolVersion);
+        let v2Arr = _parseVersion(version);
+
         if (v2Arr[0] < v1Arr[0]) { throw Error.reject("New version must be higher than current version"); }
         else if (v2Arr[0] == v1Arr[0]) {
             if (v2Arr[1] < v1Arr[1]) { throw Error.reject("New version must be higher than current version"); }
@@ -438,7 +442,7 @@ shared (initMsg) actor class SwapFactory(
                 if (v2Arr[2] <= v1Arr[2]) { throw Error.reject("New version must be higher than current version"); }
             }
         };
-        
+
         _nextPoolVersion := version;
     };
 
