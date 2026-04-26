@@ -65,7 +65,7 @@ shared (initMsg) actor class SwapPool(
     private let _MAX_DEBUG_LOGS : Nat = 1000;
     private stable var _debugLogArray : [Text] = [];
     private var _debugLog : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
-    private stable var _debugLogWriteIndex : Nat = 0;
+    private var _debugLogWriteIndex : Nat = 0;
     private func _log(msg : Text) {
         let entry = Nat.toText(BlockTimestamp.blockTimestamp()) # " " # msg;
         if (_debugLog.size() < _MAX_DEBUG_LOGS) {
@@ -193,6 +193,7 @@ shared (initMsg) actor class SwapPool(
             // Clear pending execution state
             _pendingExecution := null;
             _pendingRetryCount := 0;
+            _pendingGeneration += 1;
         };
         _isLimitOrderAvailable := available;
     };
@@ -263,6 +264,7 @@ shared (initMsg) actor class SwapPool(
                     _log("[WARN][_autoDecrease] Limit order skipped after " # Nat.toText(_MAX_LIMIT_ORDER_RETRIES) # " retries: " # debug_show(pending));
                     _pendingExecution := null;
                     _pendingRetryCount := 0;
+                    _pendingGeneration += 1;
                     // Fall through to process remaining stack items
                 } else {
                     ignore Timer.setTimer<system>(#nanoseconds(0), _executeAutoDecrease);
@@ -3294,12 +3296,16 @@ shared (initMsg) actor class SwapPool(
         _failedLimitOrderBuffer := Buffer.fromArray(_failedLimitOrders);
         _failedLimitOrders := [];
         _debugLog := Buffer.fromArray(_debugLogArray);
+        _debugLogWriteIndex := _debugLog.size();
         _debugLogArray := [];
         _txsEntries := [];
         _txIndex := 0;
         ignore Timer.setTimer<system>(#nanoseconds (0), _syncTokenFeeJob);
         if (not List.isNil(_withdrawQueue)) { _tryStartProcessing<system>(); };
-        if (Option.isSome(_pendingExecution) or not List.isNil(_limitOrderStack)) { ignore Timer.setTimer<system>(#nanoseconds(0), _autoDecrease); };
+        if (Option.isSome(_pendingExecution) or not List.isNil(_limitOrderStack)) {
+            _pendingRetryCount := 0;
+            ignore Timer.setTimer<system>(#nanoseconds(0), _autoDecrease);
+        };
         _jobService.active();
     };
     
