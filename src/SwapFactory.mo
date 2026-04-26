@@ -68,6 +68,7 @@ shared (initMsg) actor class SwapFactory(
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
     private stable var _pendingUpgradePoolList = List.nil<Types.PoolUpgradeTask>();
     private stable var _upgradeFailedPoolList = List.nil<Types.FailedPoolInfo>();
+    private stable var _upgradeWasmSnapshot : Blob = Blob.fromArray([]);
     // upgrade history
     private stable var _poolUpgradeTaskHis : [(Principal, [Types.PoolUpgradeTask])] = [];
     private var _poolUpgradeTaskHisMap : HashMap.HashMap<Principal, [Types.PoolUpgradeTask]> = HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
@@ -511,6 +512,8 @@ shared (initMsg) actor class SwapFactory(
         
         // check if task map is empty
         if (List.size(_pendingUpgradePoolList) > 0) { return #err(#InternalError("Please wait until the upgrade task list is empty")); };
+        // snapshot wasm for this batch
+        _upgradeWasmSnapshot := _wasmManager.getActiveWasm();
         // clear the upgrade task history
         _poolUpgradeTaskHis := [];
         _poolUpgradeTaskHisMap := HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
@@ -878,7 +881,7 @@ shared (initMsg) actor class SwapFactory(
                         _currentUpgradeTask := ?currentTask;
                         ignore Timer.setTimer<system>(#seconds (5), _execUpgrade);
                     } else if (not task.upgrade.isDone) {
-                        var currentTask = await UpgradeTask.stepUpgrade(task, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid, _wasmManager.getActiveWasm());
+                        var currentTask = await UpgradeTask.stepUpgrade(task, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid, _upgradeWasmSnapshot);
                         _currentUpgradeTask := ?currentTask;
                         ignore Timer.setTimer<system>(#seconds (5), _execUpgrade);
                     } else if (not task.start.isDone) {
