@@ -10,7 +10,7 @@ module {
         var defaultArr: [var Nat8] = Array.init<Nat8>(32, 0);
         defaultArr[0] := Nat8.fromNat(arr.size());
         var ind: Nat = 0;
-        while (ind < arr.size() and ind < 32) {
+        while (ind < arr.size() and ind + 1 < 32) {
             defaultArr[ind + 1] := arr[ind];
             ind := ind + 1;
         };
