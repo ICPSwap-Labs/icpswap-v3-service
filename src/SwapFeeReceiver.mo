@@ -349,13 +349,14 @@ shared (initMsg) actor class SwapFeeReceiver(
             var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
             var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICS.address, ICS.standard);
             var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
+            if (balance == 0) { return; };
             switch (await tokenAct.transfer({
-                from = { owner = canisterId; subaccount = null }; 
-                from_subaccount = null; 
-                to = { owner = governanceCid; subaccount = null }; 
-                amount = balance; 
-                fee = null; 
-                memo = Option.make(Text.encodeUtf8("_burnICS")); 
+                from = { owner = canisterId; subaccount = null };
+                from_subaccount = null;
+                to = { owner = governanceCid; subaccount = null };
+                amount = balance;
+                fee = null;
+                memo = Option.make(Text.encodeUtf8("_burnICS"));
                 created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
             })) {
                 case (#Ok(_)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = balance; errMsg = ""; }); };
@@ -866,12 +867,14 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     public shared ({ caller }) func setIcpPoolClaimInterval(interval: Nat) : async Result.Result<(), Types.Error> {
         _checkPermission(caller);
+        if (interval < 3600) { return #err(#InternalError("Interval must be at least 3600 seconds (1 hour)")); };
         _icpPoolClaimInterval := interval;
         return #ok();
     };
 
     public shared ({ caller }) func setNoIcpPoolClaimInterval(interval: Nat) : async Result.Result<(), Types.Error> {
         _checkPermission(caller);
+        if (interval < 3600) { return #err(#InternalError("Interval must be at least 3600 seconds (1 hour)")); };
         _noIcpPoolClaimInterval := interval;
         return #ok();
     };
