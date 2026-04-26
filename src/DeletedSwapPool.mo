@@ -158,7 +158,8 @@ shared (initMsg) actor class DeletedSwapPool(
     };
 
     // Query: view failed refunds
-    public query func getFailedRefunds() : async [(Principal, { balance0 : Nat; balance1 : Nat })] {
+    public query ({ caller }) func getFailedRefunds() : async [(Principal, { balance0 : Nat; balance1 : Nat })] {
+        assert(Principal.equal(caller, _controller));
         _failedRefunds;
     };
 
@@ -214,6 +215,12 @@ shared (initMsg) actor class DeletedSwapPool(
         if (not Principal.equal(caller, _controller)) {
             return "error=Only controller can recycle cycles.";
         };
+        if (_isRefunding) {
+            return "error=Refund still in progress. Wait for completion.";
+        };
+        if (_failedRefunds.size() > 0) {
+            return "error=Failed refunds pending (" # Nat.toText(_failedRefunds.size()) # " users). Resolve before recycling.";
+        };
         let balance = Cycles.balance();
         if (balance > 1000000000000) {
             let to_recycle = balance - 50000000000;
@@ -229,13 +236,15 @@ shared (initMsg) actor class DeletedSwapPool(
         { isRefunding = _isRefunding; index = _refundIndex; total = _tokenHolderState.balances.size(); };
     };
 
-    // Query: view remaining user balances
-    public query func getRemainingBalances() : async [(Principal, { balance0 : Nat; balance1 : Nat })] {
+    // Query: view remaining user balances (controller only)
+    public query ({ caller }) func getRemainingBalances() : async [(Principal, { balance0 : Nat; balance1 : Nat })] {
+        assert(Principal.equal(caller, _controller));
         _tokenHolderState.balances;
     };
 
-    // Query: view refund log
-    public query func getRefundLog() : async [Text] {
+    // Query: view refund log (controller only)
+    public query ({ caller }) func getRefundLog() : async [Text] {
+        assert(Principal.equal(caller, _controller));
         Buffer.toArray(_refundLogBuffer);
     };
 

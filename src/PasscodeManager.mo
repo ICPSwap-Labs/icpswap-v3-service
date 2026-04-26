@@ -162,8 +162,9 @@ actor class PasscodeManager(
                 };
             };
         } catch (e) {
-            let msg : Text = debug_show (Error.message(e));
-            return #err(#InternalError(msg));
+            let errMsg = Error.message(e);
+            _addLog(caller, "depositFrom transferFrom exception (ambiguous): " # errMsg, ?args.amount);
+            return #err(#InternalError(debug_show(errMsg)));
         };
     };
 

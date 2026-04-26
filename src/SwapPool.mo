@@ -1742,6 +1742,7 @@ shared (initMsg) actor class SwapPool(
         if (args.amountIn == "0") { return #err(#InternalError("Amount in cannot be 0")); };
 
         let amountIn: Nat = TextUtils.toNat(args.amountIn);
+        if (not (amountIn > feeIn)) { return #err(#InternalError("Input amount should be greater than fee")) };
         let canisterId = _getCanisterId();
 
         let txIndex = _txState.startOneStepSwap(caller, canisterId, tokenInWithPrincipal, tokenOutWithPrincipal, amountIn, TextUtils.toNat(args.amountOutMinimum), feeIn, feeOut, caller, null);
