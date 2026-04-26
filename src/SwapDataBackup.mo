@@ -41,16 +41,18 @@ shared (initMsg) actor class SwapDataBackup(
     private stable var _poolBackupEntries : [(Principal, PoolBackupData)] = [];
     private var _poolBackupMap : HashMap.HashMap<Principal, PoolBackupData> = HashMap.fromIter(_poolBackupEntries.vals(), 0, Principal.equal, Principal.hash);
 
-    // Query backup data for a specific pool
-    public query func getPoolBackup(poolCid: Principal) : async Result.Result<PoolBackupData, Types.Error> {
+    // Query backup data for a specific pool (restricted to controller/factory/governance)
+    public query ({ caller }) func getPoolBackup(poolCid: Principal) : async Result.Result<PoolBackupData, Types.Error> {
+        if (not _hasPermission(caller)) { return #err(#InternalError("Unauthorized")); };
         switch(_poolBackupMap.get(poolCid)) {
             case (?data) { #ok(data) };
             case null { #err(#InternalError("No backup data found for pool " # Principal.toText(poolCid))) };
         }
     };
 
-    // Query all pool backups
-    public query func getAllPoolBackups() : async Result.Result<[(Principal, PoolBackupData)], Types.Error> {
+    // Query all pool backups (restricted to controller/factory/governance)
+    public query ({ caller }) func getAllPoolBackups() : async Result.Result<[(Principal, PoolBackupData)], Types.Error> {
+        if (not _hasPermission(caller)) { return #err(#InternalError("Unauthorized")); };
         #ok(Iter.toArray(_poolBackupMap.entries()))
     };
 
