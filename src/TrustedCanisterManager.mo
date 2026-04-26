@@ -15,6 +15,7 @@ shared (initMsg) actor class TrustedCanisterManager(
 
     public shared (msg) func addCanister(canister : Principal) : async Bool {
         _checkPermission(msg.caller);
+        if (Principal.isAnonymous(canister)) { return false; };
         if (not CollectionUtils.arrayContains(_canisters, canister, Principal.equal)) {
             var buffer: Buffer.Buffer<Principal> = Buffer.Buffer<Principal>(_canisters.size() + 1);
             for (it: Principal in _canisters.vals()) {

@@ -1024,7 +1024,7 @@ shared (initMsg) actor class SwapFactory(
             };
             case (_) {
                 if (_poolInstallers.size() == 0) {
-                    return Option.make(#Local);
+                    return Option.make(#Local); // Fallback: no external installers configured, use local install_code
                 } else {
                     return Option.make(#External(actor(Principal.toText(_poolInstallers[0].canisterId)) : Types.SwapPoolInstaller));
                 };

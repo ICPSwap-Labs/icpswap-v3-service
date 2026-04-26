@@ -288,7 +288,7 @@ actor class PasscodeManager(
             let msg : Text = debug_show (Error.message(e));
             _addLog(
                 caller,
-                "TOKEN.transfer error: " # Error.message(e),
+                "[transfer] TOKEN.transfer exception (ambiguous): recipient=" # Principal.toText(recipient) # ", error=" # Error.message(e),
                 ?amount,
             );
             return #err(#InternalError(msg));
