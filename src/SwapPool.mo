@@ -3053,6 +3053,8 @@ shared (initMsg) actor class SwapPool(
             whiteList = _whiteList;
         };
     };
+    // Note: Controllers and admins bypass the _available flag. This is by design —
+    // controllers need access during upgrades/maintenance when the pool is paused.
     private func _isAvailable(caller: Principal) : Bool {
         if (_available) { return true; };
         if (CollectionUtils.arrayContains<Principal>(_whiteList, caller, Principal.equal)) { return true; };
@@ -3282,11 +3284,40 @@ shared (initMsg) actor class SwapPool(
         _jobService.active();
     };
     
+    private func _isPublicQuery(msg : Types.SwapPoolMsg) : Bool {
+        switch (msg) {
+            case (#metadata _) { true };
+            case (#getVersion _) { true };
+            case (#getPositions _) { true };
+            case (#getUserPositions _) { true };
+            case (#getUserPositionsByPrincipal _) { true };
+            case (#getUserPositionIdsByPrincipal _) { true };
+            case (#getUserPosition _) { true };
+            case (#getUserPositionWithTokenAmount _) { true };
+            case (#getTickInfos _) { true };
+            case (#getTicks _) { true };
+            case (#getTickBitmaps _) { true };
+            case (#quote _) { true };
+            case (#quoteForAll _) { true };
+            case (#getLimitOrders _) { true };
+            case (#getLimitOrderAvailabilityState _) { true };
+            case (#getInitArgs _) { true };
+            case (#getFeeGrowthGlobal _) { true };
+            case (#getAvailabilityState _) { true };
+            case (#getCachedTokenFee _) { true };
+            case (#icrc10_supported_standards _) { true };
+            case (#icrc28_trusted_origins _) { true };
+            case (_) { false };
+        };
+    };
     system func inspect({
         arg : Blob;
         caller : Principal;
         msg : Types.SwapPoolMsg;
     }) : Bool {
+        if (_isPublicQuery(msg)) {
+            return _isAvailable(caller) and _hasPermission(msg, caller);
+        };
         return _isAvailable(caller) and (not Principal.isAnonymous(caller)) and _hasPermission(msg, caller);
     };
 
