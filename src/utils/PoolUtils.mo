@@ -3,7 +3,6 @@ import Nat "mo:base/Nat";
 import Blob "mo:base/Blob";
 import Nat8 "mo:base/Nat8";
 import Array "mo:base/Array";
-import Result "mo:base/Result";
 import Types "../Types";
 
 module {
@@ -36,54 +35,4 @@ module {
         return Array.tabulate<Nat8>(len, ith_byte);
     };
 
-    public func hexToNat8Array(hex: Text): Result.Result<[Nat8], Text> {
-        let chars = Text.toIter(hex);
-        let size = (Text.size(hex) + 1) / 2;
-        let arr = Array.init<Nat8>(size, 0);
-        var i = 0;
-        var j = 0;
-        var current: Nat8 = 0;
-        let isOddLength = Text.size(hex) % 2 == 1;
-
-        for (char in chars) {
-            let digit = switch (char) {
-                case ('0') 0;
-                case ('1') 1;
-                case ('2') 2;
-                case ('3') 3;
-                case ('4') 4;
-                case ('5') 5;
-                case ('6') 6;
-                case ('7') 7;
-                case ('8') 8;
-                case ('9') 9;
-                case ('a') 10;
-                case ('b') 11;
-                case ('c') 12;
-                case ('d') 13;
-                case ('e') 14;
-                case ('f') 15;
-                case ('A') 10;
-                case ('B') 11;
-                case ('C') 12;
-                case ('D') 13;
-                case ('E') 14;
-                case ('F') 15;
-                case (c) { return #err("Invalid hex character: " # Text.fromChar(c)); };
-            };
-
-            if (isOddLength and i == 0) {
-                arr[j] := Nat8.fromNat(digit);
-                j += 1;
-            } else if (i % 2 == 0) {
-                current := Nat8.fromNat(digit * 16);
-            } else {
-                current := current + Nat8.fromNat(digit);
-                arr[j] := current;
-                j += 1;
-            };
-            i += 1;
-        };
-        #ok(Array.freeze(arr));
-    };
 }
