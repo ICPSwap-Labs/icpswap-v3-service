@@ -2451,17 +2451,35 @@ shared (initMsg) actor class SwapPool(
                     case (#Deposit(info)) {
                         let (token, tokenAct, tokenFee) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
                         ignore _tokenHolderService.deposit(transaction.owner, token, info.transfer.amount);
-                        ignore _refund<system>(token, tokenAct, transaction.owner, { owner = _getCanisterId(); subaccount = null }, { owner = transaction.owner; subaccount = null }, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId);
+                        switch (await _refund<system>(token, tokenAct, transaction.owner, { owner = _getCanisterId(); subaccount = null }, { owner = transaction.owner; subaccount = null }, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId)) {
+                            case (#ok(_)) {};
+                            case (#err(e)) {
+                                _log("[ERROR][deleteFailedTransaction] Deposit refund failed: txId=" # Nat.toText(txId) # ", error=" # debug_show(e));
+                                return #err(e);
+                            };
+                        };
                     };
                     case (#Withdraw(info)) {
                         let (token, tokenAct, tokenFee) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
                         ignore _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount);
-                        ignore _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId);
+                        switch (await _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId)) {
+                            case (#ok(_)) {};
+                            case (#err(e)) {
+                                _log("[ERROR][deleteFailedTransaction] Withdraw refund failed: txId=" # Nat.toText(txId) # ", error=" # debug_show(e));
+                                return #err(e);
+                            };
+                        };
                     };
                     case (#Refund(info)) {
                         let (token, tokenAct, tokenFee) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
                         ignore _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount);
-                        ignore _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), info.relatedIndex);
+                        switch (await _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), info.relatedIndex)) {
+                            case (#ok(_)) {};
+                            case (#err(e)) {
+                                _log("[ERROR][deleteFailedTransaction] Refund retry failed: txId=" # Nat.toText(txId) # ", error=" # debug_show(e));
+                                return #err(e);
+                            };
+                        };
                     };
                     case (#OneStepSwap(info)) {
                         if (info.swap.status != #Completed) {
