@@ -143,6 +143,9 @@ shared (initMsg) actor class DeletedSwapPool(
         if (not Principal.equal(caller, _controller)) {
             return "error=Only controller can retry refunds.";
         };
+        if (_isRefunding) {
+            return "error=Refund still in progress. Wait for completion.";
+        };
         if (_failedRefunds.size() == 0) {
             return "No failed refunds to retry.";
         };
@@ -259,9 +262,13 @@ shared (initMsg) actor class DeletedSwapPool(
     system func postupgrade() {
         _refundLogBuffer := Buffer.fromArray(_refundLog);
         _refundLog := [];
-        // Resume refunding if interrupted by upgrade
+        // Resume refunding if interrupted by upgrade — refresh fee cache first
         if (_isRefunding) {
-            ignore Timer.setTimer<system>(#nanoseconds(0), _processRefund);
+            ignore Timer.setTimer<system>(#nanoseconds(0), func() : async () {
+                try { _token0Fee := await _token0Act.fee(); } catch (_) {};
+                try { _token1Fee := await _token1Act.fee(); } catch (_) {};
+                await _processRefund();
+            });
         };
     };
 };
