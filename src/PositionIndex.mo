@@ -252,9 +252,12 @@ shared (initMsg) actor class PositionIndex(
     private stable var _admins : [Principal] = [];
     public shared (msg) func setAdmins(admins : [Principal]) : async () {
         _checkPermission(msg.caller);
-        for (admin in admins.vals()) {
-            if (Principal.isAnonymous(admin)) {
-                throw Error.reject("Anonymous principals cannot be pool admins");
+        // Empty array is allowed: explicit reset to "no admins" (controller fallback still applies).
+        for (i in admins.keys()) {
+            let admin = admins[i];
+            if (Principal.isAnonymous(admin)) { throw Error.reject("Anonymous principals cannot be pool admins"); };
+            for (j in admins.keys()) {
+                if (j > i and Principal.equal(admins[j], admin)) { throw Error.reject("Duplicate admin principal: " # Principal.toText(admin)); };
             };
         };
         _admins := admins;
