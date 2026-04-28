@@ -523,28 +523,28 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     private func _swapICPToICS() : async () {
         try {
-            var canisterId = switch (_canisterId) { 
+            var canisterId = switch (_canisterId) {
                 case(?p){ p };
                 case(_) {
                     _addTokenSwapLog( ICP, 0, 0, "_swapICPToICS failed: Uninitialized canisterId", "swapICPToICS", null);
                     return;
-                }; 
+                };
             };
             var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
             var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
             if (balance <= (_ICPFee * 10)) { return; };
             switch (await _factoryAct.getPool({ token0 = ICP; token1 = ICS; fee = 3000; })) {
-                case (#ok(poolData)) { 
-                    await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee); 
+                case (#ok(poolData)) {
+                    await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee);
                     // Only schedule burn if enabled
                     if (_autoBurnIcsEnabled) {
                         ignore Timer.setTimer<system>(#nanoseconds (1), _burnICS);
                     };
-                    return; 
+                    return;
                 };
-                case (#err(msg)) { 
-                    _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null); 
-                    return; 
+                case (#err(msg)) {
+                    _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null);
+                    return;
                 };
             };
         } catch (e) {
