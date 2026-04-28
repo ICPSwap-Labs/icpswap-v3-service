@@ -1,4 +1,7 @@
 import Nat "mo:base/Nat";
+import Nat64 "mo:base/Nat64";
+import Int "mo:base/Int";
+import Time "mo:base/Time";
 import Buffer "mo:base/Buffer";
 import Cycles "mo:base/ExperimentalCycles";
 import Principal "mo:base/Principal";
@@ -35,6 +38,9 @@ shared (initMsg) actor class DeletedSwapPool(
     private stable var _refundLog : [Text] = [];
     private var _refundLogBuffer : Buffer.Buffer<Text> = Buffer.fromArray(_refundLog);
     private stable var _failedRefunds : [(Principal, { balance0 : Nat; balance1 : Nat })] = [];
+    // Marker for the user whose refund is currently in-flight (await may not return due to upgrade).
+    // Cleared on each cycle's success/failure; non-null after upgrade indicates the cycle was interrupted.
+    private stable var _inFlightUser : ?(Principal, { balance0 : Nat; balance1 : Nat }) = null;
     private var _token0Fee : Nat = 0;
     private var _token1Fee : Nat = 0;
 
@@ -69,14 +75,22 @@ shared (initMsg) actor class DeletedSwapPool(
             _refundLogBuffer.add("Refund completed. total=" # Nat.toText(balances.size()) # " failed=" # Nat.toText(failedCount));
             return;
         };
-        let (user, ab) = balances[_refundIndex];
+        let processedIndex = _refundIndex;
+        let (user, ab) = balances[processedIndex];
+        // Mark in-flight and advance the index BEFORE the awaits so an upgrade-interrupted
+        // refund cycle does not retry the same slot on resume.
+        _inFlightUser := ?(user, ab);
+        _refundIndex += 1;
+
         var r0 : Nat = 0;
         var r1 : Nat = 0;
         var err0 : Text = "";
         var err1 : Text = "";
-        // Track remaining balance for this user after refund attempts
         var remaining0 : Nat = ab.balance0;
         var remaining1 : Nat = ab.balance1;
+        // Pass created_at_time so token-side ICRC-1 dedup rejects any duplicate caused by
+        // admin-initiated retry of an upgrade-interrupted transfer (typically within a 24h window).
+        let createdAt : ?Nat64 = ?Nat64.fromNat(Int.abs(Time.now()));
 
         if (ab.balance0 > _token0Fee) {
             let amount0 = ab.balance0 - _token0Fee;
@@ -88,7 +102,7 @@ shared (initMsg) actor class DeletedSwapPool(
                     amount = amount0;
                     fee = ?_token0Fee;
                     memo = null;
-                    created_at_time = null;
+                    created_at_time = createdAt;
                 })) {
                     case (#Ok(_)) { r0 := amount0; remaining0 := 0; };
                     case (#Err(msg)) { err0 := debug_show(msg); };
@@ -106,7 +120,7 @@ shared (initMsg) actor class DeletedSwapPool(
                     amount = amount1;
                     fee = ?_token1Fee;
                     memo = null;
-                    created_at_time = null;
+                    created_at_time = createdAt;
                 })) {
                     case (#Ok(_)) { r1 := amount1; remaining1 := 0; };
                     case (#Err(msg)) { err1 := debug_show(msg); };
@@ -114,18 +128,19 @@ shared (initMsg) actor class DeletedSwapPool(
             } catch (e) { err1 := Error.message(e); };
         } else { remaining1 := 0; };
 
-        // If any token failed to refund, preserve the remaining balance
+        // Cycle finished without upgrade interruption — clear in-flight marker.
+        _inFlightUser := null;
+
         if (remaining0 > 0 or remaining1 > 0) {
             _failedRefunds := _appendFailedRefund(_failedRefunds, user, remaining0, remaining1);
         };
 
-        _refundLogBuffer.add("["  # Nat.toText(_refundIndex) # "] user=" # Principal.toText(user)
+        _refundLogBuffer.add("["  # Nat.toText(processedIndex) # "] user=" # Principal.toText(user)
             # " refunded0=" # Nat.toText(r0)
             # " refunded1=" # Nat.toText(r1)
             # (if (err0 != "") { " err0=" # err0 } else { "" })
             # (if (err1 != "") { " err1=" # err1 } else { "" }));
 
-        _refundIndex += 1;
         ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processRefund);
     };
 
@@ -262,6 +277,18 @@ shared (initMsg) actor class DeletedSwapPool(
     system func postupgrade() {
         _refundLogBuffer := Buffer.fromArray(_refundLog);
         _refundLog := [];
+        // If an upgrade interrupted an in-flight refund, the transfer's actual ledger outcome
+        // is unknown. Move the user to _failedRefunds so admin can verify on the token canister
+        // before retrying. The created_at_time on the original attempt protects against
+        // double-credit during the ICRC-1 dedup window.
+        switch (_inFlightUser) {
+            case (?(user, ab)) {
+                _failedRefunds := _appendFailedRefund(_failedRefunds, user, ab.balance0, ab.balance1);
+                _refundLogBuffer.add("Upgrade interrupted refund: user=" # Principal.toText(user) # " moved to _failedRefunds — verify ledger before retry");
+                _inFlightUser := null;
+            };
+            case (null) {};
+        };
         // Resume refunding if interrupted by upgrade — refresh fee cache first
         if (_isRefunding) {
             ignore Timer.setTimer<system>(#nanoseconds(0), func() : async () {
