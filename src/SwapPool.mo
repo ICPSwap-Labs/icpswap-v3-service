@@ -1450,7 +1450,7 @@ shared (initMsg) actor class SwapPool(
             )
         ).val();
         // var swapFee0Repurchase = 0;
-        var swapFee0Repurchase = SafeUint.Uint128(swapFee0Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
+        var swapFee0Repurchase = SafeUint.Uint128(swapFee0Total).mul(SafeUint.Uint128(2)).div(SafeUint.Uint128(10)).val();
         var swapFee0Lp = if (swapFee0Total > swapFee0Repurchase) {
             SafeUint.Uint128(swapFee0Total).sub(SafeUint.Uint128(swapFee0Repurchase)).val();
         } else { swapFee0Repurchase := 0; swapFee0Total };
@@ -1467,7 +1467,7 @@ shared (initMsg) actor class SwapPool(
             )
         ).val();
         // var swapFee1Repurchase = 0;
-        var swapFee1Repurchase = SafeUint.Uint128(swapFee1Total).div(SafeUint.Uint128(10)).mul(SafeUint.Uint128(2)).val();
+        var swapFee1Repurchase = SafeUint.Uint128(swapFee1Total).mul(SafeUint.Uint128(2)).div(SafeUint.Uint128(10)).val();
         var swapFee1Lp = if (swapFee1Total > swapFee1Repurchase) {
             SafeUint.Uint128(swapFee1Total).sub(SafeUint.Uint128(swapFee1Repurchase)).val();
         } else { swapFee1Repurchase := 0; swapFee1Total };
@@ -2535,7 +2535,14 @@ shared (initMsg) actor class SwapPool(
                                 };
                             };
                         }
-                        else if (info.withdraw.status != #Completed) {
+                        else if (info.withdraw.status == #Failed) {
+                            // Safe to refund: withdraw is finalized as failed (transfer rejected or exception).
+                            // Defensive: also reject if a ledger transfer index was somehow recorded.
+                            if (info.withdraw.transfer.index != 0) {
+                                let errMsg = "Cannot refund: withdraw transfer.index=" # Nat.toText(info.withdraw.transfer.index) # " (already on ledger). Status=" # debug_show(info.withdraw.status);
+                                _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                                return #err(#InternalError(errMsg));
+                            };
                             let (token, tokenAct, tokenFee) = if (Principal.equal(info.withdraw.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
                             if (not _tokenHolderService.deposit(info.withdraw.transfer.to.owner, token, info.withdraw.transfer.amount)) {
                                 let errMsg = "tokenHolder.deposit failed: to=" # Principal.toText(info.withdraw.transfer.to.owner) # ", token=" # token.address # ", amount=" # Nat.toText(info.withdraw.transfer.amount);
@@ -2549,6 +2556,14 @@ shared (initMsg) actor class SwapPool(
                                     return #err(e);
                                 };
                             };
+                        }
+                        else if (info.withdraw.status != #Completed) {
+                            // #Created or #CreditCompleted — withdraw is in-flight or queued.
+                            // Refunding here would race with the original tokenAct.transfer and risks double-pay.
+                            // Admin must drain/restart the withdraw queue and let it finalize naturally before retrying.
+                            let errMsg = "Cannot refund: withdraw status=" # debug_show(info.withdraw.status) # " (must be #Failed). Original withdraw is still in-flight; risk of double-pay. Restart the withdraw queue or wait for natural completion.";
+                            _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                            return #err(#InternalError(errMsg));
                         };
                     };
                     case (_) {
