@@ -71,10 +71,13 @@ module {
             _currentUploader := null;
         };
 
-        /// Clear all chunks
+        /// Clear all chunks AND any staging blob from a prior combineChunks call.
+        /// Without clearing the staging blob, a subsequent admin's clearChunks would leave
+        /// the previous uploader's combined blob still eligible for activateWasm.
         public func clearChunks() : () {
             chunksMap := HashMap.HashMap<Nat, Chunk>(1, Nat.equal, _hash);
             nextChunkID := 0;
+            stagingWasmBlob := Blob.fromArray([]);
             _currentUploader := null;
         };
 
