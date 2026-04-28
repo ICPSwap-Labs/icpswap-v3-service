@@ -253,6 +253,17 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
+    // Watchdog delay with exponential backoff + jitter to avoid timer-storm alignment under
+    // contention. Retry 0 → ~10s, retry 1 → ~20s, retry 2 → ~40s; jitter is ±~12.5% derived
+    // from Time.now() (deterministic per scheduling moment, but spreads across retries).
+    private func _watchdogDelaySeconds(retryCount : Nat) : Nat {
+        let base : Nat = 10 * (2 ** retryCount);          // 10, 20, 40 ...
+        let jitterRange : Nat = base / 4;                 // 25% spread
+        let jitter : Nat = if (jitterRange == 0) { 0 } else { Int.abs(Time.now()) % jitterRange };
+        let half : Nat = jitterRange / 2;
+        if (jitter >= half) { base + (jitter - half) } else { base - (half - jitter) };
+    };
+
     // Message 1: pop from stack, set _pendingExecution, schedule execution in separate message.
     // If _pendingExecution is already set, a previous _executeAutoDecrease must have trapped — handle retry.
     private func _autoDecrease() : async () {
@@ -269,7 +280,8 @@ shared (initMsg) actor class SwapPool(
                 } else {
                     ignore Timer.setTimer<system>(#nanoseconds(0), _executeAutoDecrease);
                     let gen = _pendingGeneration;
-                    ignore Timer.setTimer<system>(#seconds(10), func() : async () {
+                    let delay = _watchdogDelaySeconds(_pendingRetryCount);
+                    ignore Timer.setTimer<system>(#seconds(delay), func() : async () {
                         if (gen == _pendingGeneration) { await _autoDecrease(); };
                     });
                     return;
@@ -290,7 +302,8 @@ shared (initMsg) actor class SwapPool(
                     _pendingGeneration += 1;
                     ignore Timer.setTimer<system>(#nanoseconds(0), _executeAutoDecrease);
                     let gen = _pendingGeneration;
-                    ignore Timer.setTimer<system>(#seconds(10), func() : async () {
+                    let delay = _watchdogDelaySeconds(0);
+                    ignore Timer.setTimer<system>(#seconds(delay), func() : async () {
                         if (gen == _pendingGeneration) { await _autoDecrease(); };
                     });
                     return;
@@ -2618,14 +2631,6 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
-    // public shared (msg) func setTokenAmountState(token0Amount : Nat, token1Amount : Nat) : async Result.Result<(), Types.Error> {
-    //     _checkAdminPermission(msg.caller);
-    //     if (_available) { return #err(#InternalError("Pool should not be available")); };
-    //     _tokenAmountService.setTokenAmount0(token0Amount);
-    //     _tokenAmountService.setTokenAmount1(token1Amount);
-    //     return #ok();
-    // };
-    
     public shared (msg) func updateTokenFee() : async () {
         _checkAdminPermission(msg.caller);
         try { _token0Fee := await _token0Act.fee(); } catch (e) { _log("[WARN][updateTokenFee] Update token fee failed: error=" # Error.message(e)); };
@@ -3106,8 +3111,13 @@ shared (initMsg) actor class SwapPool(
     public shared (msg) func setAdmins(admins : [Principal]) : async () {
         _assertAccessible(msg.caller);
         _checkControllerPermission(msg.caller);
-        for (admin in admins.vals()) {
+        // Empty array is allowed: explicit reset to "no admins" (controller fallback still applies).
+        for (i in admins.keys()) {
+            let admin = admins[i];
             if (Principal.isAnonymous(admin)) { throw Error.reject("Anonymous principals cannot be pool admins"); };
+            for (j in admins.keys()) {
+                if (j > i and Principal.equal(admins[j], admin)) { throw Error.reject("Duplicate admin principal: " # Principal.toText(admin)); };
+            };
         };
         _admins := admins;
     };
@@ -3252,12 +3262,20 @@ shared (initMsg) actor class SwapPool(
     private stable var _claimLog : [Text] = [];
     private var _claimLogBuffer : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
     public query func getClaimLog() : async [Text] { return Buffer.toArray(_claimLogBuffer); };
+    // Lock for the read-mutate-deposit-zero sequence below. Currently the body has no `await`
+    // so concurrency is impossible, but this guard makes the no-await invariant explicit and
+    // protects against a future refactor that introduces an `await` mid-body (which would
+    // otherwise race with concurrent swaps mutating swapFee0/1Repurchase).
+    private var _isClaimingFees : Bool = false;
     private func _claimSwapFeeRepurchaseJob() : async () {
+        if (_isClaimingFees) { _log("[WARN][_claimSwapFeeRepurchaseJob] already in progress; skipping"); return; };
+        _isClaimingFees := true;
         let balance0 = _tokenAmountService.getSwapFee0Repurchase();
         let balance1 = _tokenAmountService.getSwapFee1Repurchase();
         if (balance0 > 0 or balance1 > 0) {
             _claimLogBuffer.add("{\"amount0\": \"" # debug_show(balance0) # "\", \"amount1\": \"" # debug_show(balance1) # "\", \"timestamp\": \"" # debug_show(BlockTimestamp.blockTimestamp()) # "\"}");
             if (not _tokenHolderService.deposit2(feeReceiverCid, _token0, balance0, _token1, balance1)) {
+                _isClaimingFees := false;
                 Prim.trap("Claim swap fee repurchase failed: tokenHolder.deposit2 feeReceiver=" # Principal.toText(feeReceiverCid) # ", balance0=" # Nat.toText(balance0) # ", balance1=" # Nat.toText(balance1));
             };
             _tokenAmountService.setTokenAmount0(_natSubClamp(_tokenAmountService.getTokenAmount0(), balance0));
@@ -3265,6 +3283,7 @@ shared (initMsg) actor class SwapPool(
             _tokenAmountService.setSwapFee0Repurchase(0);
             _tokenAmountService.setSwapFee1Repurchase(0);
         };
+        _isClaimingFees := false;
     };
     
     // clear failed logs older than 30 days everyday.
