@@ -1124,6 +1124,11 @@ shared (initMsg) actor class SwapPool(
             };
             swapAmount := _executeSwap(args, caller, swapResult);
 
+            let minOut = TextUtils.toNat(args.amountOutMinimum);
+            if (minOut > 0 and swapAmount < minOut) {
+                throw Error.reject("Slippage exceeded after swap: realized=" # Nat.toText(swapAmount) # ", required=" # Nat.toText(minOut));
+            };
+
             ignore Timer.setTimer<system>(#nanoseconds (0), _checkLimitOrder);
             ignore Timer.setTimer<system>(#seconds (3), func() : async () { _jobService.onActivity<system>(); });
         } catch (e) {
@@ -1730,16 +1735,16 @@ shared (initMsg) actor class SwapPool(
         _assertNotAnonymous(caller);
 
         let (fee0, fee1) = (_token0Fee, _token1Fee);
-        let (tokenIn, tokenInWithPrincipal, tokenInAct, feeIn, tokenOut, tokenOutWithPrincipal,feeOut) = if (args.zeroForOne) { 
-            (_token0, _getToken0WithPrincipal(), _token0Act, fee0, _token1, _getToken1WithPrincipal(), fee1) 
+        let (tokenIn, tokenInWithPrincipal, tokenInAct, feeIn, tokenOut, tokenOutWithPrincipal,feeOut) = if (args.zeroForOne) {
+            (_token0, _getToken0WithPrincipal(), _token0Act, fee0, _token1, _getToken1WithPrincipal(), fee1)
         } else {
-            (_token1, _getToken1WithPrincipal(), _token1Act, fee1, _token0, _getToken0WithPrincipal(), fee0) 
+            (_token1, _getToken1WithPrincipal(), _token1Act, fee1, _token0, _getToken0WithPrincipal(), fee0)
         };
-        if (not Nat.equal(feeIn, args.tokenInFee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeIn) # ", received: " # Nat.toText(args.tokenInFee) # "), please try later")); 
+        if (not Nat.equal(feeIn, args.tokenInFee)) {
+            return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeIn) # ", received: " # Nat.toText(args.tokenInFee) # "), please try later"));
         };
-        if (not Nat.equal(feeOut, args.tokenOutFee)) { 
-            return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeOut) # ", received: " # Nat.toText(args.tokenOutFee) # "), please try later")); 
+        if (not Nat.equal(feeOut, args.tokenOutFee)) {
+            return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeOut) # ", received: " # Nat.toText(args.tokenOutFee) # "), please try later"));
         };
         if (args.amountIn == "0") { return #err(#InternalError("Amount in cannot be 0")); };
 
@@ -1759,7 +1764,7 @@ shared (initMsg) actor class SwapPool(
                     switch (_preSwap(swapArgs, caller)) {
                         case (#ok(result)) {
                             if (result < TextUtils.toInt(args.amountOutMinimum)) {
-                                checkFailedMsg := "minimum amount requirement not met: expected minimum " # args.amountOutMinimum # ", available amount " # Nat.toText(result); 
+                                checkFailedMsg := "minimum amount requirement not met: expected minimum " # args.amountOutMinimum # ", available amount " # Nat.toText(result);
                                 false;
                             } else { true; };
                         };
@@ -1803,12 +1808,12 @@ shared (initMsg) actor class SwapPool(
     public shared({ caller }) func depositAndSwap(args: Types.DepositAndSwapArgs) : async Result.Result<Nat, Types.Error> {
         _assertAccessible(caller);
         _assertNotAnonymous(caller);
-        
+
         let (fee0, fee1) = (_token0Fee, _token1Fee);
-        let (tokenIn, tokenInWithPrincipal, tokenInAct, feeIn, tokenOut, tokenOutWithPrincipal,feeOut) = if (args.zeroForOne) { 
-            (_token0, _getToken0WithPrincipal(), _token0Act, fee0, _token1, _getToken1WithPrincipal(), fee1) 
+        let (tokenIn, tokenInWithPrincipal, tokenInAct, feeIn, tokenOut, tokenOutWithPrincipal,feeOut) = if (args.zeroForOne) {
+            (_token0, _getToken0WithPrincipal(), _token0Act, fee0, _token1, _getToken1WithPrincipal(), fee1)
         } else {
-            (_token1, _getToken1WithPrincipal(), _token1Act, fee1, _token0, _getToken0WithPrincipal(), fee0) 
+            (_token1, _getToken1WithPrincipal(), _token1Act, fee1, _token0, _getToken0WithPrincipal(), fee0)
         };
         if (not Nat.equal(feeIn, args.tokenInFee)) { 
             return #err(#InternalError("Wrong fee cache (expected: " # Nat.toText(feeIn) # ", received: " # Nat.toText(args.tokenInFee) # "), please try later")); 
