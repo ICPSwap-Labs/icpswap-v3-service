@@ -242,7 +242,8 @@ shared (initMsg) actor class PositionIndex(
         return ICRC21.icrc10_supported_standards();
     };
     public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
-        return ICRC21.icrc21_canister_call_consent_message(request);
+        // PositionIndex has no per-pool token context; empty addresses are safe — pool-specific methods are not valid here.
+        return ICRC21.icrc21_canister_call_consent_message(request, "", "");
     };
 
     // --------------------------- ACL ------------------------------------
