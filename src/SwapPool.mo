@@ -3230,7 +3230,7 @@ shared (initMsg) actor class SwapPool(
         return ICRC21.icrc10_supported_standards();
     };
     public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
-        return ICRC21.icrc21_canister_call_consent_message(request);
+        return ICRC21.icrc21_canister_call_consent_message(request, _token0.address, _token1.address);
     };
 
     // --------------------------- claim fee ------------------------------------

@@ -15,14 +15,14 @@ module {
         ];
     };
     
-    public func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : ICRCTypes.Icrc21ConsentMessageResponse {
+    public func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest, token0Address : Text, token1Address : Text) : ICRCTypes.Icrc21ConsentMessageResponse {
         let metadata = {
             utc_offset_minutes = null;
             language = "en";
         };
         // if (Text.equal(request.method, "addLimitOrder")) {
         //     return add_limit_order_consent_msg(request.arg, metadata);
-        // } else 
+        // } else
         let msg = if (Text.equal(request.method, "approvePosition")) {
             approve_position_consent_msg(request.arg)
         } else if (Text.equal(request.method, "claim")) {
@@ -36,7 +36,7 @@ module {
         } else if (Text.equal(request.method, "mint")) {
             mint_consent_msg(request.arg)
         } else if (Text.equal(request.method, "swap")) {
-            swap_consent_msg(request.arg)
+            swap_consent_msg(request.arg, token0Address, token1Address)
         } else if (Text.equal(request.method, "transferPosition")) {
             transfer_position_consent_msg(request.arg)
         } else if (Text.equal(request.method, "withdraw")) {
@@ -46,7 +46,7 @@ module {
         } else if (Text.equal(request.method, "claimToSubaccount")) {
             claim_to_subaccount_consent_msg(request.arg)
         } else if (Text.equal(request.method, "depositFromAndSwap") or Text.equal(request.method, "depositAndSwap")) {
-            deposit_and_swap_consent_msg(request.method, request.arg)
+            deposit_and_swap_consent_msg(request.method, request.arg, token0Address, token1Address)
         } else if (Text.equal(request.method, "addLimitOrder")) {
             add_limit_order_consent_msg(request.arg)
         } else if (Text.equal(request.method, "removeLimitOrder")) {
@@ -113,14 +113,17 @@ module {
             };
         };
     };
-    private func deposit_and_swap_consent_msg(method: Text, args_candid: Blob): ?Text {
+    private func deposit_and_swap_consent_msg(method: Text, args_candid: Blob, token0Address: Text, token1Address: Text): ?Text {
         let _args: ?Types.DepositAndSwapArgs = from_candid(args_candid);
         switch (_args) {
             case (?args) {
+                let (tokenIn, tokenOut) = if (args.zeroForOne) { (token0Address, token1Address) } else { (token1Address, token0Address) };
                 return Option.make(method # "({" #
                     "zeroForOne: " # debug_show(args.zeroForOne) #
+                    ", tokenIn: " # tokenIn #
                     ", amountIn: " # args.amountIn #
                     ", tokenInFee: " # Nat.toText(args.tokenInFee) #
+                    ", tokenOut: " # tokenOut #
                     ", amountOutMinimum: " # args.amountOutMinimum #
                     ", tokenOutFee: " # Nat.toText(args.tokenOutFee) #
                 "})")
@@ -152,12 +155,12 @@ module {
             };
         };
     };
-    private func swap_consent_msg(args_candid: Blob): ?Text {
+    private func swap_consent_msg(args_candid: Blob, token0Address: Text, token1Address: Text): ?Text {
         let _args: ?Types.SwapArgs = from_candid(args_candid);
         switch (_args) {
             case (?args) {
-                return Option.make("swap({zeroForOne: " # debug_show(args.zeroForOne) # ", amountIn: " # args.amountIn # ", amountOutMinimum: " # args.amountOutMinimum # "})");
-
+                let (tokenIn, tokenOut) = if (args.zeroForOne) { (token0Address, token1Address) } else { (token1Address, token0Address) };
+                return Option.make("swap({zeroForOne: " # debug_show(args.zeroForOne) # ", tokenIn: " # tokenIn # ", amountIn: " # args.amountIn # ", tokenOut: " # tokenOut # ", amountOutMinimum: " # args.amountOutMinimum # "})");
             };
             case (_) {
                 return null;
