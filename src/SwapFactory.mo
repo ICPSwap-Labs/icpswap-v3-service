@@ -42,10 +42,7 @@ shared (initMsg) actor class SwapFactory(
     governanceCid : ?Principal,
     positionIndexCid : Principal
 ) = this {
-    private type LockState = {
-        locked : Bool;
-        time : Time.Time;
-    };
+    private type LockState = { locked : Bool; time : Time.Time; };
 
     /// configuration items
     private stable var _initCycles : Nat = 1860000000000;
@@ -57,7 +54,16 @@ shared (initMsg) actor class SwapFactory(
 
     private var _feeTickSpacingMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(_feeTickSpacingEntries.vals(), 10, Nat.equal, Hash.hash);
     private var _poolDataService : PoolData.Service = PoolData.Service(_poolDataState);
-    private stable var _lockState : LockState = { locked = false; time = 0};
+
+    // Global createPool lock with 10-minute self-healing TTL. createPool is a rare
+    // admin operation; serializing all calls is acceptable. The acquisition time
+    // doubles as the generation token: each `_lock()` mints a unique, monotonic
+    // `Time.now()`, and `_unlock(myTime)` only releases when `_lockState.time ==
+    // myTime`. After a TTL takeover the original holder's stale `_unlock` finds a
+    // different time on the lock and is a no-op — eliminates the cascade where
+    // one caller's late unlock would release another caller's lock.
+    private let _LOCK_TTL_NS : Int = 10 * 60 * 1_000_000_000;
+    private stable var _lockState : LockState = { locked = false; time = 0 };
 
     /**
         make sure the version is not the same as the previous one and same as the new version of SwapPool
@@ -98,69 +104,69 @@ shared (initMsg) actor class SwapFactory(
             case (_) { return #err(#InternalError("TickSpacing cannot be 0")); };
         };
 
-        if (not _lock()) { return #err(#InternalError("Please wait for previous creating job finished")); };
-
         let (token0, token1) = PoolUtils.sort(args.token0, args.token1);
         let poolKey : Text = PoolUtils.getPoolKey(token0, token1, args.fee);
-        var poolData = switch (_poolDataService.getPools().get(poolKey)) {
-            case (?pool) { pool };
-            case (_) {
-                try {
-                    let passcode = { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; };
-                    if(not _deletePasscode(msg.caller, passcode)) { _unlock(); return #err(#InternalError("Passcode is not existed.")); };
 
-                    let pool: Types.SwapPoolActor = await installFunc(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
-                    await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
-                    await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), [initMsg.caller]);
-                    // await _infoAct.addClient(Principal.fromActor(pool));
-                    let poolData = {
-                        key = poolKey;
-                        token0 = token0;
-                        token1 = token1;
-                        fee = args.fee;
-                        tickSpacing = tickSpacing;
-                        canisterId = Principal.fromActor(pool);
-                    } : Types.PoolData;
-                    _poolDataService.putPool(poolKey, poolData);
+        // Idempotency fast-path: pool already exists, return without locking.
+        switch (_poolDataService.getPools().get(poolKey)) { case (?pool) { return #ok(pool) }; case (_) {}; };
 
-                    // Add creation record
-                    _addCreatePoolRecord({
-                        caller = msg.caller;
-                        poolId = ?Principal.fromActor(pool);
-                        timestamp = Time.now();
-                        token0 = token0;
-                        token1 = token1;
-                        fee = args.fee;
-                        status = "success";
-                        err = null;
-                    });
-
-                    poolData;
-                } catch (e) {
-                    // Rollback passcode if pool creation fails
-                    _rollbackPasscode(msg.caller, { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; });
-                    _addCreatePoolRecord({
-                        caller = msg.caller;
-                        poolId = null;
-                        timestamp = Time.now();
-                        token0 = token0;
-                        token1 = token1;
-                        fee = args.fee;
-                        status = "failed";
-                        err = ?Error.message(e);
-                    });
-                    _unlock();
-                    return #err(#InternalError("Create pool failed: " # Error.message(e)));
-                };
-            };
+        // Global createPool lock. createPool is rare; serializing all calls keeps the design simple.
+        let myLockTime = switch (_lock()) {
+            case (?g) { g }; case (null) { return #err(#InternalError("Please wait for previous creating job finished")); };
         };
 
-        _unlock();
+        let passcode = { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; };
 
-        // update pool ids
-        ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { await _positionIndexAct.updatePoolIds(); });
-        
-        return #ok(poolData);
+        try {
+            if (not _deletePasscode(msg.caller, passcode)) {
+                ignore _unlock(myLockTime);
+                return #err(#InternalError("Passcode is not existed."));
+            };
+
+            let pool: Types.SwapPoolActor = await installFunc(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
+            await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
+            await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), [initMsg.caller]);
+
+            let poolData = {
+                key = poolKey;
+                token0 = token0;
+                token1 = token1;
+                fee = args.fee;
+                tickSpacing = tickSpacing;
+                canisterId = Principal.fromActor(pool);
+            } : Types.PoolData;
+
+            _poolDataService.putPool(poolKey, poolData);
+
+            _addCreatePoolRecord({
+                caller = msg.caller;
+                poolId = ?Principal.fromActor(pool);
+                timestamp = Time.now();
+                token0 = token0;
+                token1 = token1;
+                fee = args.fee;
+                status = "success";
+                err = null;
+            });
+
+            ignore _unlock(myLockTime);
+            ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { await _positionIndexAct.updatePoolIds(); });
+            return #ok(poolData);
+        } catch (e) {
+            _rollbackPasscode(msg.caller, passcode);
+            _addCreatePoolRecord({
+                caller = msg.caller;
+                poolId = null;
+                timestamp = Time.now();
+                token0 = token0;
+                token1 = token1;
+                fee = args.fee;
+                status = "failed";
+                err = ?Error.message(e);
+            });
+            ignore _unlock(myLockTime);
+            return #err(#InternalError("Create pool failed: " # Error.message(e)));
+        };
     };
 
     public shared (msg) func addPasscode(principal: Principal, passcode: Types.Passcode): async Result.Result<(), Types.Error> {
@@ -307,7 +313,9 @@ shared (initMsg) actor class SwapFactory(
         ICRC21.icrc10_supported_standards();
     };
     public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
-        return ICRC21.icrc21_canister_call_consent_message(request);
+        // Factory has no per-pool token context; pool-specific methods (swap, depositAndSwap, depositFromAndSwap)
+        // are not valid factory methods, so empty token addresses are only ever produced for unhandled requests.
+        return ICRC21.icrc21_canister_call_consent_message(request, "", "");
     };
 
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
@@ -610,17 +618,19 @@ shared (initMsg) actor class SwapFactory(
         };
     };
 
-    private func _lock() : Bool {
+    private func _lock() : ?Time.Time {
         let now = Time.now();
-        if ((not _lockState.locked) or ((now - _lockState.time) > 1000000000 * 60)) {
-            _lockState := { locked = true; time = now; };
-            return true;
-        };
-        return false;
+        let canTake = (not _lockState.locked) or ((now - _lockState.time) > _LOCK_TTL_NS);
+        if (not canTake) { return null };
+        _lockState := { locked = true; time = now };
+        ?now
     };
 
-    private func _unlock() {
-        _lockState := { locked = false; time = 0};
+    private func _unlock(myTime : Time.Time) : Bool {
+        if (_lockState.locked and _lockState.time == myTime) {
+            _lockState := { locked = false; time = 0 };
+            true
+        } else { false } // stale unlock — no-op (TTL takeover already minted a new time)
     };
 
     private func _addCreatePoolRecord(record: Types.CreatePoolRecord) {
