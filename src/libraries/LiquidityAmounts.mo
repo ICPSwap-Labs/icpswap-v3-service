@@ -17,7 +17,7 @@ module {
     public func toUint128(x: Uint256) : Uint128 {
         var y = SafeUint.Uint128(x).val();
         if (not (y == x)) {
-            Prim.trap("Liquidity amount overflows");
+            Prim.trap("Liquidity amount overflows uint128: x=" # Nat.toText(x) # ", uint128_max=" # Nat.toText(SafeUint.Uint128(SafeUint.UINT_128_MAX).val()));
         };
         return y;
     };
