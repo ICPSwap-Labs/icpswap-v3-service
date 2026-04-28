@@ -703,7 +703,9 @@ shared (initMsg) actor class SwapPool(
         _tokenAmountService.setTokenAmount0(_natSubClamp(_tokenAmountService.getTokenAmount0(), collectResult.amount0));
         _tokenAmountService.setTokenAmount1(_natSubClamp(_tokenAmountService.getTokenAmount1(), collectResult.amount1));
         if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
-            ignore _tokenHolderService.deposit2(owner, _token0, collectResult.amount0, _token1, collectResult.amount1);
+            if (not _tokenHolderService.deposit2(owner, _token0, collectResult.amount0, _token1, collectResult.amount1)) {
+                Prim.trap("Decrease liquidity failed: tokenHolder.deposit2 owner=" # PrincipalUtils.toAddress(owner) # ", amount0=" # Nat.toText(collectResult.amount0) # ", amount1=" # Nat.toText(collectResult.amount1));
+            };
         };
         return #ok({
             amount0 = collectResult.amount0;
@@ -817,13 +819,17 @@ shared (initMsg) actor class SwapPool(
                                 switch (tx.action) {
                                     case (#Deposit(_)) {
                                         _txState.depositTransferred(txIndex, index);
-                                        ignore _tokenHolderService.deposit(caller, token, amount);
+                                        if (not _tokenHolderService.deposit(caller, token, amount)) {
+                                            Prim.trap("DepositFrom failed: tokenHolder.deposit caller=" # Principal.toText(caller) # ", token=" # token.address # ", amount=" # Nat.toText(amount));
+                                        };
                                         _txState.depositCredited(txIndex, amount);
                                         try { _pushSwapInfoCache(txIndex); } catch (e) { _log("[WARN][_depositFrom] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
                                     };
                                     case (#OneStepSwap(_)) {
                                         _txState.oneStepSwapDepositTransferred(txIndex, index);
-                                        ignore _tokenHolderService.deposit(caller, token, amount);
+                                        if (not _tokenHolderService.deposit(caller, token, amount)) {
+                                            Prim.trap("DepositFrom failed: tokenHolder.deposit (OneStepSwap) caller=" # Principal.toText(caller) # ", token=" # token.address # ", amount=" # Nat.toText(amount));
+                                        };
                                         _txState.oneStepSwapDepositCredited(txIndex, amount);
                                     };
                                     case (_) { return #err(#InternalError("Unsupported transaction type")); };
@@ -889,13 +895,17 @@ shared (initMsg) actor class SwapPool(
                                 switch (tx.action) {
                                     case (#Deposit(_)) {
                                         _txState.depositTransferred(txIndex, index);
-                                        ignore _tokenHolderService.deposit(caller, token, amountDeposit);
+                                        if (not _tokenHolderService.deposit(caller, token, amountDeposit)) {
+                                            Prim.trap("Deposit failed: tokenHolder.deposit caller=" # Principal.toText(caller) # ", token=" # token.address # ", amount=" # Nat.toText(amountDeposit));
+                                        };
                                         _txState.depositCredited(txIndex, amountDeposit);
                                         try { _pushSwapInfoCache(txIndex); } catch (e) { _log("[WARN][_depositFrom] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); };
                                     };
                                     case (#OneStepSwap(_)) {
                                         _txState.oneStepSwapDepositTransferred(txIndex, index);
-                                        ignore _tokenHolderService.deposit(caller, token, amountDeposit);
+                                        if (not _tokenHolderService.deposit(caller, token, amountDeposit)) {
+                                            Prim.trap("Deposit failed: tokenHolder.deposit (OneStepSwap) caller=" # Principal.toText(caller) # ", token=" # token.address # ", amount=" # Nat.toText(amountDeposit));
+                                        };
                                         _txState.oneStepSwapDepositCredited(txIndex, amountDeposit);
                                     };
                                     case (_) { return #err(#InternalError("Unsupported transaction type")); };
@@ -1371,15 +1381,21 @@ shared (initMsg) actor class SwapPool(
         var swapAmount = 0;
         if (args.zeroForOne and swapResult.amount1 < 0) {
             swapAmount := IntUtils.toNat(-(swapResult.amount1), 256);
-            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(IntUtils.toNat(swapResult.amount0, 256))).val());
+            let amountIn = IntUtils.toNat(swapResult.amount0, 256);
+            _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(amountIn)).val());
             _tokenAmountService.setTokenAmount1(_natSubClamp(_tokenAmountService.getTokenAmount1(), swapAmount));
-            ignore _tokenHolderService.swap(caller, _token0, IntUtils.toNat(swapResult.amount0, 256), _token1, swapAmount);
+            if (not _tokenHolderService.swap(caller, _token0, amountIn, _token1, swapAmount)) {
+                Prim.trap("Swap failed: tokenHolder.swap (zeroForOne) caller=" # Principal.toText(caller) # ", amountIn=" # Nat.toText(amountIn) # ", amountOut=" # Nat.toText(swapAmount));
+            };
         };
         if ((not args.zeroForOne) and swapResult.amount0 < 0) {
             swapAmount := IntUtils.toNat(-(swapResult.amount0), 256);
+            let amountIn = IntUtils.toNat(swapResult.amount1, 256);
             _tokenAmountService.setTokenAmount0(_natSubClamp(_tokenAmountService.getTokenAmount0(), swapAmount));
-            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(IntUtils.toNat(swapResult.amount1, 256))).val());
-            ignore _tokenHolderService.swap(caller, _token1, IntUtils.toNat(swapResult.amount1, 256), _token0, swapAmount);
+            _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(amountIn)).val());
+            if (not _tokenHolderService.swap(caller, _token1, amountIn, _token0, swapAmount)) {
+                Prim.trap("Swap failed: tokenHolder.swap (oneForZero) caller=" # Principal.toText(caller) # ", amountIn=" # Nat.toText(amountIn) # ", amountOut=" # Nat.toText(swapAmount));
+            };
         };
         return swapAmount;
     };
@@ -1717,8 +1733,10 @@ shared (initMsg) actor class SwapPool(
             );
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(addResult.amount0)).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
-            ignore _tokenHolderService.withdraw2(args.positionOwner, _token0, addResult.amount0, _token1, addResult.amount1);
-            
+            if (not _tokenHolderService.withdraw2(args.positionOwner, _token0, addResult.amount0, _token1, addResult.amount1)) {
+                throw Error.reject("tokenHolder.withdraw2 failed: positionOwner=" # Principal.toText(args.positionOwner) # ", amount0=" # Nat.toText(addResult.amount0) # ", amount1=" # Nat.toText(addResult.amount1));
+            };
+
             switch (_txState.getTransaction(txIndex)) {
                 case (null) { _log("[WARN][depositAllAndMint] Transaction not found after mint: txIndex=" # Nat.toText(txIndex)); };
                 case (?_tx) { try { _pushSwapInfoCache(_txState.addLiquidityCompleted(txIndex, addResult.amount0, addResult.amount1, addResult.liquidityDelta)); } catch (e) { _log("[WARN][depositAllAndMint] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
@@ -1943,7 +1961,9 @@ shared (initMsg) actor class SwapPool(
             );
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(addResult.amount0)).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
-            ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
+            if (not _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1)) {
+                throw Error.reject("tokenHolder.withdraw2 failed: caller=" # Principal.toText(msg.caller) # ", amount0=" # Nat.toText(addResult.amount0) # ", amount1=" # Nat.toText(addResult.amount1));
+            };
 
             switch (_txState.getTransaction(txIndex)) {
                 case (null) { _log("[WARN][mint] Transaction not found after addLiquidity: txIndex=" # Nat.toText(txIndex)); };
@@ -2154,7 +2174,9 @@ shared (initMsg) actor class SwapPool(
             );
             _tokenAmountService.setTokenAmount0(SafeUint.Uint256(_tokenAmountService.getTokenAmount0()).add(SafeUint.Uint256(addResult.amount0)).val());
             _tokenAmountService.setTokenAmount1(SafeUint.Uint256(_tokenAmountService.getTokenAmount1()).add(SafeUint.Uint256(addResult.amount1)).val());
-            ignore _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1);
+            if (not _tokenHolderService.withdraw2(msg.caller, _token0, addResult.amount0, _token1, addResult.amount1)) {
+                throw Error.reject("tokenHolder.withdraw2 failed: caller=" # Principal.toText(msg.caller) # ", amount0=" # Nat.toText(addResult.amount0) # ", amount1=" # Nat.toText(addResult.amount1));
+            };
 
             switch (_txState.getTransaction(txIndex)) {
                 case (null) { _log("[WARN][increaseLiquidity] Transaction not found after mint: txIndex=" # Nat.toText(txIndex)); };
@@ -2240,9 +2262,11 @@ shared (initMsg) actor class SwapPool(
             _tokenAmountService.setTokenAmount0(_natSubClamp(_tokenAmountService.getTokenAmount0(), collectResult.amount0));
             _tokenAmountService.setTokenAmount1(_natSubClamp(_tokenAmountService.getTokenAmount1(), collectResult.amount1));
             if (0 != collectResult.amount0 or 0 != collectResult.amount1) {
-                ignore _tokenHolderService.deposit2(caller, _token0, collectResult.amount0, _token1, collectResult.amount1);
+                if (not _tokenHolderService.deposit2(caller, _token0, collectResult.amount0, _token1, collectResult.amount1)) {
+                    throw Error.reject("tokenHolder.deposit2 failed: caller=" # Principal.toText(caller) # ", amount0=" # Nat.toText(collectResult.amount0) # ", amount1=" # Nat.toText(collectResult.amount1));
+                };
             };
-            
+
             switch (_txState.getTransaction(txIndex)) {
                 case (null) { _log("[WARN][claim] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
                 case (?_tx) { try { _pushSwapInfoCache(_txState.claimCompleted(txIndex, collectResult.amount0, collectResult.amount1)); } catch (e) { _log("[WARN][claim] Push swap info cache failed: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(e)); }; };
@@ -2457,7 +2481,11 @@ shared (initMsg) actor class SwapPool(
                 switch (transaction.action) {
                     case (#Deposit(info)) {
                         let (token, tokenAct, tokenFee) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
-                        ignore _tokenHolderService.deposit(transaction.owner, token, info.transfer.amount);
+                        if (not _tokenHolderService.deposit(transaction.owner, token, info.transfer.amount)) {
+                            let errMsg = "tokenHolder.deposit failed: owner=" # Principal.toText(transaction.owner) # ", token=" # token.address # ", amount=" # Nat.toText(info.transfer.amount);
+                            _log("[ERROR][deleteFailedTransaction] Deposit re-credit failed: txId=" # Nat.toText(txId) # ", " # errMsg);
+                            return #err(#InternalError(errMsg));
+                        };
                         switch (await _refund<system>(token, tokenAct, transaction.owner, { owner = _getCanisterId(); subaccount = null }, { owner = transaction.owner; subaccount = null }, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId)) {
                             case (#ok(_)) {};
                             case (#err(e)) {
@@ -2468,7 +2496,11 @@ shared (initMsg) actor class SwapPool(
                     };
                     case (#Withdraw(info)) {
                         let (token, tokenAct, tokenFee) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
-                        ignore _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount);
+                        if (not _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount)) {
+                            let errMsg = "tokenHolder.deposit failed: to=" # Principal.toText(info.transfer.to.owner) # ", token=" # token.address # ", amount=" # Nat.toText(info.transfer.amount);
+                            _log("[ERROR][deleteFailedTransaction] Withdraw re-credit failed: txId=" # Nat.toText(txId) # ", " # errMsg);
+                            return #err(#InternalError(errMsg));
+                        };
                         switch (await _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId)) {
                             case (#ok(_)) {};
                             case (#err(e)) {
@@ -2479,7 +2511,11 @@ shared (initMsg) actor class SwapPool(
                     };
                     case (#Refund(info)) {
                         let (token, tokenAct, tokenFee) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
-                        ignore _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount);
+                        if (not _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount)) {
+                            let errMsg = "tokenHolder.deposit failed: to=" # Principal.toText(info.transfer.to.owner) # ", token=" # token.address # ", amount=" # Nat.toText(info.transfer.amount);
+                            _log("[ERROR][deleteFailedTransaction] Refund re-credit failed: txId=" # Nat.toText(txId) # ", " # errMsg);
+                            return #err(#InternalError(errMsg));
+                        };
                         switch (await _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), info.relatedIndex)) {
                             case (#ok(_)) {};
                             case (#err(e)) {
@@ -2501,7 +2537,11 @@ shared (initMsg) actor class SwapPool(
                         }
                         else if (info.withdraw.status != #Completed) {
                             let (token, tokenAct, tokenFee) = if (Principal.equal(info.withdraw.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
-                            ignore _tokenHolderService.deposit(info.withdraw.transfer.to.owner, token, info.withdraw.transfer.amount);
+                            if (not _tokenHolderService.deposit(info.withdraw.transfer.to.owner, token, info.withdraw.transfer.amount)) {
+                                let errMsg = "tokenHolder.deposit failed: to=" # Principal.toText(info.withdraw.transfer.to.owner) # ", token=" # token.address # ", amount=" # Nat.toText(info.withdraw.transfer.amount);
+                                _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw re-credit failed: txId=" # Nat.toText(txId) # ", " # errMsg);
+                                return #err(#InternalError(errMsg));
+                            };
                             switch (await _refund<system>(token, tokenAct, transaction.owner, info.withdraw.transfer.from, info.withdraw.transfer.to, info.withdraw.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), txId)) {
                                 case (#ok(_)) {};
                                 case (#err(e)) {
@@ -3202,7 +3242,9 @@ shared (initMsg) actor class SwapPool(
         let balance1 = _tokenAmountService.getSwapFee1Repurchase();
         if (balance0 > 0 or balance1 > 0) {
             _claimLogBuffer.add("{\"amount0\": \"" # debug_show(balance0) # "\", \"amount1\": \"" # debug_show(balance1) # "\", \"timestamp\": \"" # debug_show(BlockTimestamp.blockTimestamp()) # "\"}");
-            ignore _tokenHolderService.deposit2(feeReceiverCid, _token0, balance0, _token1, balance1);
+            if (not _tokenHolderService.deposit2(feeReceiverCid, _token0, balance0, _token1, balance1)) {
+                Prim.trap("Claim swap fee repurchase failed: tokenHolder.deposit2 feeReceiver=" # Principal.toText(feeReceiverCid) # ", balance0=" # Nat.toText(balance0) # ", balance1=" # Nat.toText(balance1));
+            };
             _tokenAmountService.setTokenAmount0(_natSubClamp(_tokenAmountService.getTokenAmount0(), balance0));
             _tokenAmountService.setTokenAmount1(_natSubClamp(_tokenAmountService.getTokenAmount1(), balance1));
             _tokenAmountService.setSwapFee0Repurchase(0);
