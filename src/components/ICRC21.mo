@@ -113,10 +113,13 @@ module {
             };
         };
     };
+    private func _validNat(t : Text) : Bool { Option.isSome(Nat.fromText(t)); };
+
     private func deposit_and_swap_consent_msg(method: Text, args_candid: Blob, token0Address: Text, token1Address: Text): ?Text {
         let _args: ?Types.DepositAndSwapArgs = from_candid(args_candid);
         switch (_args) {
             case (?args) {
+                if (not _validNat(args.amountIn) or not _validNat(args.amountOutMinimum)) { return null };
                 let (tokenIn, tokenOut) = if (args.zeroForOne) { (token0Address, token1Address) } else { (token1Address, token0Address) };
                 return Option.make(method # "({" #
                     "zeroForOne: " # debug_show(args.zeroForOne) #
@@ -137,6 +140,7 @@ module {
         let _args: ?Types.IncreaseLiquidityArgs = from_candid(args_candid);
         switch (_args) {
             case (?args) {
+                if (not _validNat(args.amount0Desired) or not _validNat(args.amount1Desired)) { return null };
                 return Option.make("increaseLiquidity({positionId: " # Nat.toText(args.positionId) # ", amount0Desired: " # args.amount0Desired # ", amount1Desired: " # args.amount1Desired # "})");
             };
             case (_) {
@@ -148,6 +152,7 @@ module {
         let _args: ?Types.MintArgs = from_candid(args_candid);
         switch (_args) {
             case (?args) {
+                if (not _validNat(args.amount0Desired) or not _validNat(args.amount1Desired)) { return null };
                 return Option.make("mint({tickLower: " # Int.toText(args.tickLower) # ", tickUpper: " # Int.toText(args.tickUpper) # ", amount0Desired: " # args.amount0Desired # ", amount1Desired: " # args.amount1Desired # "})");
             };
             case (_) {
@@ -159,6 +164,7 @@ module {
         let _args: ?Types.SwapArgs = from_candid(args_candid);
         switch (_args) {
             case (?args) {
+                if (not _validNat(args.amountIn) or not _validNat(args.amountOutMinimum)) { return null };
                 let (tokenIn, tokenOut) = if (args.zeroForOne) { (token0Address, token1Address) } else { (token1Address, token0Address) };
                 return Option.make("swap({zeroForOne: " # debug_show(args.zeroForOne) # ", tokenIn: " # tokenIn # ", amountIn: " # args.amountIn # ", tokenOut: " # tokenOut # ", amountOutMinimum: " # args.amountOutMinimum # "})");
             };

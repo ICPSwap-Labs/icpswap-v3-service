@@ -90,6 +90,7 @@ shared (initMsg) actor class PositionIndex(
     };
 
     public shared (msg) func removePoolIdWithoutCheck(poolId : Text) : async Result.Result<Bool, Types.Error> {
+        if (Principal.isAnonymous(msg.caller)) { return #err(#InternalError("Anonymous principal not allowed")); };
         var user : Text = PrincipalUtils.toAddress(msg.caller);
         switch (_userPools.get(user)) {
             case (?poolArray) {

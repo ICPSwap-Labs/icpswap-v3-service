@@ -3286,8 +3286,13 @@ shared (initMsg) actor class SwapPool(
     };
     private func _clearExpiredFailedTransactionJob(): async () {
         for((index, transaction) in _txState.getTransactions().vals()) {
+            let age = Time.now() - transaction.timestamp;
+            // Forward-only: a future-timestamped tx (clock skew) is not eligible for cleanup.
+            if (age < 0) {
+                _log("[WARN][_clearExpiredFailedTransactionJob] Future-timestamped tx detected (clock skew?): index=" # Nat.toText(index) # ", age_ns=" # debug_show(age));
+            };
             // 30 days in nanoseconds
-            if (Int.abs(Time.now() - transaction.timestamp) > 30 * 24 * 60 * 60 * 1000000000) {
+            if (age > 30 * 24 * 60 * 60 * 1000000000) {
                 if (_isTxFailed(transaction)) {
                     switch (_txState.getTransaction(index)) {
                         case (null) { _log("[WARN][cleanupExpiredTransactions] Transaction not found: index=" # Nat.toText(index)); };
