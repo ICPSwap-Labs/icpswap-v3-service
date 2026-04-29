@@ -1132,7 +1132,7 @@ shared (initMsg) actor class SwapFactory(
     };
 
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.6.2";
+    private var _version : Text = "3.7.0";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {

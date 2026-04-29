@@ -920,7 +920,7 @@ shared (initMsg) actor class SwapFeeReceiver(
     private var _claimSwapFeeRepurchaseDaily = Timer.recurringTimer<system>(#seconds(86400), _autoSyncPools); // 24 hours
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.5.0";
+    private var _version : Text = "3.7.0";
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {
