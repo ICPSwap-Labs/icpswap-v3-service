@@ -42,10 +42,7 @@ shared (initMsg) actor class SwapFactory(
     governanceCid : ?Principal,
     positionIndexCid : Principal
 ) = this {
-    private type LockState = {
-        locked : Bool;
-        time : Time.Time;
-    };
+    private type LockState = { locked : Bool; time : Time.Time; };
 
     /// configuration items
     private stable var _initCycles : Nat = 1860000000000;
@@ -57,7 +54,16 @@ shared (initMsg) actor class SwapFactory(
 
     private var _feeTickSpacingMap : HashMap.HashMap<Nat, Int> = HashMap.fromIter<Nat, Int>(_feeTickSpacingEntries.vals(), 10, Nat.equal, Hash.hash);
     private var _poolDataService : PoolData.Service = PoolData.Service(_poolDataState);
-    private stable var _lockState : LockState = { locked = false; time = 0};
+
+    // Global createPool lock with 10-minute self-healing TTL. createPool is a rare
+    // admin operation; serializing all calls is acceptable. The acquisition time
+    // doubles as the generation token: each `_lock()` mints a unique, monotonic
+    // `Time.now()`, and `_unlock(myTime)` only releases when `_lockState.time ==
+    // myTime`. After a TTL takeover the original holder's stale `_unlock` finds a
+    // different time on the lock and is a no-op — eliminates the cascade where
+    // one caller's late unlock would release another caller's lock.
+    private let _LOCK_TTL_NS : Int = 10 * 60 * 1_000_000_000;
+    private stable var _lockState : LockState = { locked = false; time = 0 };
 
     /**
         make sure the version is not the same as the previous one and same as the new version of SwapPool
@@ -68,6 +74,7 @@ shared (initMsg) actor class SwapFactory(
     private stable var _currentUpgradeTask : ?Types.PoolUpgradeTask = null;
     private stable var _pendingUpgradePoolList = List.nil<Types.PoolUpgradeTask>();
     private stable var _upgradeFailedPoolList = List.nil<Types.FailedPoolInfo>();
+    private stable var _upgradeWasmSnapshot : Blob = Blob.fromArray([]);
     // upgrade history
     private stable var _poolUpgradeTaskHis : [(Principal, [Types.PoolUpgradeTask])] = [];
     private var _poolUpgradeTaskHisMap : HashMap.HashMap<Principal, [Types.PoolUpgradeTask]> = HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
@@ -97,68 +104,69 @@ shared (initMsg) actor class SwapFactory(
             case (_) { return #err(#InternalError("TickSpacing cannot be 0")); };
         };
 
-        if (not _lock()) { return #err(#InternalError("Please wait for previous creating job finished")); };
-
         let (token0, token1) = PoolUtils.sort(args.token0, args.token1);
         let poolKey : Text = PoolUtils.getPoolKey(token0, token1, args.fee);
-        var poolData = switch (_poolDataService.getPools().get(poolKey)) {
-            case (?pool) { pool };
-            case (_) {
-                try {
-                    let passcode = { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; };
-                    if(not _deletePasscode(msg.caller, passcode)) { return #err(#InternalError("Passcode is not existed.")); };
 
-                    let pool: Types.SwapPoolActor = await installFunc(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
-                    await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
-                    await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), [initMsg.caller]);
-                    // await _infoAct.addClient(Principal.fromActor(pool));
-                    let poolData = {
-                        key = poolKey;
-                        token0 = token0;
-                        token1 = token1;
-                        fee = args.fee;
-                        tickSpacing = tickSpacing;
-                        canisterId = Principal.fromActor(pool);
-                    } : Types.PoolData;
-                    _poolDataService.putPool(poolKey, poolData);
+        // Idempotency fast-path: pool already exists, return without locking.
+        switch (_poolDataService.getPools().get(poolKey)) { case (?pool) { return #ok(pool) }; case (_) {}; };
 
-                    // Add creation record
-                    _addCreatePoolRecord({
-                        caller = msg.caller;
-                        poolId = ?Principal.fromActor(pool);
-                        timestamp = Time.now();
-                        token0 = token0;
-                        token1 = token1;
-                        fee = args.fee;
-                        status = "success";
-                        err = null;
-                    });
-
-                    poolData;
-                } catch (e) {
-                    // Rollback passcode if pool creation fails
-                    _rollbackPasscode(msg.caller, { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; });
-                    _addCreatePoolRecord({
-                        caller = msg.caller;
-                        poolId = null;
-                        timestamp = Time.now();
-                        token0 = token0;
-                        token1 = token1;
-                        fee = args.fee;
-                        status = "failed";
-                        err = ?Error.message(e);
-                    });
-                    return #err(#InternalError("Create pool failed: " # Error.message(e)));
-                };
-            };
+        // Global createPool lock. createPool is rare; serializing all calls keeps the design simple.
+        let myLockTime = switch (_lock()) {
+            case (?g) { g }; case (null) { return #err(#InternalError("Please wait for previous creating job finished")); };
         };
 
-        _unlock();
+        let passcode = { token0 = Principal.fromText(token0.address); token1 = Principal.fromText(token1.address); fee = args.fee; };
 
-        // update pool ids
-        ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { await _positionIndexAct.updatePoolIds(); });
-        
-        return #ok(poolData);
+        try {
+            if (not _deletePasscode(msg.caller, passcode)) {
+                ignore _unlock(myLockTime);
+                return #err(#InternalError("Passcode is not existed."));
+            };
+
+            let pool: Types.SwapPoolActor = await installFunc(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
+            await pool.init(args.fee, tickSpacing, SafeUint.Uint160(TextUtils.toNat(args.sqrtPriceX96)).val());
+            await IC0Utils.update_settings_add_controller(Principal.fromActor(pool), [initMsg.caller]);
+
+            let poolData = {
+                key = poolKey;
+                token0 = token0;
+                token1 = token1;
+                fee = args.fee;
+                tickSpacing = tickSpacing;
+                canisterId = Principal.fromActor(pool);
+            } : Types.PoolData;
+
+            _poolDataService.putPool(poolKey, poolData);
+
+            _addCreatePoolRecord({
+                caller = msg.caller;
+                poolId = ?Principal.fromActor(pool);
+                timestamp = Time.now();
+                token0 = token0;
+                token1 = token1;
+                fee = args.fee;
+                status = "success";
+                err = null;
+            });
+
+            ignore _unlock(myLockTime);
+            ignore Timer.setTimer<system>(#nanoseconds (0), func() : async () { await _positionIndexAct.updatePoolIds(); });
+            return #ok(poolData);
+        } catch (e) {
+            _rollbackPasscode(msg.caller, passcode);
+            _addCreatePoolRecord({
+                caller = msg.caller;
+                poolId = null;
+                timestamp = Time.now();
+                token0 = token0;
+                token1 = token1;
+                fee = args.fee;
+                status = "failed";
+                err = ?Error.message(e);
+            });
+            ignore _unlock(myLockTime);
+            return #err(#InternalError("Create pool failed: " # Error.message(e)));
+        };
     };
 
     public shared (msg) func addPasscode(principal: Principal, passcode: Types.Passcode): async Result.Result<(), Types.Error> {
@@ -305,7 +313,9 @@ shared (initMsg) actor class SwapFactory(
         ICRC21.icrc10_supported_standards();
     };
     public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
-        return ICRC21.icrc21_canister_call_consent_message(request);
+        // Factory has no per-pool token context; pool-specific methods (swap, depositAndSwap, depositFromAndSwap)
+        // are not valid factory methods, so empty token addresses are only ever produced for unhandled requests.
+        return ICRC21.icrc21_canister_call_consent_message(request, "", "");
     };
 
     public shared func getCycleInfo() : async Result.Result<Types.CycleInfo, Types.Error> {
@@ -419,17 +429,23 @@ shared (initMsg) actor class SwapFactory(
         #ok();
     };
 
+    private func _parseVersion(v : Text) : ?[Nat] {
+        let parts = Iter.toArray(Text.split(v, #text(".")));
+        if (parts.size() != 3) { return null; };
+        let buf = Buffer.Buffer<Nat>(3);
+        for (p in parts.vals()) {
+            switch (Nat.fromText(p)) {
+                case (?n) { buf.add(n); };
+                case null { return null; };
+            };
+        };
+        ?Buffer.toArray(buf);
+    };
     public shared (msg) func setNextPoolVersion(version : Text) : async () {
         _checkAdminPermission(msg.caller);
-        
-        // Compare versions
-        let v1 = Text.split(_nextPoolVersion, #text("."));
-        let v2 = Text.split(version, #text("."));
-        let v1Iter = Iter.map<Text,Nat>(v1, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
-        let v2Iter = Iter.map<Text,Nat>(v2, func(x) = switch(Nat.fromText(x)) { case(?n) n; case(_) 0 });
-        let v1Arr = Iter.toArray(v1Iter);
-        let v2Arr = Iter.toArray(v2Iter);
-        
+        let v1Arr = switch (_parseVersion(_nextPoolVersion)) { case (?v) { v }; case null { throw Error.reject("Current version is invalid"); }; };
+        let v2Arr = switch (_parseVersion(version)) { case (?v) { v }; case null { throw Error.reject("Version must be in X.Y.Z format with numeric components"); }; };
+
         if (v2Arr[0] < v1Arr[0]) { throw Error.reject("New version must be higher than current version"); }
         else if (v2Arr[0] == v1Arr[0]) {
             if (v2Arr[1] < v1Arr[1]) { throw Error.reject("New version must be higher than current version"); }
@@ -437,7 +453,7 @@ shared (initMsg) actor class SwapFactory(
                 if (v2Arr[2] <= v1Arr[2]) { throw Error.reject("New version must be higher than current version"); }
             }
         };
-        
+
         _nextPoolVersion := version;
     };
 
@@ -506,6 +522,8 @@ shared (initMsg) actor class SwapFactory(
         
         // check if task map is empty
         if (List.size(_pendingUpgradePoolList) > 0) { return #err(#InternalError("Please wait until the upgrade task list is empty")); };
+        // snapshot wasm for this batch
+        _upgradeWasmSnapshot := _wasmManager.getActiveWasm();
         // clear the upgrade task history
         _poolUpgradeTaskHis := [];
         _poolUpgradeTaskHisMap := HashMap.fromIter(_poolUpgradeTaskHis.vals(), 0, Principal.equal, Principal.hash);
@@ -565,6 +583,9 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func batchAddPoolControllers(poolCids : [Principal], controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
+        for (controller in controllers.vals()) {
+            if (Principal.isAnonymous(controller)) { throw Error.reject("Anonymous principals cannot be pool controllers"); };
+        };
         for (poolCid in poolCids.vals()) {
             await _addCanisterControllers(poolCid, controllers);
         };
@@ -582,6 +603,9 @@ shared (initMsg) actor class SwapFactory(
 
     public shared (msg) func batchAddInstallerControllers(controllers : [Principal]) : async () {
         _checkPermission(msg.caller);
+        for (controller in controllers.vals()) {
+            if (Principal.isAnonymous(controller)) { throw Error.reject("Anonymous principals cannot be installer controllers"); };
+        };
         for (poolInstaller in _poolInstallers.vals()) {
             await _addCanisterControllers(poolInstaller.canisterId, controllers);
         };
@@ -594,17 +618,19 @@ shared (initMsg) actor class SwapFactory(
         };
     };
 
-    private func _lock() : Bool {
+    private func _lock() : ?Time.Time {
         let now = Time.now();
-        if ((not _lockState.locked) or ((now - _lockState.time) > 1000000000 * 60)) {
-            _lockState := { locked = true; time = now; };
-            return true;
-        };
-        return false;
+        let canTake = (not _lockState.locked) or ((now - _lockState.time) > _LOCK_TTL_NS);
+        if (not canTake) { return null };
+        _lockState := { locked = true; time = now };
+        ?now
     };
 
-    private func _unlock() {
-        _lockState := { locked = false; time = 0};
+    private func _unlock(myTime : Time.Time) : Bool {
+        if (_lockState.locked and _lockState.time == myTime) {
+            _lockState := { locked = false; time = 0 };
+            true
+        } else { false } // stale unlock — no-op (TTL takeover already minted a new time)
     };
 
     private func _addCreatePoolRecord(record: Types.CreatePoolRecord) {
@@ -867,7 +893,7 @@ shared (initMsg) actor class SwapFactory(
                         _currentUpgradeTask := ?currentTask;
                         ignore Timer.setTimer<system>(#seconds (5), _execUpgrade);
                     } else if (not task.upgrade.isDone) {
-                        var currentTask = await UpgradeTask.stepUpgrade(task, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid, _wasmManager.getActiveWasm());
+                        var currentTask = await UpgradeTask.stepUpgrade(task, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid, _upgradeWasmSnapshot);
                         _currentUpgradeTask := ?currentTask;
                         ignore Timer.setTimer<system>(#seconds (5), _execUpgrade);
                     } else if (not task.start.isDone) {
@@ -984,12 +1010,14 @@ shared (initMsg) actor class SwapFactory(
                 return Option.make(fun);
             };
             case (?#Local) {
+                let activeWasm = _wasmManager.getActiveWasm();
+                assert(activeWasm.size() > 0);
                 let fun = func (token0: Types.Token, token1: Types.Token, feeReceiverCid: Principal, trustedCanisterManagerCid: Principal, positionIndexCid: Principal) : async Types.SwapPoolActor {
                     Cycles.add<system>(_initCycles);
                     let createCanisterResult = await IC0Utils.create_canister(null, null, _initCycles);
                     let canisterId = createCanisterResult.canister_id;
                     await IC0Utils.deposit_cycles(canisterId, _initCycles);
-                    await IC0Utils.install_code(canisterId, to_candid(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
+                    await IC0Utils.install_code(canisterId, to_candid(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), activeWasm, #install);
                     return actor(Principal.toText(canisterId)) : Types.SwapPoolActor;
                 };
                 return Option.make(fun);
@@ -1008,7 +1036,7 @@ shared (initMsg) actor class SwapFactory(
             };
             case (_) {
                 if (_poolInstallers.size() == 0) {
-                    return Option.make(#Local);
+                    return Option.make(#Local); // Fallback: no external installers configured, use local install_code
                 } else {
                     return Option.make(#External(actor(Principal.toText(_poolInstallers[0].canisterId)) : Types.SwapPoolInstaller));
                 };
@@ -1041,7 +1069,7 @@ shared (initMsg) actor class SwapFactory(
     
     public shared (msg) func uploadWasmChunk(chunk : [Nat8]) : async Nat {
         _checkAdminPermission(msg.caller);
-        _wasmManager.uploadChunk(chunk);
+        _wasmManager.uploadChunk(msg.caller, chunk);
     };
 
     public shared (msg) func combineWasmChunks() : async () {
@@ -1079,9 +1107,12 @@ shared (initMsg) actor class SwapFactory(
     private stable var _admins : [Principal] = [];
     public shared (msg) func setAdmins(admins : [Principal]) : async () {
         _checkPermission(msg.caller);
-        for (admin in admins.vals()) {
-            if (Principal.isAnonymous(admin)) {
-                throw Error.reject("Anonymous principals cannot be pool admins");
+        // Empty array is allowed: explicit reset to "no admins" (controller fallback still applies).
+        for (i in admins.keys()) {
+            let admin = admins[i];
+            if (Principal.isAnonymous(admin)) { throw Error.reject("Anonymous principals cannot be pool admins"); };
+            for (j in admins.keys()) {
+                if (j > i and Principal.equal(admins[j], admin)) { throw Error.reject("Duplicate admin principal: " # Principal.toText(admin)); };
             };
         };
         _admins := admins;

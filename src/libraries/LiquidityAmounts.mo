@@ -11,10 +11,13 @@ module {
     type Uint128 = Nat;
     type Uint256 = Nat;
 
+    // Trap is intentional here: callers (mint/increaseLiquidity) use _rollback which
+    // relies on trap for atomic message-level state rollback. Converting to Result would
+    // require all callers to handle the error explicitly without rollback benefit.
     public func toUint128(x: Uint256) : Uint128 {
         var y = SafeUint.Uint128(x).val();
         if (not (y == x)) {
-            Prim.trap("Liquidity amount overflows");
+            Prim.trap("Liquidity amount overflows uint128: x=" # Nat.toText(x) # ", uint128_max=" # Nat.toText(SafeUint.Uint128(SafeUint.UINT_128_MAX).val()));
         };
         return y;
     };

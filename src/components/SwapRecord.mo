@@ -1,7 +1,9 @@
-import Array "mo:base/Array";
 import Buffer "mo:base/Buffer";
+import HashMap "mo:base/HashMap";
+import Hash "mo:base/Hash";
 import Nat "mo:base/Nat";
 import Option "mo:base/Option";
+import Prim "mo:⛔";
 import Types "../Types";
 
 module SwapRecord {
@@ -53,13 +55,11 @@ module SwapRecord {
         /// Removes records whose txInfo.id is in ids. Idempotent for repeated calls with the same ids.
         public func deleteSyncedData(ids : [Nat]) : () {
             if (ids.size() == 0) return;
+            let idSet = HashMap.HashMap<Nat, Bool>(ids.size(), Nat.equal, func(n : Nat) : Hash.Hash { Prim.natToNat32(n) });
+            for (id in ids.vals()) { idSet.put(id, true); };
             let keep = Buffer.Buffer<Types.SwapRecordInfo>(_swapRecordCache.size());
             for (rec in _swapRecordCache.vals()) {
-                let id = rec.txInfo.id;
-                switch (Array.find(ids, func(x : Nat) : Bool { x == id })) {
-                    case (null) { keep.add(rec) };
-                    case (_) {};
-                };
+                if (Option.isNull(idSet.get(rec.txInfo.id))) { keep.add(rec); };
             };
             _swapRecordCache := keep;
         };

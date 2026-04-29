@@ -45,7 +45,7 @@ module {
     };
 
     public func fail(deposit: Types.DepositInfo, error: Text): Types.DepositInfo {
-        assert(deposit.status != #Completed);
+        if (deposit.status == #Completed or deposit.status == #Failed) { return deposit; };
         _updateStatus(deposit, #Failed, ?error)
     };
 };

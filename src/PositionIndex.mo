@@ -90,6 +90,7 @@ shared (initMsg) actor class PositionIndex(
     };
 
     public shared (msg) func removePoolIdWithoutCheck(poolId : Text) : async Result.Result<Bool, Types.Error> {
+        if (Principal.isAnonymous(msg.caller)) { return #err(#InternalError("Anonymous principal not allowed")); };
         var user : Text = PrincipalUtils.toAddress(msg.caller);
         switch (_userPools.get(user)) {
             case (?poolArray) {
@@ -242,7 +243,8 @@ shared (initMsg) actor class PositionIndex(
         return ICRC21.icrc10_supported_standards();
     };
     public shared func icrc21_canister_call_consent_message(request : ICRCTypes.Icrc21ConsentMessageRequest) : async ICRCTypes.Icrc21ConsentMessageResponse {
-        return ICRC21.icrc21_canister_call_consent_message(request);
+        // PositionIndex has no per-pool token context; empty addresses are safe — pool-specific methods are not valid here.
+        return ICRC21.icrc21_canister_call_consent_message(request, "", "");
     };
 
     // --------------------------- ACL ------------------------------------
@@ -250,9 +252,12 @@ shared (initMsg) actor class PositionIndex(
     private stable var _admins : [Principal] = [];
     public shared (msg) func setAdmins(admins : [Principal]) : async () {
         _checkPermission(msg.caller);
-        for (admin in admins.vals()) {
-            if (Principal.isAnonymous(admin)) {
-                throw Error.reject("Anonymous principals cannot be pool admins");
+        // Empty array is allowed: explicit reset to "no admins" (controller fallback still applies).
+        for (i in admins.keys()) {
+            let admin = admins[i];
+            if (Principal.isAnonymous(admin)) { throw Error.reject("Anonymous principals cannot be pool admins"); };
+            for (j in admins.keys()) {
+                if (j > i and Principal.equal(admins[j], admin)) { throw Error.reject("Duplicate admin principal: " # Principal.toText(admin)); };
             };
         };
         _admins := admins;

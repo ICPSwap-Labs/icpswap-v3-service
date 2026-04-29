@@ -34,22 +34,25 @@ shared (initMsg) actor class SwapDataBackup(
         userPositionIds : [(Text, [Nat])];
         feeGrowthGlobal : { feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; };
         limitOrders : { lowerLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)]; upperLimitOrders : [(Types.LimitOrderKey, Types.LimitOrderValue)]; };
-        limitOrderStack : [(Types.LimitOrderKey, Types.LimitOrderValue)];
+        limitOrderStack : [(Types.LimitOrderType, Types.LimitOrderKey, Types.LimitOrderValue)];
+        withdrawQueue : [Types.WithdrawQueueItem];
     };
 
     private stable var _poolBackupEntries : [(Principal, PoolBackupData)] = [];
     private var _poolBackupMap : HashMap.HashMap<Principal, PoolBackupData> = HashMap.fromIter(_poolBackupEntries.vals(), 0, Principal.equal, Principal.hash);
 
-    // Query backup data for a specific pool
-    public query func getPoolBackup(poolCid: Principal) : async Result.Result<PoolBackupData, Types.Error> {
+    // Query backup data for a specific pool (restricted to controller/factory/governance)
+    public query ({ caller }) func getPoolBackup(poolCid: Principal) : async Result.Result<PoolBackupData, Types.Error> {
+        if (not _hasPermission(caller)) { return #err(#InternalError("Unauthorized")); };
         switch(_poolBackupMap.get(poolCid)) {
             case (?data) { #ok(data) };
             case null { #err(#InternalError("No backup data found for pool " # Principal.toText(poolCid))) };
         }
     };
 
-    // Query all pool backups
-    public query func getAllPoolBackups() : async Result.Result<[(Principal, PoolBackupData)], Types.Error> {
+    // Query all pool backups (restricted to controller/factory/governance)
+    public query ({ caller }) func getAllPoolBackups() : async Result.Result<[(Principal, PoolBackupData)], Types.Error> {
+        if (not _hasPermission(caller)) { return #err(#InternalError("Unauthorized")); };
         #ok(Iter.toArray(_poolBackupMap.entries()))
     };
 
@@ -146,6 +149,10 @@ shared (initMsg) actor class SwapDataBackup(
             case (#ok(data)) { data };
             case (#err(code)) { return #err(_setBackupError(poolCid, "Get limit order stack failed: " # debug_show(code))); };
         };
+        let withdrawQueue = switch (await poolAct.getWithdrawQueueInfo()) {
+            case (#ok(data)) { data.items };
+            case (#err(code)) { return #err(_setBackupError(poolCid, "Get withdraw queue failed: " # debug_show(code))); };
+        };
         _poolBackupMap.put(poolCid, {
             isDone = true;
             isFailed = false;
@@ -162,6 +169,7 @@ shared (initMsg) actor class SwapDataBackup(
             feeGrowthGlobal = feeGrowthGlobal;
             limitOrders = limitOrders;
             limitOrderStack = limitOrderStack;
+            withdrawQueue = withdrawQueue;
         });
         return #ok();
     };
@@ -248,7 +256,6 @@ shared (initMsg) actor class SwapDataBackup(
             initArgs = {
                 token0 = { address = ""; standard = "" };
                 token1 = { address = ""; standard = "" };
-                infoCid = Principal.fromActor(this);
                 feeReceiverCid = Principal.fromActor(this);
                 trustedCanisterManagerCid = Principal.fromActor(this);
                 positionIndexCid = Principal.fromActor(this);
@@ -283,6 +290,7 @@ shared (initMsg) actor class SwapDataBackup(
             };
             limitOrders = { lowerLimitOrders = []; upperLimitOrders = []; };
             limitOrderStack = [];
+            withdrawQueue = [];
         };
         _poolBackupMap.put(poolCid, errorData);
         #InternalError(errorMsg);

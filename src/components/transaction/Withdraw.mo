@@ -39,7 +39,7 @@ module {
     };
 
     public func fail(withdraw: Types.WithdrawInfo, error: Text): Types.WithdrawInfo {
-        assert(withdraw.status != #Completed and withdraw.status != #Failed);
+        if (withdraw.status == #Completed or withdraw.status == #Failed) { return withdraw; };
         _updateStatus(withdraw, #Failed, ?error)
     };
 };
