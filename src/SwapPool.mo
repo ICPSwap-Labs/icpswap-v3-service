@@ -2481,8 +2481,22 @@ shared (initMsg) actor class SwapPool(
                     case (_) {};
                 };
                 switch (transaction.action) {
-                    case (#Deposit(i)) { if (i.status == #Completed) { return #err(#InternalError("Deposit already completed; refusing refund")); }; };
-                    case (#Withdraw(i)) { if (i.status == #Completed) { return #err(#InternalError("Withdraw already completed; refusing refund")); }; };
+                    case (#Deposit(i)) {
+                        if (i.status == #Completed) { return #err(#InternalError("Deposit already completed; refusing refund")); };
+                        if (i.status == #Created and Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
+                            let errMsg = "Deposit still in flight (status=#Created, age <24h); refusing refund to avoid double-credit if transferFrom resolves. Verify ledger directly or wait until age >=24h.";
+                            _log("[ERROR][deleteFailedTransaction] In-flight deposit refund rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                            return #err(#InternalError(errMsg));
+                        };
+                    };
+                    case (#Withdraw(i)) {
+                        if (i.status == #Completed) { return #err(#InternalError("Withdraw already completed; refusing refund")); };
+                        if (i.status == #Created and Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
+                            let errMsg = "Withdraw still in flight (status=#Created, age <24h); refusing refund to avoid double-pay if transfer resolves. Verify ledger directly or wait until age >=24h.";
+                            _log("[ERROR][deleteFailedTransaction] In-flight withdraw refund rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                            return #err(#InternalError(errMsg));
+                        };
+                    };
                     case (#OneStepSwap(i)) { if (i.status == #Completed) { return #err(#InternalError("One-step swap already completed; refusing refund")); }; };
                     case (_) {};
                 };
