@@ -495,6 +495,122 @@ function step_partial_fill_regression()
     withdrawAll
 }
 
+# Multi-order regression: three sibling positions sharing the same range, with three
+# different tickLimits (at tickUpper, mid, and quarter). Under the old bug, the mid and
+# quarter orders would fire prematurely when their tickLimit was crossed — this matches
+# the prod symptom "same-price orders, mixed outcomes". Under the fix, all three wait
+# until tickUpper.
+function step_multi_order_regression()
+{
+    step_header "MO" "Limit-order multi-order regression"
+
+    local spacing=60
+    local t0=$(getCurrentTick)
+    if [ -z "$t0" ]; then
+        fail "multi-order: could not parse tick from metadata()"
+        return
+    fi
+    echo "  current tick: $t0"
+
+    # Range above current tick. Three tickLimits at quarter, half, and full of width.
+    local margin=$((spacing * 30))
+    local width=$((spacing * 60))
+    local base=$(( ( (t0 + margin + spacing - 1) / spacing ) * spacing ))
+    local moTickLower=$base
+    local moTickUpper=$(( base + width ))
+    local moLimitC=$(( base + (width / 4) ))   # earliest trigger under old bug
+    local moLimitB=$(( base + (width / 2) ))   # mid trigger under old bug
+    local moLimitA=$moTickUpper                # correctly configured baseline
+    moLimitC=$(( (moLimitC / spacing) * spacing ))
+    moLimitB=$(( (moLimitB / spacing) * spacing ))
+    echo "  range: [$moTickLower, $moTickUpper]  tickLimits A=$moLimitA B=$moLimitB C=$moLimitC"
+
+    if [ "$t0" -ge "$moTickLower" ]; then
+        fail "multi-order: current tick $t0 already inside/above intended range"
+        return
+    fi
+
+    # Mint three sibling positions, attach a limit order to each.
+    local idA idB idC
+    idA=$(getNextPositionId)
+    deposit $token0 1000000000
+    depositFrom $token1 1000000000
+    mint $moTickLower $moTickUpper 900000000 1000000000
+    dfx canister call $poolId addLimitOrder "(record { positionId = $idA :nat; tickLimit = $moLimitA :int; })" > /dev/null
+
+    idB=$(getNextPositionId)
+    deposit $token0 1000000000
+    depositFrom $token1 1000000000
+    mint $moTickLower $moTickUpper 900000000 1000000000
+    dfx canister call $poolId addLimitOrder "(record { positionId = $idB :nat; tickLimit = $moLimitB :int; })" > /dev/null
+
+    idC=$(getNextPositionId)
+    deposit $token0 1000000000
+    depositFrom $token1 1000000000
+    mint $moTickLower $moTickUpper 900000000 1000000000
+    dfx canister call $poolId addLimitOrder "(record { positionId = $idC :nat; tickLimit = $moLimitC :int; })" > /dev/null
+
+    if [ "$(limitOrderPresent $idA)" -ne 1 ] || [ "$(limitOrderPresent $idB)" -ne 1 ] || [ "$(limitOrderPresent $idC)" -ne 1 ]; then
+        fail "multi-order: not all orders registered (A=$idA B=$idB C=$idC)"
+        return
+    fi
+    pass "multi-order: 3 orders registered (pids A=$idA B=$idB C=$idC)"
+
+    # ---- Phase 1: tick lands in [moLimitB, moTickUpper). All 3 orders MUST still be pending.
+    # Under the bug, B and C would have fired (their tickLimit was crossed); under the fix,
+    # all three wait for tickUpper.
+    local cur
+    for amt in 10000000000 30000000000 80000000000 200000000000; do
+        cur=$(getCurrentTick)
+        if [ "$cur" -ge "$moLimitB" ]; then break; fi
+        depositFrom $token1 $amt
+        swap $token1 $amt 0
+        sleep 3
+    done
+    cur=$(getCurrentTick)
+    echo "  tick after phase 1: $cur"
+    if [ "$cur" -ge "$moLimitB" ] && [ "$cur" -lt "$moTickUpper" ]; then
+        local pa=$(limitOrderPresent $idA)
+        local pb=$(limitOrderPresent $idB)
+        local pc=$(limitOrderPresent $idC)
+        if [ "$pa" -eq 1 ] && [ "$pb" -eq 1 ] && [ "$pc" -eq 1 ]; then
+            pass "multi-order phase 1: all 3 orders survive mid-range tick=$cur (>=tickLimitB=$moLimitB, <tickUpper=$moTickUpper)"
+        else
+            fail "multi-order phase 1: order(s) fired prematurely at tick=$cur — bug regressed (A=$pa B=$pb C=$pc)"
+            return
+        fi
+    elif [ "$cur" -ge "$moTickUpper" ]; then
+        echo "  WARN: phase 1 overshot tickUpper (tick=$cur); cannot test mid-range survival"
+    else
+        echo "  WARN: phase 1 could not reach tickLimitB=$moLimitB (tick=$cur); increase amounts"
+    fi
+
+    # ---- Phase 2: tick past moTickUpper. All 3 must fire (validates batch drain).
+    for amt in 100000000000 300000000000 500000000000; do
+        cur=$(getCurrentTick)
+        if [ "$cur" -ge "$moTickUpper" ]; then break; fi
+        depositFrom $token1 $amt
+        swap $token1 $amt 0
+        sleep 6
+    done
+    cur=$(getCurrentTick)
+    echo "  tick after phase 2: $cur"
+    if [ "$cur" -ge "$moTickUpper" ]; then
+        local pa=$(limitOrderPresent $idA)
+        local pb=$(limitOrderPresent $idB)
+        local pc=$(limitOrderPresent $idC)
+        if [ "$pa" -eq 0 ] && [ "$pb" -eq 0 ] && [ "$pc" -eq 0 ]; then
+            pass "multi-order phase 2: all 3 orders fired after tick=$cur >= tickUpper=$moTickUpper"
+        else
+            fail "multi-order phase 2: order(s) still pending after tickUpper crossed (A=$pa B=$pb C=$pc)"
+        fi
+    else
+        fail "multi-order: could not push tick past tickUpper=$moTickUpper (tick=$cur); increase amounts"
+    fi
+
+    withdrawAll
+}
+
 # ========================= Test Cases =========================
 
 function testBizFlow()
@@ -542,6 +658,7 @@ function testBizFlow()
     fi
 
     step_partial_fill_regression
+    step_multi_order_regression
 
     step_header 6 "Swap token1 -> token0"
     depositFrom $token1 200000000000
