@@ -305,6 +305,32 @@ function checkUnusedBalance()
     echo "  unusedBalance: $result"
 }
 
+function getCurrentTick()
+{
+    # Flatten multi-line output, then extract `tick = N : int`. -E for BSD/GNU sed parity.
+    dfx canister call $poolId metadata 2>/dev/null \
+        | tr -d '\n' \
+        | sed -nE 's/.*tick[[:space:]]*=[[:space:]]*(-?[0-9_]+)[[:space:]]*:[[:space:]]*int.*/\1/p' \
+        | tr -d '_'
+}
+
+function getNextPositionId()
+{
+    dfx canister call $poolId metadata 2>/dev/null \
+        | tr -d '\n' \
+        | sed -nE 's/.*nextPositionId[[:space:]]*=[[:space:]]*([0-9_]+)[[:space:]]*:[[:space:]]*nat.*/\1/p' \
+        | tr -d '_'
+}
+
+# Returns 1 if positionId appears in upper or lower limit orders, else 0.
+function limitOrderPresent()
+{
+    local pid=$1
+    local out
+    out=$(dfx canister call $poolId getLimitOrders 2>/dev/null | tr -d '\n')
+    if echo "$out" | grep -q "userPositionId = $pid : nat"; then echo 1; else echo 0; fi
+}
+
 function checkBalance()
 {
     token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
@@ -365,6 +391,110 @@ function testWithdrawQueue()
     fi
 }
 
+# Regression test for the limit-order partial-fill bug: when tickLimit is set
+# strictly inside (tickLower, tickUpper), the order must NOT fire while the
+# position is still in-range. It must only fire once _tick crosses tickUpper
+# (upper order) so the input is fully converted to output.
+function step_partial_fill_regression()
+{
+    step_header "PF" "Limit-order partial-fill regression (bug fix)"
+
+    local spacing=60   # fee=3000 → tickSpacing=60
+    local t0=$(getCurrentTick)
+    if [ -z "$t0" ]; then
+        fail "partial-fill: could not parse tick from metadata() — check dfx output format"
+        return
+    fi
+    echo "  current tick: $t0"
+
+    # Place the test range above the current tick, aligned to spacing.
+    local margin=$((spacing * 30))
+    local width=$((spacing * 60))
+    local base=$(( ( (t0 + margin + spacing - 1) / spacing ) * spacing ))
+    local pfTickLower=$base
+    local pfTickUpper=$(( base + width ))
+    local pfTickLimit=$(( base + width / 2 ))
+    # tickLimit must fall on an integer tick; align to spacing for safety.
+    pfTickLimit=$(( (pfTickLimit / spacing) * spacing ))
+    echo "  test range: [$pfTickLower, $pfTickUpper]  tickLimit: $pfTickLimit"
+
+    if [ "$t0" -ge "$pfTickLower" ]; then
+        fail "partial-fill: current tick $t0 already inside/above intended range"
+        return
+    fi
+
+    local pfId=$(getNextPositionId)
+    if [ -z "$pfId" ]; then
+        fail "partial-fill: could not parse nextPositionId from metadata()"
+        return
+    fi
+    deposit $token0 10000000000
+    depositFrom $token1 10000000000
+    mint $pfTickLower $pfTickUpper 9000000000 10000000000
+    echo "  pfPositionId=$pfId"
+
+    local addRes
+    addRes=$(dfx canister call $poolId addLimitOrder \
+        "(record { positionId = $pfId :nat; tickLimit = $pfTickLimit :int; })")
+    if [[ ! "$addRes" =~ "ok" ]]; then
+        fail "partial-fill: addLimitOrder failed: $addRes"
+        return
+    fi
+    if [ "$(limitOrderPresent $pfId)" -ne 1 ]; then
+        fail "partial-fill: limit order not registered"
+        return
+    fi
+
+    # ---- Phase A: try to land tick in [tickLimit, tickUpper) ----
+    # Ramp swap size until we cross tickLimit but stay below tickUpper.
+    local landed=0
+    local cur
+    for amt in 5000000000 10000000000 20000000000 50000000000 100000000000; do
+        cur=$(getCurrentTick)
+        if [ "$cur" -ge "$pfTickLimit" ]; then break; fi
+        depositFrom $token1 $amt
+        swap $token1 $amt 0
+        sleep 3
+    done
+    cur=$(getCurrentTick)
+    echo "  tick after phase A: $cur"
+    if [ "$cur" -ge "$pfTickLimit" ] && [ "$cur" -lt "$pfTickUpper" ]; then
+        landed=1
+        if [ "$(limitOrderPresent $pfId)" -eq 1 ]; then
+            pass "partial-fill: order survives mid-range tick=$cur (>=tickLimit=$pfTickLimit, <tickUpper=$pfTickUpper)"
+        else
+            fail "partial-fill: order fired prematurely at tick=$cur — bug regressed"
+            return
+        fi
+    elif [ "$cur" -ge "$pfTickUpper" ]; then
+        echo "  WARN: phase A overshot tickUpper (tick=$cur); cannot test mid-range survival in this run"
+    else
+        echo "  WARN: phase A could not reach tickLimit=$pfTickLimit (tick=$cur); increase swap amounts"
+    fi
+
+    # ---- Phase B: push tick past tickUpper; order MUST fire ----
+    for amt in 50000000000 100000000000 200000000000 500000000000; do
+        cur=$(getCurrentTick)
+        if [ "$cur" -ge "$pfTickUpper" ]; then break; fi
+        depositFrom $token1 $amt
+        swap $token1 $amt 0
+        sleep 5
+    done
+    cur=$(getCurrentTick)
+    echo "  tick after phase B: $cur"
+    if [ "$cur" -ge "$pfTickUpper" ]; then
+        if [ "$(limitOrderPresent $pfId)" -eq 0 ]; then
+            pass "partial-fill: order fires after tick=$cur >= tickUpper=$pfTickUpper"
+        else
+            fail "partial-fill: order failed to fire after tick crossed tickUpper"
+        fi
+    else
+        fail "partial-fill: could not push tick past tickUpper=$pfTickUpper (tick=$cur)"
+    fi
+
+    withdrawAll
+}
+
 # ========================= Test Cases =========================
 
 function testBizFlow()
@@ -410,6 +540,8 @@ function testBizFlow()
     else
         fail "removeLimitOrder: $result"
     fi
+
+    step_partial_fill_regression
 
     step_header 6 "Swap token1 -> token0"
     depositFrom $token1 200000000000

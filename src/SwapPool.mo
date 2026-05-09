@@ -228,24 +228,26 @@ shared (initMsg) actor class SwapPool(
     private func _checkLimitOrder() : async () {
         if (not _isLimitOrderAvailable) { return; };
         var count : Nat = 0;
-        // backward iteration — find all matching lower limit orders
-        label lt {
-            for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
-                if (_tick <= key.tickLimit) {
-                    _lowerLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
-                    _pushLimitOrderStack((#Lower, key, value));
-                    count += 1;
-                } else { break lt; };
+        // A limit order is fully filled (input fully converted to output) only when the
+        // current tick is outside the position's range. Trigger off position bounds, not
+        // tickLimit. RBTree ordering by tickLimit does not match position-bound ordering,
+        // so we cannot break early.
+        for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
+            let pos = _positionTickService.getUserPosition(value.userPositionId);
+            if (_tick < pos.tickLower) {
+                _log("[INFO][_checkLimitOrder] match Lower: pid=" # Nat.toText(value.userPositionId) # " tick=" # Int.toText(_tick) # " tickLower=" # Int.toText(pos.tickLower) # " tickUpper=" # Int.toText(pos.tickUpper) # " tickLimit=" # Int.toText(key.tickLimit));
+                _lowerLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
+                _pushLimitOrderStack((#Lower, key, value));
+                count += 1;
             };
         };
-        // forward iteration — find all matching upper limit orders
-        label ut {
-            for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
-                if (_tick >= key.tickLimit) {
-                    _upperLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
-                    _pushLimitOrderStack((#Upper, key, value));
-                    count += 1;
-                } else { break ut; };
+        for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+            let pos = _positionTickService.getUserPosition(value.userPositionId);
+            if (_tick >= pos.tickUpper) {
+                _log("[INFO][_checkLimitOrder] match Upper: pid=" # Nat.toText(value.userPositionId) # " tick=" # Int.toText(_tick) # " tickLower=" # Int.toText(pos.tickLower) # " tickUpper=" # Int.toText(pos.tickUpper) # " tickLimit=" # Int.toText(key.tickLimit));
+                _upperLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
+                _pushLimitOrderStack((#Upper, key, value));
+                count += 1;
             };
         };
         if (count > 0) {
@@ -278,6 +280,7 @@ shared (initMsg) actor class SwapPool(
                     _pendingGeneration += 1;
                     // Fall through to process remaining stack items
                 } else {
+                    _log("[INFO][_autoDecrease] retry attempt=" # Nat.toText(_pendingRetryCount) # " pending=" # debug_show(pending));
                     ignore Timer.setTimer<system>(#nanoseconds(0), _executeAutoDecrease);
                     let gen = _pendingGeneration;
                     let delay = _watchdogDelaySeconds(_pendingRetryCount);
@@ -292,10 +295,23 @@ shared (initMsg) actor class SwapPool(
         label scan loop {
             switch (_popLimitOrderStack()) {
                 case (?(limitOrderType, key, value)) {
-                    // If tick bounced back, return order to RBTree and try next
+                    // If tick bounced back into the position's range, the order is no longer
+                    // fully filled — restore it to the RBTree and try next.
                     switch (limitOrderType) {
-                        case (#Lower) { if (_tick > key.tickLimit) { _lowerLimitOrders.put(key, value); continue scan; }; };
-                        case (#Upper) { if (_tick < key.tickLimit) { _upperLimitOrders.put(key, value); continue scan; }; };
+                        case (#Lower) {
+                            let pos = _positionTickService.getUserPosition(value.userPositionId);
+                            if (_tick >= pos.tickLower) {
+                                _log("[INFO][_autoDecrease] bounce-back Lower: pid=" # Nat.toText(value.userPositionId) # " tick=" # Int.toText(_tick) # " tickLower=" # Int.toText(pos.tickLower));
+                                _lowerLimitOrders.put(key, value); continue scan;
+                            };
+                        };
+                        case (#Upper) {
+                            let pos = _positionTickService.getUserPosition(value.userPositionId);
+                            if (_tick < pos.tickUpper) {
+                                _log("[INFO][_autoDecrease] bounce-back Upper: pid=" # Nat.toText(value.userPositionId) # " tick=" # Int.toText(_tick) # " tickUpper=" # Int.toText(pos.tickUpper));
+                                _upperLimitOrders.put(key, value); continue scan;
+                            };
+                        };
                     };
                     _pendingExecution := ?(limitOrderType, key, value);
                     _pendingRetryCount := 0;
@@ -320,6 +336,8 @@ shared (initMsg) actor class SwapPool(
         switch (_pendingExecution) {
             case (?(limitOrderType, key, value)) {
                 var userPositionInfo = _positionTickService.getUserPosition(value.userPositionId);
+                let typeText = switch (limitOrderType) { case (#Lower) "Lower"; case (#Upper) "Upper"; };
+                _log("[INFO][_executeAutoDecrease] start: pid=" # Nat.toText(value.userPositionId) # " type=" # typeText # " tick=" # Int.toText(_tick) # " tickLower=" # Int.toText(userPositionInfo.tickLower) # " tickUpper=" # Int.toText(userPositionInfo.tickUpper) # " tickLimit=" # Int.toText(key.tickLimit) # " liquidity=" # Nat.toText(userPositionInfo.liquidity) # " expectedAmount0In=" # Nat.toText(value.token0InAmount) # " expectedAmount1In=" # Nat.toText(value.token1InAmount));
                 let txIndex = _txState.startExecuteLimitOrder(value.owner, _getCanisterId(), value.userPositionId, _getToken0WithPrincipal(), _getToken1WithPrincipal(), value.token0InAmount, value.token1InAmount, key.tickLimit);
                 let result = _decreaseLiquidity(
                     value.owner,
@@ -328,6 +346,7 @@ shared (initMsg) actor class SwapPool(
                 );
                 switch (result) {
                     case (#ok(res)) {
+                        _log("[INFO][_executeAutoDecrease] done: pid=" # Nat.toText(value.userPositionId) # " amount0=" # Nat.toText(res.amount0) # " amount1=" # Nat.toText(res.amount1));
                         switch (_txState.getTransaction(txIndex)) {
                             case (null) { _log("[WARN][_executeAutoDecrease] Transaction not found: txIndex=" # Nat.toText(txIndex)); };
                             case (?_tx) {
@@ -347,6 +366,7 @@ shared (initMsg) actor class SwapPool(
                         };
                     };
                     case (#err(err)) {
+                        _log("[ERROR][_executeAutoDecrease] failed: pid=" # Nat.toText(value.userPositionId) # " error=" # debug_show(err));
                         ignore _txState.executeLimitOrderFailed(txIndex, debug_show(err));
                         _failedLimitOrderBuffer.add((limitOrderType, key, value));
                     };
@@ -3377,7 +3397,14 @@ shared (initMsg) actor class SwapPool(
         _txsEntries := _txState.getTransactions();
         _txIndex := _txState.getIndex();
         _failedLimitOrders := Buffer.toArray(_failedLimitOrderBuffer);
-        _debugLogArray := Buffer.toArray(_debugLog);
+        let _logSize = _debugLog.size();
+        if (_logSize == _MAX_DEBUG_LOGS) {
+            _debugLogArray := Array.tabulate<Text>(_logSize, func(i : Nat) : Text {
+                _debugLog.get((_debugLogWriteIndex + i) % _MAX_DEBUG_LOGS)
+            });
+        } else {
+            _debugLogArray := Buffer.toArray(_debugLog);
+        };
     };
 
     system func postupgrade() {
