@@ -228,24 +228,24 @@ shared (initMsg) actor class SwapPool(
     private func _checkLimitOrder() : async () {
         if (not _isLimitOrderAvailable) { return; };
         var count : Nat = 0;
-        // backward iteration — find all matching lower limit orders
-        label lt {
-            for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
-                if (_tick <= key.tickLimit) {
-                    _lowerLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
-                    _pushLimitOrderStack((#Lower, key, value));
-                    count += 1;
-                } else { break lt; };
+        // A limit order is fully filled (input fully converted to output) only when the
+        // current tick is outside the position's range. Trigger off position bounds, not
+        // tickLimit. RBTree ordering by tickLimit does not match position-bound ordering,
+        // so we cannot break early.
+        for ((key, value) in RBTree.iter(_lowerLimitOrders.share(), #bwd)) {
+            let pos = _positionTickService.getUserPosition(value.userPositionId);
+            if (_tick < pos.tickLower) {
+                _lowerLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
+                _pushLimitOrderStack((#Lower, key, value));
+                count += 1;
             };
         };
-        // forward iteration — find all matching upper limit orders
-        label ut {
-            for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
-                if (_tick >= key.tickLimit) {
-                    _upperLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
-                    _pushLimitOrderStack((#Upper, key, value));
-                    count += 1;
-                } else { break ut; };
+        for ((key, value) in RBTree.iter(_upperLimitOrders.share(), #fwd)) {
+            let pos = _positionTickService.getUserPosition(value.userPositionId);
+            if (_tick >= pos.tickUpper) {
+                _upperLimitOrders.delete({ timestamp = key.timestamp; tickLimit = key.tickLimit; });
+                _pushLimitOrderStack((#Upper, key, value));
+                count += 1;
             };
         };
         if (count > 0) {
@@ -292,10 +292,17 @@ shared (initMsg) actor class SwapPool(
         label scan loop {
             switch (_popLimitOrderStack()) {
                 case (?(limitOrderType, key, value)) {
-                    // If tick bounced back, return order to RBTree and try next
+                    // If tick bounced back into the position's range, the order is no longer
+                    // fully filled — restore it to the RBTree and try next.
                     switch (limitOrderType) {
-                        case (#Lower) { if (_tick > key.tickLimit) { _lowerLimitOrders.put(key, value); continue scan; }; };
-                        case (#Upper) { if (_tick < key.tickLimit) { _upperLimitOrders.put(key, value); continue scan; }; };
+                        case (#Lower) {
+                            let pos = _positionTickService.getUserPosition(value.userPositionId);
+                            if (_tick >= pos.tickLower) { _lowerLimitOrders.put(key, value); continue scan; };
+                        };
+                        case (#Upper) {
+                            let pos = _positionTickService.getUserPosition(value.userPositionId);
+                            if (_tick < pos.tickUpper) { _upperLimitOrders.put(key, value); continue scan; };
+                        };
                     };
                     _pendingExecution := ?(limitOrderType, key, value);
                     _pendingRetryCount := 0;
