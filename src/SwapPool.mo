@@ -2026,6 +2026,7 @@ shared (initMsg) actor class SwapPool(
         _assertAccessible(msg.caller);
         _assertNotAnonymous(msg.caller);
 
+        if (not _isLimitOrderAvailable) { return #err(#InternalError("Limit order is not available")); };
         if (not _positionTickService.checkUserPositionIdByOwner(PrincipalUtils.toAddress(msg.caller), args.positionId)) {
             return #err(#InternalError("Check operator failed"));
         };
