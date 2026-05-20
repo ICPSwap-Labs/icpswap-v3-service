@@ -2491,17 +2491,14 @@ shared (initMsg) actor class SwapPool(
                     return #ok(true);
                 };
                 switch (transaction.action) {
-                    case (#Refund(r)) {
-                        switch (r.status) {
+                    case (#Refund(i)) {
+                        switch (i.status) {
                             case (#Completed) { return #ok(true) };
                             case (#Created) { return #err(#InternalError("Refund transaction still in progress")) };
                             case (#CreditCompleted) { return #err(#InternalError("Refund transaction still in progress")) };
                             case (#Failed) {};
                         };
                     };
-                    case (_) {};
-                };
-                switch (transaction.action) {
                     case (#Deposit(i)) {
                         if (i.status == #Completed) { return #err(#InternalError("Deposit already completed; refusing refund")); };
                         if (i.status == #Created and Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
@@ -2543,6 +2540,11 @@ shared (initMsg) actor class SwapPool(
                         };
                     };
                     case (#Withdraw(info)) {
+                        if (info.transfer.index != 0) {
+                            let errMsg = "Cannot refund: withdraw transfer.index=" # Nat.toText(info.transfer.index) # " (already on ledger). Status=" # debug_show(info.status);
+                            _log("[ERROR][deleteFailedTransaction] Withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                            return #err(#InternalError(errMsg));
+                        };
                         let (token, tokenAct, tokenFee) = if (Principal.equal(info.transfer.token, Principal.fromText(_token0.address))) { (_token0, _token0Act, _token0Fee) } else { (_token1, _token1Act, _token1Fee) };
                         if (not _tokenHolderService.deposit(info.transfer.to.owner, token, info.transfer.amount)) {
                             let errMsg = "tokenHolder.deposit failed: to=" # Principal.toText(info.transfer.to.owner) # ", token=" # token.address # ", amount=" # Nat.toText(info.transfer.amount);
