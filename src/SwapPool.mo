@@ -2515,7 +2515,14 @@ shared (initMsg) actor class SwapPool(
                             return #err(#InternalError(errMsg));
                         };
                     };
-                    case (#OneStepSwap(i)) { if (i.status == #Completed) { return #err(#InternalError("One-step swap already completed; refusing refund")); }; };
+                    case (#OneStepSwap(i)) {
+                        if (i.status == #Completed) { return #err(#InternalError("One-step swap already completed; refusing refund")); };
+                        if (i.status != #Failed and Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
+                            let errMsg = "One-step swap still in flight (status=" # debug_show(i.status) # ", age <24h); refusing refund to avoid draining pre-existing tokenHolder balance while the original deposit/swap may still complete. Verify ledger directly or wait until age >=24h.";
+                            _log("[ERROR][deleteFailedTransaction] In-flight one-step swap refund rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                            return #err(#InternalError(errMsg));
+                        };
+                    };
                     case (_) {};
                 };
                 switch (_adminRefundAggregateFor(txId)) {
