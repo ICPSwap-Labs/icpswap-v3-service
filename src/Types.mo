@@ -565,6 +565,7 @@ module {
         #getCanisterId : () -> ();
         #getConfig : () -> ();
         #getCycleInfo : () -> ();
+        #getDebugLog : () -> ?Nat;
         #getFees : () -> ();
         #getInitArgs : () -> ();
         #getPools : () -> ();
