@@ -23,7 +23,7 @@ module {
         };
     };
     public func natToBlob(x: Nat): Blob {
-        let arr: [Nat8] = fromNat(32, x);
+        let arr: [Nat8] = fromNat(8, x);
         return Blob.fromArray(arr);
     };
     public func fromNat(len : Nat, n : Nat) : [Nat8] {
