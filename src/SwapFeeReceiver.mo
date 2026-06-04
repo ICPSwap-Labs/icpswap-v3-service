@@ -16,6 +16,7 @@ import Buffer "mo:base/Buffer";
 import Time "mo:base/Time";
 import Timer "mo:base/Timer";
 import Option "mo:base/Option";
+import Array "mo:base/Array";
 import Prim "mo:⛔";
 import Types "./Types";
 import AccountUtils "./utils/AccountUtils";
@@ -33,11 +34,45 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     private var _deploymentTime : Nat = BlockTimestamp.blockTimestamp();
 
+    // --------------------------- Debug Log Buffer ------------------------------------
+    private let _MAX_DEBUG_LOGS : Nat = 1000;
+    private stable var _debugLogArray : [Text] = [];
+    private var _debugLog : Buffer.Buffer<Text> = Buffer.Buffer<Text>(0);
+    private var _debugLogWriteIndex : Nat = 0;
+    private func _log(msg : Text) {
+        let entry = Nat.toText(BlockTimestamp.blockTimestamp()) # " " # msg;
+        if (_debugLog.size() < _MAX_DEBUG_LOGS) {
+            _debugLog.add(entry);
+        } else {
+            _debugLog.put(_debugLogWriteIndex % _MAX_DEBUG_LOGS, entry);
+        };
+        _debugLogWriteIndex += 1;
+    };
+    public query ({ caller }) func getDebugLog(count : ?Nat) : async [Text] {
+        _checkPermission(caller);
+        let size = _debugLog.size();
+        if (size == 0) { return []; };
+        let n = switch (count) { case (null) { size }; case (?c) { if (c > size) { size } else { c }; }; };
+        if (size < _MAX_DEBUG_LOGS) {
+            let start = if (size > n) { size - n } else { 0 };
+            Array.tabulate(size - start, func(i : Nat) : Text = _debugLog.get(start + i));
+        } else {
+            Array.tabulate(n, func(i : Nat) : Text {
+                _debugLog.get((_debugLogWriteIndex + _MAX_DEBUG_LOGS - n + i) % _MAX_DEBUG_LOGS);
+            });
+        };
+    };
+
     // --------------------------- Auto Claim ------------------------------------
     private stable var _canisterId : ?Principal = null;
     private stable var _ICPFee : Nat = 0;
     private stable var _ICSFee : Nat = 0;
     private stable var _lastSyncTime : Nat = 0;
+    private stable var _lastICPPoolClaimTime : Nat = 0;
+    private stable var _lastNoICPPoolClaimTime : Nat = 0;
+    // Set during chunked claim (one pool per message); used when the cycle completes to update *_last*PoolClaimTime.
+    private stable var _claimCycleHadICP : Bool = false;
+    private stable var _claimCycleHadNoICP : Bool = false;
     private stable var _icpPoolClaimInterval : Nat = 2592000; // Default 30 days in seconds
     private stable var _noIcpPoolClaimInterval : Nat = 15552000; // Default 180 days in seconds
     private stable var _autoSwapToIcsEnabled : Bool = false;
@@ -163,6 +198,26 @@ shared (initMsg) actor class SwapFeeReceiver(
         ignore _autoSyncPools();
     };
 
+    public shared ({ caller }) func forceAutoClaim() : async Result.Result<(), Types.Error> {
+        _checkPermission(caller);
+        try {
+            // First sync pools to get latest pool list
+            if (await _syncPools()) {
+                if (_isSyncing) { return #err(#InternalError("Already syncing")); };
+                _isSyncing := true;
+                let currentTime = BlockTimestamp.blockTimestamp();
+                _lastSyncTime := currentTime;
+                // Force claim all pools by calling _forceAutoClaim
+                ignore Timer.setTimer<system>(#nanoseconds (0), _forceAutoClaim);
+                return #ok();
+            } else {
+                return #err(#InternalError("Failed to sync pools"));
+            };
+        } catch (e) {
+            return #err(#InternalError("forceAutoClaim failed: " # Error.message(e)));
+        };
+    };
+
     public shared ({ caller }) func swapToICP(token : Types.Token) : async Result.Result<Bool, Types.Error> {
         _checkPermission(caller);
         return #ok(await _swapToICP(token));
@@ -218,6 +273,7 @@ shared (initMsg) actor class SwapFeeReceiver(
     public query func getSyncingStatus(): async Result.Result<{ 
         isSyncing : Bool; 
         lastSyncTime : Nat; 
+        lastICPPoolClaimTime : Nat;
         lastNoICPPoolClaimTime : Nat;
         swapProgress : Text;
         claimProgress : Text; 
@@ -239,6 +295,7 @@ shared (initMsg) actor class SwapFeeReceiver(
         return #ok({ 
             isSyncing = _isSyncing; 
             lastSyncTime = _lastSyncTime; 
+            lastICPPoolClaimTime = _lastICPPoolClaimTime;
             lastNoICPPoolClaimTime = _lastNoICPPoolClaimTime;
             swapProgress = debug_show(swapCount) # "/" # debug_show(swapTotal);
             claimProgress = debug_show(claimCount) # "/" # debug_show(claimTotal);
@@ -322,13 +379,14 @@ shared (initMsg) actor class SwapFeeReceiver(
             var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
             var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICS.address, ICS.standard);
             var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
+            if (balance == 0) { return; };
             switch (await tokenAct.transfer({
-                from = { owner = canisterId; subaccount = null }; 
-                from_subaccount = null; 
-                to = { owner = governanceCid; subaccount = null }; 
-                amount = balance; 
-                fee = null; 
-                memo = Option.make(Text.encodeUtf8("_burnICS")); 
+                from = { owner = canisterId; subaccount = null };
+                from_subaccount = null;
+                to = { owner = governanceCid; subaccount = null };
+                amount = balance;
+                fee = null;
+                memo = Option.make(Text.encodeUtf8("_burnICS"));
                 created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
             })) {
                 case (#Ok(_)) { _tokenBurnLog.add({ timestamp = BlockTimestamp.blockTimestamp(); amount = balance; errMsg = ""; }); };
@@ -495,28 +553,28 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     private func _swapICPToICS() : async () {
         try {
-            var canisterId = switch (_canisterId) { 
+            var canisterId = switch (_canisterId) {
                 case(?p){ p };
                 case(_) {
                     _addTokenSwapLog( ICP, 0, 0, "_swapICPToICS failed: Uninitialized canisterId", "swapICPToICS", null);
                     return;
-                }; 
+                };
             };
             var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
             var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
             if (balance <= (_ICPFee * 10)) { return; };
             switch (await _factoryAct.getPool({ token0 = ICP; token1 = ICS; fee = 3000; })) {
-                case (#ok(poolData)) { 
-                    await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee); 
+                case (#ok(poolData)) {
+                    await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee);
                     // Only schedule burn if enabled
                     if (_autoBurnIcsEnabled) {
                         ignore Timer.setTimer<system>(#nanoseconds (1), _burnICS);
                     };
-                    return; 
+                    return;
                 };
-                case (#err(msg)) { 
-                    _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null); 
-                    return; 
+                case (#err(msg)) {
+                    _addTokenSwapLog(ICP, 0, 0, debug_show(msg), "getPool", null);
+                    return;
                 };
             };
         } catch (e) {
@@ -623,10 +681,31 @@ shared (initMsg) actor class SwapFeeReceiver(
                 // clear history
                 _tokenClaimLog := Buffer.Buffer<Types.ReceiverClaimLog>(0);
                 _tokenSwapLog := Buffer.Buffer<Types.ReceiverSwapLog>(0);
+                _claimCycleHadICP := false;
+                _claimCycleHadNoICP := false;
                 true;
             };
             case (#err(_)) { false; };
         };
+    };
+
+    private func _hasUnclaimedPool() : Bool {
+        for ((_, data) in _poolMap.entries()) {
+            if (not data.claimed) { return true };
+        };
+        false;
+    };
+
+    private func _finalizeClaimIntervalTimestamps(currentTime : Nat) {
+        if (_hasUnclaimedPool()) { return };
+        if (_claimCycleHadICP or _claimCycleHadNoICP) {
+            _log("[INFO][_finalizeClaim] advanced: icp=" # debug_show(_claimCycleHadICP)
+                # " noICP=" # debug_show(_claimCycleHadNoICP) # " at=" # Nat.toText(currentTime));
+        };
+        if (_claimCycleHadICP) { _lastICPPoolClaimTime := currentTime };
+        if (_claimCycleHadNoICP) { _lastNoICPPoolClaimTime := currentTime };
+        _claimCycleHadICP := false;
+        _claimCycleHadNoICP := false;
     };
 
     private func _autoSwap() : async () {
@@ -644,9 +723,11 @@ shared (initMsg) actor class SwapFeeReceiver(
                 };
             };
             _isSyncing := false;
+            _log("[INFO][_autoSwap] done: isSyncing cleared, autoSwapToIcsEnabled="
+                # debug_show(_autoSwapToIcsEnabled));
 
             // Only proceed with auto-swap if enabled
-            if (_autoSwapToIcsEnabled) {    
+            if (_autoSwapToIcsEnabled) {
                 ignore Timer.setTimer<system>(#nanoseconds (1), _swapICPToICS);
             };
         } catch (e) {
@@ -663,25 +744,37 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    private stable var _lastNoICPPoolClaimTime : Nat = 0;
-    private stable var _hasClaimedNoICPPool : Bool = false;
-    private func _autoClaim() : async () {
+    // Force claim all pools ignoring time restrictions
+    private func _forceAutoClaim() : async () {
         try {
-            var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return }; };
             let currentTime = BlockTimestamp.blockTimestamp();
-            
+            _log("[INFO][_forceAutoClaim] tick: now=" # Nat.toText(currentTime));
+
+            var canisterId = switch (_canisterId) {
+                case(?p){ p };
+                case(_) {
+                    _log("[ERROR][_forceAutoClaim] skip: _canisterId uninitialized (call setCanisterId)");
+                    return;
+                };
+            };
+
+            // Force claim all pools (both ICP and non-ICP) ignoring time restrictions
             label claimLoop for ((cid, data) in _poolMap.entries()) {
                 if (not data.claimed) {
                     let hasICP = Functions.tokenEqual(data.token0, ICP) or Functions.tokenEqual(data.token1, ICP);
-                    // Skip non-ICP pools if less than configured interval since last claim
-                    if (not hasICP and currentTime < (_noIcpPoolClaimInterval + _lastNoICPPoolClaimTime)) {
-                        continue claimLoop;
+
+                    if (hasICP) {
+                        _claimCycleHadICP := true;
+                    } else {
+                        _claimCycleHadNoICP := true;
                     };
-                    if (not hasICP) { _hasClaimedNoICPPool := true; };
+
+                    _log("[INFO][_forceAutoClaim] claim pool=" # Principal.toText(cid) # " hasICP=" # debug_show(hasICP));
                     _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
                     try {
                         let _ = await _claim(cid, canisterId, data);
                     } catch (e) {
+                        _log("[ERROR][_forceAutoClaim] _claim threw pool=" # Principal.toText(cid) # " err=" # Error.message(e));
                         _tokenClaimLog.add({
                             timestamp = currentTime;
                             amount = 0;
@@ -690,19 +783,113 @@ shared (initMsg) actor class SwapFeeReceiver(
                             errMsg = "Call _claim failed: " # debug_show (Error.message(e));
                         });
                     };
-                    ignore Timer.setTimer<system>(#nanoseconds (1), _autoClaim);
+
+                    _finalizeClaimIntervalTimestamps(currentTime);
+                    if (not _hasUnclaimedPool()) {
+                        _log("[INFO][_forceAutoClaim] all pools claimed; scheduling _autoSwap");
+                        ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+                    } else {
+                        ignore Timer.setTimer<system>(#nanoseconds (1), _forceAutoClaim);
+                    };
                     return;
                 };
             };
 
-            // Update _lastNoICPPoolClaimTime only after all eligible pools have been processed
-            if (_hasClaimedNoICPPool) {
-                _lastNoICPPoolClaimTime := currentTime;
-                _hasClaimedNoICPPool := false; // Reset for next cycle
-            };
-            
+            _log("[INFO][_forceAutoClaim] no unclaimed pools found; scheduling _autoSwap");
+            _finalizeClaimIntervalTimestamps(currentTime);
             ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
         } catch (e) {
+            _log("[ERROR][_forceAutoClaim] exception: " # Error.message(e) # " - retry in 3600s");
+            _tokenClaimLog.add({
+                timestamp = BlockTimestamp.blockTimestamp();
+                amount = 0;
+                poolId = Principal.fromText("aaaaa-aa");
+                token = { address = ""; standard = ""; };
+                errMsg = "_forceAutoClaim failed: " # debug_show (Error.message(e));
+            });
+            // Retry after 1 hour
+            ignore Timer.setTimer<system>(#seconds(3600), _forceAutoClaim);
+        };
+    };
+    
+    private func _autoClaim() : async () {
+        try {
+            let currentTime = BlockTimestamp.blockTimestamp();
+
+            // Check if we should claim ICP pools (30 days interval)
+            let shouldClaimICPPools = currentTime >= (_icpPoolClaimInterval + _lastICPPoolClaimTime);
+
+            // Only check non-ICP pools when ICP pools need to be claimed
+            // If non-ICP pools haven't been claimed for 180 days, claim all pools together
+            let shouldClaimNoICPPools = shouldClaimICPPools and (currentTime >= (_noIcpPoolClaimInterval + _lastNoICPPoolClaimTime));
+
+            _log("[INFO][_autoClaim] tick: now=" # Nat.toText(currentTime)
+                # " lastICP=" # Nat.toText(_lastICPPoolClaimTime)
+                # " lastNoICP=" # Nat.toText(_lastNoICPPoolClaimTime)
+                # " shouldClaimICP=" # debug_show(shouldClaimICPPools)
+                # " shouldClaimNoICP=" # debug_show(shouldClaimNoICPPools));
+
+            var canisterId = switch (_canisterId) {
+                case(?p){ p };
+                case(_) {
+                    _log("[ERROR][_autoClaim] skip: _canisterId uninitialized (call setCanisterId)");
+                    return;
+                };
+            };
+
+            // If ICP pools don't need to be claimed, don't process any pools
+            if (not shouldClaimICPPools) {
+                _log("[INFO][_autoClaim] skip: ICP interval not elapsed remaining="
+                    # Nat.toText((_icpPoolClaimInterval + _lastICPPoolClaimTime) - currentTime) # "s");
+                return;
+            };
+
+            label claimLoop for ((cid, data) in _poolMap.entries()) {
+                if (not data.claimed) {
+                    let hasICP = Functions.tokenEqual(data.token0, ICP) or Functions.tokenEqual(data.token1, ICP);
+
+                    if (hasICP) {
+                        // Always claim ICP pools when shouldClaimICPPools is true
+                        _claimCycleHadICP := true;
+                    } else {
+                        // For non-ICP pools: only claim if 180 days have passed (checked when ICP pools are claimed)
+                        if (not shouldClaimNoICPPools) {
+                            continue claimLoop;
+                        };
+                        _claimCycleHadNoICP := true;
+                    };
+
+                    _log("[INFO][_autoClaim] claim pool=" # Principal.toText(cid) # " hasICP=" # debug_show(hasICP));
+                    _poolMap.put(cid, { token0 = data.token0; token1 = data.token1; fee = data.fee; claimed = true; });
+                    try {
+                        let _ = await _claim(cid, canisterId, data);
+                    } catch (e) {
+                        _log("[ERROR][_autoClaim] _claim threw pool=" # Principal.toText(cid) # " err=" # Error.message(e));
+                        _tokenClaimLog.add({
+                            timestamp = currentTime;
+                            amount = 0;
+                            poolId = cid;
+                            token = { address = ""; standard = ""; };
+                            errMsg = "Call _claim failed: " # debug_show (Error.message(e));
+                        });
+                    };
+
+                    _finalizeClaimIntervalTimestamps(currentTime);
+                    if (not _hasUnclaimedPool()) {
+                        _log("[INFO][_autoClaim] all pools claimed; scheduling _autoSwap");
+                        ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+                    } else {
+                        ignore Timer.setTimer<system>(#nanoseconds (1), _autoClaim);
+                    };
+                    return;
+                };
+            };
+
+            _log("[INFO][_autoClaim] no unclaimed pools found; scheduling _autoSwap");
+            _finalizeClaimIntervalTimestamps(currentTime);
+            ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+        } catch (e) {
+            _log("[ERROR][_autoClaim] exception: " # Error.message(e) # " - retry in 3600s");
             _tokenClaimLog.add({
                 timestamp = BlockTimestamp.blockTimestamp();
                 amount = 0;
@@ -717,21 +904,39 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     private func _autoSyncPools() : async () {
         try {
-            if (_isSyncing) { return; };
-            
-            // Check if enough time has passed since last sync based on _icpPoolClaimInterval
             let currentTime = BlockTimestamp.blockTimestamp();
-            if (currentTime < (_lastSyncTime + _icpPoolClaimInterval)) {
+            let nextEligible = _lastSyncTime + _icpPoolClaimInterval;
+            _log("[INFO][_autoSyncPools] tick: isSyncing=" # debug_show(_isSyncing)
+                # " lastSyncTime=" # Nat.toText(_lastSyncTime)
+                # " nextEligible=" # Nat.toText(nextEligible)
+                # " now=" # Nat.toText(currentTime)
+                # " icpInterval=" # Nat.toText(_icpPoolClaimInterval));
+
+            if (_isSyncing) {
+                _log("[INFO][_autoSyncPools] skip: already syncing (call resetSyncingFlag if stuck)");
                 return;
             };
-            
+            if (currentTime < nextEligible) {
+                _log("[INFO][_autoSyncPools] skip: interval not elapsed remaining="
+                    # Nat.toText(nextEligible - currentTime) # "s");
+                return;
+            };
+
             if (await _syncPools()) {
-                if (_isSyncing) { return; };
+                if (_isSyncing) {
+                    _log("[WARN][_autoSyncPools] skip after syncPools: isSyncing flipped true mid-flight");
+                    return;
+                };
                 _isSyncing := true;
                 _lastSyncTime := currentTime;
-                ignore Timer.setTimer<system>(#nanoseconds (0), _autoClaim); 
+                _log("[INFO][_autoSyncPools] proceed: syncPools ok, scheduled _autoClaim, lastSyncTime="
+                    # Nat.toText(currentTime));
+                ignore Timer.setTimer<system>(#nanoseconds (0), _autoClaim);
+            } else {
+                _log("[ERROR][_autoSyncPools] syncPools returned false (factory.getPools failed)");
             };
         } catch (e) {
+            _log("[ERROR][_autoSyncPools] exception: " # Error.message(e) # " - retry in 3600s");
             // Log error and retry after delay
             _tokenSwapLog.add({
                 timestamp = BlockTimestamp.blockTimestamp();
@@ -749,12 +954,14 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     public shared ({ caller }) func setIcpPoolClaimInterval(interval: Nat) : async Result.Result<(), Types.Error> {
         _checkPermission(caller);
+        if (interval < 3600) { return #err(#InternalError("Interval must be at least 3600 seconds (1 hour)")); };
         _icpPoolClaimInterval := interval;
         return #ok();
     };
 
     public shared ({ caller }) func setNoIcpPoolClaimInterval(interval: Nat) : async Result.Result<(), Types.Error> {
         _checkPermission(caller);
+        if (interval < 3600) { return #err(#InternalError("Interval must be at least 3600 seconds (1 hour)")); };
         _noIcpPoolClaimInterval := interval;
         return #ok();
     };
@@ -769,6 +976,16 @@ shared (initMsg) actor class SwapFeeReceiver(
         _checkPermission(caller);
         _autoBurnIcsEnabled := enabled;
         return #ok();
+    };
+
+    public shared ({ caller }) func resetSyncingFlag() : async () {
+        _checkPermission(caller);
+        _isSyncing := false;
+    };
+
+    public shared ({ caller }) func forceReleaseLock() : async () {
+        _checkPermission(caller);
+        _releaseLock();
     };
 
     public query func getConfig() : async Result.Result<{
@@ -790,13 +1007,21 @@ shared (initMsg) actor class SwapFeeReceiver(
     private var _claimSwapFeeRepurchaseDaily = Timer.recurringTimer<system>(#seconds(86400), _autoSyncPools); // 24 hours
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.5.0";
+    private var _version : Text = "3.7.0";
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {
         _tokenClaimLogArray := Buffer.toArray(_tokenClaimLog);
         _tokenSwapLogArray := Buffer.toArray(_tokenSwapLog);
         _tokenBurnLogArray := Buffer.toArray(_tokenBurnLog);
+        let _logSize = _debugLog.size();
+        if (_logSize == _MAX_DEBUG_LOGS) {
+            _debugLogArray := Array.tabulate<Text>(_logSize, func(i : Nat) : Text {
+                _debugLog.get((_debugLogWriteIndex + i) % _MAX_DEBUG_LOGS)
+            });
+        } else {
+            _debugLogArray := Buffer.toArray(_debugLog);
+        };
         _cleanupTimers();
     };
 
@@ -808,7 +1033,11 @@ shared (initMsg) actor class SwapFeeReceiver(
         _tokenClaimLogArray := [];
         _tokenSwapLogArray := [];
         _tokenBurnLogArray := [];
+        _debugLog := Buffer.fromArray(_debugLogArray);
+        _debugLogWriteIndex := _debugLog.size();
+        _debugLogArray := [];
         _locked := false;
+        _isSyncing := false;
     };
 
     system func inspect({
@@ -820,6 +1049,8 @@ shared (initMsg) actor class SwapFeeReceiver(
             // Controller
             case (#burnICS _)                   { Prim.isController(caller) };
             case (#claim _)                     { Prim.isController(caller) };
+            case (#forceAutoClaim _)            { Prim.isController(caller) };
+            case (#getDebugLog _)               { Prim.isController(caller) };
             case (#setFees _)                   { Prim.isController(caller) };
             case (#setCanisterId _)             { Prim.isController(caller) };
             case (#setIcpPoolClaimInterval _)   { Prim.isController(caller) };
@@ -832,6 +1063,8 @@ shared (initMsg) actor class SwapFeeReceiver(
             case (#swapWithoutDeposit _)        { Prim.isController(caller) };
             case (#transfer _)                  { Prim.isController(caller) };
             case (#transferAll _)               { Prim.isController(caller) };
+            case (#resetSyncingFlag _)          { Prim.isController(caller) };
+            case (#forceReleaseLock _)          { Prim.isController(caller) };
             // Anyone
             case (_) { true };
         };

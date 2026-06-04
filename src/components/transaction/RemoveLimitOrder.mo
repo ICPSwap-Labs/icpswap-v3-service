@@ -42,7 +42,7 @@ module {
     };
 
     public func fail(info: Types.RemoveLimitOrderInfo, error: Text): Types.RemoveLimitOrderInfo {
-        assert(info.status != #Completed);
+        if (info.status == #Completed or info.status == #Failed) { return info; };
         _updateStatus(info, #Failed, ?error)
     };
 }; 

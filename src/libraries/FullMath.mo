@@ -1,6 +1,4 @@
-import Debug "mo:base/Debug";
 import Nat "mo:base/Nat";
-import Nat64 "mo:base/Nat64";
 import Result "mo:base/Result";
 import SafeUint "mo:commons/math/SafeUint";
 
@@ -21,9 +19,7 @@ module FullMath{
         return #ok(result.val());
     };
     
-    public func mulMod(x: SafeUint.Uint256, y: SafeUint.Uint256,z: SafeUint.Uint256): Uint256{
-        var temp:SafeUint.Uint256 = x.mul(y);
-        var r:SafeUint.Uint256 = temp.rem(z);
-        return r.val();
+    public func mulMod(x: SafeUint.Uint256, y: SafeUint.Uint256, z: SafeUint.Uint256): Uint256 {
+        return (x.val() * y.val()) % z.val();
     };
 }

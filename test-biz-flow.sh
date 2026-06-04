@@ -1,6 +1,65 @@
 #!/bin/bash
 # set -e
-# clear
+
+# ========================= Test Utilities =========================
+PASS_COUNT=0
+FAIL_COUNT=0
+FAILURES=""
+TOTAL_START=$(date +%s)
+
+pass() {
+    PASS_COUNT=$((PASS_COUNT + 1))
+    echo "\033[32m  [PASS] $1 \033[0m"
+}
+
+fail() {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES="$FAILURES\n  - $1"
+    echo "\033[31m  [FAIL] $1 \033[0m"
+}
+
+step_header() {
+    echo ""
+    echo "\033[36m╔══════════════════════════════════════════════════════════════╗\033[0m"
+    echo "\033[36m║  Step $1: $2\033[0m"
+    echo "\033[36m╚══════════════════════════════════════════════════════════════╝\033[0m"
+}
+
+section_header() {
+    echo ""
+    echo "\033[33m──────────────────────────────────────────────────────────────\033[0m"
+    echo "\033[33m  $1\033[0m"
+    echo "\033[33m──────────────────────────────────────────────────────────────\033[0m"
+}
+
+summary() {
+    TOTAL_END=$(date +%s)
+    ELAPSED=$((TOTAL_END - TOTAL_START))
+    echo ""
+    echo "\033[36m╔══════════════════════════════════════════════════════════════╗\033[0m"
+    echo "\033[36m║  TEST SUMMARY                                              ║\033[0m"
+    echo "\033[36m╚══════════════════════════════════════════════════════════════╝\033[0m"
+    echo "  Total:  $((PASS_COUNT + FAIL_COUNT))"
+    echo "\033[32m  Passed: $PASS_COUNT \033[0m"
+    if [ "$FAIL_COUNT" -gt 0 ]; then
+        echo "\033[31m  Failed: $FAIL_COUNT \033[0m"
+        echo "\033[31m  Failures: $FAILURES \033[0m"
+    else
+        echo "  Failed: 0"
+    fi
+    echo "  Time:   ${ELAPSED}s"
+    echo ""
+    if [ "$FAIL_COUNT" -gt 0 ]; then
+        echo "\033[31m  RESULT: FAILED \033[0m"
+    else
+        echo "\033[32m  RESULT: ALL PASSED \033[0m"
+    fi
+    echo ""
+}
+
+# ========================= Setup =========================
+section_header "Environment Setup"
+
 dfx stop
 rm -rf .dfx
 mv dfx.json dfx.json.bak
@@ -58,21 +117,6 @@ cat > dfx.json <<- EOF
       "wasm": "./test/icrc2/icrc2.wasm",
       "type": "custom",
       "candid": "./test/icrc2/icrc2.did"
-    },
-    "base_index": {
-      "wasm": "./test/base_index/base_index.wasm",
-      "type": "custom",
-      "candid": "./test/base_index/base_index.did"
-    },
-    "node_index": {
-      "wasm": "./test/node_index/node_index.wasm",
-      "type": "custom",
-      "candid": "./test/node_index/node_index.did"
-    },
-    "price": {
-      "wasm": "./test/price/price.wasm",
-      "type": "custom",
-      "candid": "./test/price/price.did"
     }
   },
   "defaults": { "build": { "packtool": "vessel sources" } }, "networks": { "local": { "bind": "127.0.0.1:8000", "type": "ephemeral" } }, "version": 1
@@ -80,95 +124,65 @@ cat > dfx.json <<- EOF
 EOF
 
 dfx start --clean --background
-echo "-=========== create all"
+echo "  Creating all canisters..."
 dfx canister create --all
-echo "-=========== build all"
+echo "  Building all canisters..."
 dfx build
-echo
+echo ""
 
 TOTAL_SUPPLY="1000000000000000000"
 TRANS_FEE="100000000";
-# TRANS_FEE="0";
 MINTER_PRINCIPAL="$(dfx identity get-principal)"
 MINTER_WALLET="$(dfx identity get-wallet)"
 
-echo "==> Install canisters"
-echo
-echo "==> install ICRC2"
+# ========================= Install Canisters =========================
+section_header "Installing Canisters"
+
+echo "  Installing ICRC2..."
 dfx canister install ICRC2 --argument="( record {name = \"ICRC2\"; symbol = \"ICRC2\"; decimals = 8; fee = 0; max_supply = 1_000_000_000_000; initial_balances = vec {record {record {owner = principal \"$MINTER_PRINCIPAL\";subaccount = null;};100_000_000}};min_burn_amount = 10_000;minting_account = null;advanced_settings = null; })"
-echo "==>install TOKENA"
+echo "  Installing TOKENA & TOKENB..."
 dfx canister install TOKENA --argument="( record {name = \"TOKENA\"; symbol = \"TOKENA\"; decimals = 8; fee = $TRANS_FEE; max_supply = $TOTAL_SUPPLY; initial_balances = vec {record {record {owner = principal \"$MINTER_PRINCIPAL\";subaccount = null;};100_000_000}};min_burn_amount = 10_000;minting_account = null;advanced_settings = null; })"
-echo "==>install TOKENB"
 dfx canister install TOKENB --argument="( record {name = \"TOKENB\"; symbol = \"TOKENB\"; decimals = 8; fee = $TRANS_FEE; max_supply = $TOTAL_SUPPLY; initial_balances = vec {record {record {owner = principal \"$MINTER_PRINCIPAL\";subaccount = null;};100_000_000}};min_burn_amount = 10_000;minting_account = null;advanced_settings = null; })"
 
-echo "==> install SwapFeeReceiver"
+echo "  Installing infrastructure canisters..."
 dfx canister install SwapFeeReceiver --argument="(principal \"$(dfx canister id SwapFactory)\", record {address=\"$(dfx canister id ICRC2)\"; standard=\"ICRC2\"}, record {address=\"$(dfx canister id ICRC2)\"; standard=\"ICRC2\"}, principal \"$MINTER_PRINCIPAL\")"
-echo "==> install TrustedCanisterManager"
 dfx canister install TrustedCanisterManager --argument="(null)"
-echo "==> install Test"
 dfx canister install Test
-echo "==> install price"
-dfx deploy price
-echo "==> install base_index"
-dfx deploy base_index --argument="(principal \"$(dfx canister id price)\", principal \"$(dfx canister id node_index)\")"
-echo "==> install node_index"
-dfx deploy node_index --argument="(\"$(dfx canister id base_index)\", \"$(dfx canister id price)\")"
-echo "==> install SwapDataBackup"
 dfx canister install SwapDataBackup --argument="(principal \"$(dfx canister id SwapFactory)\", null)"
-echo "==> install SwapFactory"
-dfx canister install SwapFactory --argument="(principal \"$(dfx canister id base_index)\", principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", opt principal \"$MINTER_PRINCIPAL\", principal \"$(dfx canister id PositionIndex)\")"
-echo "==> install PositionIndex"
+dfx canister install SwapFactory --argument="(principal \"$(dfx canister id SwapFeeReceiver)\", principal \"$(dfx canister id PasscodeManager)\", principal \"$(dfx canister id TrustedCanisterManager)\", principal \"$(dfx canister id SwapDataBackup)\", opt principal \"$MINTER_PRINCIPAL\", principal \"$(dfx canister id PositionIndex)\")"
 dfx canister install PositionIndex --argument="(principal \"$(dfx canister id SwapFactory)\")"
 dfx canister install PasscodeManager --argument="(principal \"$(dfx canister id ICRC2)\", 100000000, principal \"$(dfx canister id SwapFactory)\", principal \"$MINTER_PRINCIPAL\")"
 
 tokenAId=`dfx canister id TOKENA`
 tokenBId=`dfx canister id TOKENB`
 testId=`dfx canister id Test`
-infoId=`dfx canister id base_index`
 swapFactoryId=`dfx canister id SwapFactory`
 positionIndexId=`dfx canister id PositionIndex`
 swapFeeReceiverId=`dfx canister id SwapFeeReceiver`
-zeroForOne="true"
-echo "==> infoId (\"$infoId\")"
-echo "==> positionIndexId (\"$positionIndexId\")"
-echo "==> swapFeeReceiverId (\"$swapFeeReceiverId\")"
 
-echo "==> install SwapPoolInstaller"
+# ========================= Setup SwapPoolInstaller =========================
+section_header "Setting up SwapPoolInstaller"
+
 dfx deploy SwapPoolInstaller --argument="(principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id SwapFactory)\", principal \"$(dfx canister id PositionIndex)\")"
-# dfx canister status SwapPoolInstaller
 dfx canister update-settings SwapPoolInstaller --add-controller "$swapFactoryId"
 dfx canister update-settings SwapPoolInstaller --remove-controller "$MINTER_WALLET"
-# dfx canister status SwapPoolInstaller
 MODULE_HASH=$(dfx canister call SwapPoolInstaller getStatus | sed -n 's/.*moduleHash = opt blob "\(.*\)".*/\1/p')
 dfx canister call SwapFactory setInstallerModuleHash "(blob \"$MODULE_HASH\")"
-dfx canister call SwapFactory getInstallerModuleHash
-dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})" 
-dfx canister call SwapFactory removePoolInstaller "(principal \"$(dfx canister id SwapPoolInstaller)\")" 
-dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})" 
-
+dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})"
+dfx canister call SwapFactory removePoolInstaller "(principal \"$(dfx canister id SwapPoolInstaller)\")"
+dfx canister call SwapFactory addPoolInstallers "(vec {record {canisterId = principal \"$(dfx canister id SwapPoolInstaller)\"; subnet = \"mainnet\"; subnetType = \"mainnet\"; weight = 100: nat};})"
 dfx canister deposit-cycles 50698725619460 SwapPoolInstaller
 
-# Upload WASM to both SwapFactory and SwapPoolInstaller
-echo "==> Uploading WASM to SwapFactory and SwapPoolInstaller..."
-
-# Check if upload-pool-wasm.sh exists and has execute permission
+echo "  Uploading WASM..."
 if [ ! -f "./upload-pool-wasm.sh" ]; then
-    echo "Error: upload-pool-wasm.sh not found in current directory"
+    echo "  Error: upload-pool-wasm.sh not found"
     exit 1
 fi
-
-# Make sure the script has execute permission
 chmod +x ./upload-pool-wasm.sh
-
-# Execute the script
 sh ./upload-pool-wasm.sh
 
 testAccount=`dfx canister call Test getAccount "(principal \"$testId\")" | sed 's/[()]//g' | sed 's/"//g'`
-echo "testAccount: $testAccount"
 currentAccount=`dfx canister call Test getAccount "(principal \"$MINTER_PRINCIPAL\")" | sed 's/[()]//g' | sed 's/"//g'`
-echo "currentAccount: $currentAccount"
-
-dfx canister call base_index addClient "(principal \"$swapFactoryId\")"
 
 if [[ "$tokenAId" < "$tokenBId" ]]; then
     token0="$tokenAId"
@@ -179,14 +193,13 @@ else
 fi
 token0Standard="ICRC1"
 token1Standard="ICRC2"
-echo "======================================="
-echo "== token0: $token0"
-echo "== token1: $token1"
-echo "== token0Standard: $token0Standard"
-echo "== token1Standard: $token1Standard"
-echo "======================================="
+echo ""
+echo "  token0: $token0 ($token0Standard)"
+echo "  token1: $token1 ($token1Standard)"
 
 subaccount=$(dfx canister call Test getSubaccount | grep -o 'blob "[^"]*"' | sed 's/blob "//;s/"//')
+
+# ========================= Helper Functions =========================
 
 function balanceOf()
 {
@@ -199,374 +212,500 @@ function balanceOf()
     echo $balance
 }
 
-# create pool
-function create_pool() #sqrtPriceX96
+function create_pool()
 {
-    dfx canister call ICRC2 icrc2_approve "(record{amount=1000000000000;created_at_time=null;expected_allowance=null;expires_at=null;fee=null;from_subaccount=null;memo=null;spender=record {owner= principal \"$(dfx canister id PasscodeManager)\";subaccount=null;}})"
-    dfx canister call PasscodeManager depositFrom "(record {amount=100000000;fee=0;})"
-    dfx canister call PasscodeManager requestPasscode "(principal \"$token0\", principal \"$token1\", 3000)"
-    
+    section_header "pool" "Creating Pool"
+    dfx canister call ICRC2 icrc2_approve "(record{amount=1000000000000;created_at_time=null;expected_allowance=null;expires_at=null;fee=null;from_subaccount=null;memo=null;spender=record {owner= principal \"$(dfx canister id PasscodeManager)\";subaccount=null;}})" > /dev/null
+    dfx canister call PasscodeManager depositFrom "(record {amount=100000000;fee=0;})" > /dev/null
+    dfx canister call PasscodeManager requestPasscode "(principal \"$token0\", principal \"$token1\", 3000)" > /dev/null
+
     result=`dfx canister call SwapFactory createPool "(record {subnet = opt \"mainnet\"; token0 = record {address = \"$token0\"; standard = \"$token0Standard\";}; token1 = record {address = \"$token1\"; standard = \"$token1Standard\";}; fee = 3000; sqrtPriceX96 = \"$1\"})"`
     if [[ ! "$result" =~ " ok = record " ]]; then
-        echo "\033[31mcreate pool fail. $result - \033[0m"
+        fail "create_pool: $result"
+        return
     fi
-    echo "create_pool result: $result"
     poolId=`echo $result | awk -F"canisterId = principal \"" '{print $2}' | awk -F"\";" '{print $1}'`
-    # dfx canister call $tokenAId approve "(principal \"$poolId\", $TOTAL_SUPPLY)"
-    dfx canister call $token1 icrc2_approve "(record{amount=$TOTAL_SUPPLY;created_at_time=null;expected_allowance=null;expires_at=null;fee=opt $TRANS_FEE;from_subaccount=null;memo=null;spender=record {owner= principal \"$poolId\";subaccount=null;}})"
-
-    # dfx canister call PositionIndex updatePoolIds 
-    
-    dfx canister call PasscodeManager transferValidate "(principal \"$poolId\", 100000000)"
-    dfx canister call PasscodeManager transfer "(principal \"$poolId\", 100000000)"
+    dfx canister call $token1 icrc2_approve "(record{amount=$TOTAL_SUPPLY;created_at_time=null;expected_allowance=null;expires_at=null;fee=opt $TRANS_FEE;from_subaccount=null;memo=null;spender=record {owner= principal \"$poolId\";subaccount=null;}})" > /dev/null
+    dfx canister call PasscodeManager transferValidate "(principal \"$poolId\", 100000000)" > /dev/null
+    dfx canister call PasscodeManager transfer "(principal \"$poolId\", 100000000)" > /dev/null
+    echo "  Pool created: $poolId"
 }
 
-function deposit() # token tokenAmount
+function deposit()
 {
-    echo "==> deposit: transfer to subaccount"
     result=`dfx canister call $1 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = $2:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"`
-    subaccountBalance=`balanceOf $1 $poolId $MINTER_PRINCIPAL`
-    echo "subaccount balance: $subaccountBalance"
-    
-    depositAmount=$2
-    echo "deposit amount: $depositAmount"
-
-    echo "==> pool deposit"
-    result=`dfx canister call $poolId deposit "(record {token = \"$1\"; amount = $depositAmount: nat; fee = $TRANS_FEE: nat; })"`
-    echo "deposit result: $result"
-
-    echo "\033[32m deposit $1 success. \033[0m"
+    result=`dfx canister call $poolId deposit "(record {token = \"$1\"; amount = $2: nat; fee = $TRANS_FEE: nat; })"`
+    echo "  deposit $1 ok ($2)"
 }
 
-function depositFrom() # token tokenAmount
-{   
-    echo "==> pool deposit from"
+function depositFrom()
+{
     result=`dfx canister call $poolId depositFrom "(record {token = \"$1\"; amount = $2: nat; fee = $TRANS_FEE: nat; })"`
-    echo "\033[32m depositFrom $1 success. \033[0m"
+    echo "  depositFrom $1 ok ($2)"
 }
 
-function mint(){ #tickLower tickUpper amount0Desired amount1Desired
+function mint()
+{
     result=`dfx canister call $poolId mint "(record { token0 = \"$token0\"; token1 = \"$token1\"; fee = 3000: nat; tickLower = $1: int; tickUpper = $2: int; amount0Desired = \"$3\"; amount1Desired = \"$4\"; })"`
-    echo "\033[32m mint success: $result \033[0m"
-
-    # dfx canister call PositionIndex addPoolId "(\"$poolId\")"
+    if [[ "$result" =~ "ok" ]]; then
+        pass "mint (tickLower=$1, tickUpper=$2)"
+    else
+        fail "mint: $result"
+    fi
 }
 
-function withdrawAll() #token amount
+function withdrawAll()
 {
     result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
-    echo "unused balance result: $result"
-
     withdrawAmount0=$(echo "$result" | sed -n 's/.*balance0 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
     withdrawAmount1=$(echo "$result" | sed -n 's/.*balance1 = \([0-9_]*\) : nat.*/\1/p' | sed 's/[^0-9]//g')
-    echo "withdraw amount0: $withdrawAmount0"
-    echo "withdraw amount1: $withdrawAmount1"
 
     if [ "$withdrawAmount0" -gt 0 ]; then
-        result=`dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})"`
-        echo "token0 withdraw result: $result"
+        dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount0: nat;})" > /dev/null 2>&1
     fi
-
     if [ "$withdrawAmount1" -gt 0 ]; then
-        result=`dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})"`
-        echo "token1 withdraw result: $result"
+        dfx canister call $poolId withdraw "(record {token = \"$token1\"; fee = $TRANS_FEE: nat; amount = $withdrawAmount1: nat;})" > /dev/null 2>&1
     fi
 
-    echo "\033[32m withdraw all success. \033[0m"
+    sleep 2
+    pass "withdrawAll (amount0=$withdrawAmount0, amount1=$withdrawAmount1)"
 }
 
-# Get withdraw queue information
-function get_withdraw_queue_info() {
-    local pool_id=$1
-    echo "=== Withdraw Queue Information ==="
-    local queue_info=$(dfx canister call $pool_id getWithdrawQueueInfo --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
-    
-    # Check if the command was successful
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to fetch withdraw queue info"
-        return 1
-    fi
-    
-    # Debug: show raw JSON (uncomment to debug)
-    # echo "Raw JSON: $queue_info"
-    
-    # Extract values from JSON response
-    # Use 'tostring' to convert boolean to string, otherwise false becomes "unknown" with //
-    local is_processing=$(echo "$queue_info" | jq -r '.ok.isProcessing | tostring')
-    local queue_size=$(echo "$queue_info" | jq -r '.ok.queueSize // "unknown"')
-    
-    echo "Queue size: $queue_size"
-    echo "Is processing: $is_processing"
-}
-
-# Optional monitoring function for withdraw queue (uncomment to use)
-function monitor_withdraw_queue() {
-    local pool_id=$1
-    local timeout=${2:-60}  # Default 60 seconds timeout
-    
-    echo "=== Monitoring withdraw queue for $timeout seconds ==="
-    local end_time=$(($(date +%s) + timeout))
-    local last_print_time=0
-    
-    while [ $(date +%s) -lt $end_time ]; do
-        local current_time=$(date +%s)
-        
-        # Only fetch and print every 1 second
-        if [ $((current_time - last_print_time)) -ge 1 ]; then
-            # Use getWithdrawQueueInfo and convert to JSON using idl2json
-            local queue_info=$(dfx canister call $pool_id getWithdrawQueueInfo --candid .dfx/local/canisters/SwapPool/SwapPool.did 2>&1 | idl2json 2>&1)
-            
-            # Check if the call was successful and parse JSON
-            if echo "$queue_info" | jq -e . >/dev/null 2>&1; then
-                # Extract values from JSON response
-                # Use 'tostring' to convert boolean to string, otherwise false becomes "?" with //
-                local is_processing=$(echo "$queue_info" | jq -r '.ok.isProcessing | tostring')
-                local queue_size=$(echo "$queue_info" | jq -r '.ok.queueSize // "?"')
-                
-                echo "[$(date +%H:%M:%S)] Queue: $queue_size items | Processing: $is_processing"
-                
-                # If queue is empty, we're done (regardless of processing status)
-                if [ "$queue_size" = "0" ]; then
-                    echo "=== Queue is empty! ==="
-                    break
-                fi
-            else
-                # Fallback: if JSON parsing fails, show raw output
-                echo "[$(date +%H:%M:%S)] Queue: (parsing error) | Raw: $queue_info"
-            fi
-            
-            last_print_time=$current_time
-        fi
-        
-        sleep 1  # Check more frequently but only print every second
-    done
-}
-
-function testWithdrawQueue() {
-    echo
-    echo "=== Testing Withdraw Queue Mechanism ==="
-    echo "NOTE: Queue now processes ONE item at a time to minimize resource consumption"
-    echo
-    
-    # Ensure we have a pool and some balance to withdraw
-    echo "==> Preparing for withdraw queue test"
-    deposit $token0 10000000000000000
-    
-    echo "==> Initial queue status (should be empty)"
-    get_withdraw_queue_info $poolId
-    
-    echo "==> Starting withdraw queue test"
-    local start_time=$(date +%s)
-    echo "Test start time: $(date)"
-    
-    local count=50
-    echo "Submitting $count withdraw requests..."
-    echo "WARNING: This will take approximately $count seconds to process (1 item per async call)"
-    for ((i=1; i<=$count; i++)); do
-        echo "Operation $i of $count"
-        dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = 10000000000: nat;})" >/dev/null 2>&1 &
-    done
-
-    echo "Waiting for all requests to be submitted..."
-    wait
-    
-    local submit_end_time=$(date +%s)
-    local submit_duration=$((submit_end_time - start_time))
-    echo "All requests submitted in $submit_duration seconds at $(date)"
-    
-    echo "==> Monitoring queue processing (processing one item at a time)..."
-    monitor_withdraw_queue $poolId 180
-    
-    echo "==> Final queue status"
-    get_withdraw_queue_info $poolId
-}
-
-function swap() #depositToken depositAmount amountIn amountOutMinimum ### liquidity tickCurrent sqrtRatioX96  token0BalanceAmount token1BalanceAmount zeroForOne
+function swap()
 {
-    echo "== swap... =="
     if [[ "$1" =~ "$token0" ]]; then
         result=`dfx canister call $poolId swap "(record { zeroForOne = true; amountIn = \"$2\"; amountOutMinimum = \"$3\"; })"`
     else
         result=`dfx canister call $poolId swap "(record { zeroForOne = false; amountIn = \"$2\"; amountOutMinimum = \"$3\"; })"`
     fi
-    echo "\033[32m swap success: $result \033[0m"
+    if [[ "$result" =~ "ok" ]]; then
+        pass "swap (amountIn=$2)"
+    else
+        fail "swap: $result"
+    fi
 }
 
 function oneStepSwap()
 {
-    echo "== oneStepSwap... =="
     if [[ "$1" =~ "$token0" ]]; then
         result=`dfx canister call $poolId depositAndSwap "(record { zeroForOne = true; amountIn = \"$2\"; amountOutMinimum = \"$3\"; tokenInFee = $TRANS_FEE: nat; tokenOutFee = $TRANS_FEE: nat; })"`
     else
         result=`dfx canister call $poolId depositFromAndSwap "(record { zeroForOne = false; amountIn = \"$2\"; amountOutMinimum = \"$3\"; tokenInFee = $TRANS_FEE: nat; tokenOutFee = $TRANS_FEE: nat; })"`
     fi
-    echo "\033[32m oneStepSwap success: $result \033[0m"
-}
-
-function checkUnusedBalance(){
-    result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
-    echo "unused balances: $result"
-}
-
-function checkBalance(){
-    token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
-    echo "token0 $MINTER_PRINCIPAL balance: $token0BalanceResult"
-    token1BalanceResult="$(balanceOf $token1 $MINTER_PRINCIPAL null)"
-    echo "token1 $MINTER_PRINCIPAL balance: $token1BalanceResult"
-    token0BalanceResult=${token0BalanceResult//"_"/""}
-    token1BalanceResult=${token1BalanceResult//"_"/""}
-    if [[ "$token0BalanceResult" =~ "$1" ]] && [[ "$token1BalanceResult" =~ "$2" ]]; then
-      echo "\033[32m token balance success. \033[0m"
+    if [[ "$result" =~ "ok" ]]; then
+        pass "oneStepSwap (amountIn=$2)"
     else
-      echo "\033[31m token balance fail. $info \n expected $1 $2\033[0m"
+        fail "oneStepSwap: $result"
     fi
 }
 
-function testBizFlow()
+function checkUnusedBalance()
 {
-    
-    echo
-    echo test whole biz flow
-    echo
-    #sqrtPriceX96
-    create_pool 274450166607934908532224538203
+    result=`dfx canister call $poolId getUserUnusedBalance "(principal \"$MINTER_PRINCIPAL\")"`
+    echo "  unusedBalance: $result"
+}
 
-    dfx canister call $poolId setAdmins "(vec {principal \"$MINTER_PRINCIPAL\"})"
+function getCurrentTick()
+{
+    # Flatten multi-line output, then extract `tick = N : int`. -E for BSD/GNU sed parity.
+    dfx canister call $poolId metadata 2>/dev/null \
+        | tr -d '\n' \
+        | sed -nE 's/.*tick[[:space:]]*=[[:space:]]*(-?[0-9_]+)[[:space:]]*:[[:space:]]*int.*/\1/p' \
+        | tr -d '_'
+}
 
-    echo "==> step 0 stop jobs"
-    dfx canister call $poolId stopJobs "(vec {\"SyncTrxsJob\";})"
+function getNextPositionId()
+{
+    dfx canister call $poolId metadata 2>/dev/null \
+        | tr -d '\n' \
+        | sed -nE 's/.*nextPositionId[[:space:]]*=[[:space:]]*([0-9_]+)[[:space:]]*:[[:space:]]*nat.*/\1/p' \
+        | tr -d '_'
+}
 
-    echo
+# Returns 1 if positionId appears in upper or lower limit orders, else 0.
+function limitOrderPresent()
+{
+    local pid=$1
+    local out
+    out=$(dfx canister call $poolId getLimitOrders 2>/dev/null | tr -d '\n')
+    if echo "$out" | grep -q "userPositionId = $pid : nat"; then echo 1; else echo 0; fi
+}
 
-    echo "==> step 1 deposit"
+function checkBalance()
+{
+    token0BalanceResult="$(balanceOf $token0 $MINTER_PRINCIPAL null)"
+    token1BalanceResult="$(balanceOf $token1 $MINTER_PRINCIPAL null)"
+    token0BalanceResult=${token0BalanceResult//"_"/""}
+    token1BalanceResult=${token1BalanceResult//"_"/""}
+    if [[ "$token0BalanceResult" =~ "$1" ]] && [[ "$token1BalanceResult" =~ "$2" ]]; then
+        pass "checkBalance (token0=$1, token1=$2)"
+    else
+        fail "checkBalance: expected token0=$1 token1=$2, got token0=$token0BalanceResult token1=$token1BalanceResult"
+    fi
+}
+
+function monitor_withdraw_queue()
+{
+    local pool_id=$1
+    local timeout=${2:-60}
+    local end_time=$(($(date +%s) + timeout))
+
+    echo "  Monitoring withdraw queue (timeout=${timeout}s)..."
+    while [ $(date +%s) -lt $end_time ]; do
+        local queue_info=$(dfx canister call $pool_id getWithdrawQueueInfo --candid .dfx/local/canisters/SwapPool/SwapPool.did 2>&1 | idl2json 2>&1)
+        if echo "$queue_info" | jq -e . >/dev/null 2>&1; then
+            local queue_size=$(echo "$queue_info" | jq -r '.ok.queueSize // "?"')
+            if [ "$queue_size" = "0" ]; then
+                echo "  Queue drained."
+                return
+            fi
+            echo "  [$(date +%H:%M:%S)] queue=$queue_size"
+        fi
+        sleep 1
+    done
+    echo "  Queue monitoring timed out."
+}
+
+function testWithdrawQueue()
+{
+    section_header "WQ" "Withdraw Queue Stress Test"
+
+    deposit $token0 10000000000000000
+
+    local count=50
+    echo "  Submitting $count withdraw requests in parallel..."
+    for ((i=1; i<=$count; i++)); do
+        dfx canister call $poolId withdraw "(record {token = \"$token0\"; fee = $TRANS_FEE: nat; amount = 10000000000: nat;})" > /dev/null 2>&1 &
+    done
+    wait
+    echo "  All requests submitted."
+
+    monitor_withdraw_queue $poolId 180
+
+    local queue_info=$(dfx canister call $poolId getWithdrawQueueInfo --candid .dfx/local/canisters/SwapPool/SwapPool.did 2>&1 | idl2json 2>&1)
+    local final_size=$(echo "$queue_info" | jq -r '.ok.queueSize // "?"')
+    if [ "$final_size" = "0" ]; then
+        pass "withdrawQueue ($count items processed)"
+    else
+        fail "withdrawQueue: $final_size items remaining"
+    fi
+}
+
+# Regression test for the limit-order partial-fill bug: when tickLimit is set
+# strictly inside (tickLower, tickUpper), the order must NOT fire while the
+# position is still in-range. It must only fire once _tick crosses tickUpper
+# (upper order) so the input is fully converted to output.
+function step_partial_fill_regression()
+{
+    step_header "PF" "Limit-order partial-fill regression (bug fix)"
+
+    local spacing=60   # fee=3000 → tickSpacing=60
+    local t0=$(getCurrentTick)
+    if [ -z "$t0" ]; then
+        fail "partial-fill: could not parse tick from metadata() — check dfx output format"
+        return
+    fi
+    echo "  current tick: $t0"
+
+    # Place the test range above the current tick, aligned to spacing.
+    local margin=$((spacing * 30))
+    local width=$((spacing * 60))
+    local base=$(( ( (t0 + margin + spacing - 1) / spacing ) * spacing ))
+    local pfTickLower=$base
+    local pfTickUpper=$(( base + width ))
+    local pfTickLimit=$(( base + width / 2 ))
+    # tickLimit must fall on an integer tick; align to spacing for safety.
+    pfTickLimit=$(( (pfTickLimit / spacing) * spacing ))
+    echo "  test range: [$pfTickLower, $pfTickUpper]  tickLimit: $pfTickLimit"
+
+    if [ "$t0" -ge "$pfTickLower" ]; then
+        fail "partial-fill: current tick $t0 already inside/above intended range"
+        return
+    fi
+
+    local pfId=$(getNextPositionId)
+    if [ -z "$pfId" ]; then
+        fail "partial-fill: could not parse nextPositionId from metadata()"
+        return
+    fi
     deposit $token0 10000000000
     depositFrom $token1 10000000000
+    mint $pfTickLower $pfTickUpper 9000000000 10000000000
+    echo "  pfPositionId=$pfId"
 
-    echo "==> step 1.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+    local addRes
+    addRes=$(dfx canister call $poolId addLimitOrder \
+        "(record { positionId = $pfId :nat; tickLimit = $pfTickLimit :int; })")
+    if [[ ! "$addRes" =~ "ok" ]]; then
+        fail "partial-fill: addLimitOrder failed: $addRes"
+        return
+    fi
+    if [ "$(limitOrderPresent $pfId)" -ne 1 ]; then
+        fail "partial-fill: limit order not registered"
+        return
+    fi
 
-    echo "==> step 1.2 balanceOf pool"
-    balanceOf $token0 $poolId "null"
-    balanceOf $token1 $poolId "null"
+    # ---- Phase A: try to land tick in [tickLimit, tickUpper) ----
+    # Ramp swap size until we cross tickLimit but stay below tickUpper.
+    local landed=0
+    local cur
+    for amt in 5000000000 10000000000 20000000000 50000000000 100000000000; do
+        cur=$(getCurrentTick)
+        if [ "$cur" -ge "$pfTickLimit" ]; then break; fi
+        depositFrom $token1 $amt
+        swap $token1 $amt 0
+        sleep 3
+    done
+    cur=$(getCurrentTick)
+    echo "  tick after phase A: $cur"
+    if [ "$cur" -ge "$pfTickLimit" ] && [ "$cur" -lt "$pfTickUpper" ]; then
+        landed=1
+        if [ "$(limitOrderPresent $pfId)" -eq 1 ]; then
+            pass "partial-fill: order survives mid-range tick=$cur (>=tickLimit=$pfTickLimit, <tickUpper=$pfTickUpper)"
+        else
+            fail "partial-fill: order fired prematurely at tick=$cur — bug regressed"
+            return
+        fi
+    elif [ "$cur" -ge "$pfTickUpper" ]; then
+        echo "  WARN: phase A overshot tickUpper (tick=$cur); cannot test mid-range survival in this run"
+    else
+        echo "  WARN: phase A could not reach tickLimit=$pfTickLimit (tick=$cur); increase swap amounts"
+    fi
 
-    checkUnusedBalance
+    # ---- Phase B: push tick past tickUpper; order MUST fire ----
+    for amt in 50000000000 100000000000 200000000000 500000000000; do
+        cur=$(getCurrentTick)
+        if [ "$cur" -ge "$pfTickUpper" ]; then break; fi
+        depositFrom $token1 $amt
+        swap $token1 $amt 0
+        sleep 5
+    done
+    cur=$(getCurrentTick)
+    echo "  tick after phase B: $cur"
+    if [ "$cur" -ge "$pfTickUpper" ]; then
+        if [ "$(limitOrderPresent $pfId)" -eq 0 ]; then
+            pass "partial-fill: order fires after tick=$cur >= tickUpper=$pfTickUpper"
+        else
+            fail "partial-fill: order failed to fire after tick crossed tickUpper"
+        fi
+    else
+        fail "partial-fill: could not push tick past tickUpper=$pfTickUpper (tick=$cur)"
+    fi
 
-    echo "==> step 2 withdraw all"
     withdrawAll
+}
 
-    echo "==> step 2.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
+# Multi-order regression: three sibling positions sharing the same range, with three
+# different tickLimits (at tickUpper, mid, and quarter). Under the old bug, the mid and
+# quarter orders would fire prematurely when their tickLimit was crossed — this matches
+# the prod symptom "same-price orders, mixed outcomes". Under the fix, all three wait
+# until tickUpper.
+function step_multi_order_regression()
+{
+    step_header "MO" "Limit-order multi-order regression"
 
+    local spacing=60
+    local t0=$(getCurrentTick)
+    if [ -z "$t0" ]; then
+        fail "multi-order: could not parse tick from metadata()"
+        return
+    fi
+    echo "  current tick: $t0"
+
+    # Range above current tick. Three tickLimits at quarter, half, and full of width.
+    local margin=$((spacing * 30))
+    local width=$((spacing * 60))
+    local base=$(( ( (t0 + margin + spacing - 1) / spacing ) * spacing ))
+    local moTickLower=$base
+    local moTickUpper=$(( base + width ))
+    local moLimitC=$(( base + (width / 4) ))   # earliest trigger under old bug
+    local moLimitB=$(( base + (width / 2) ))   # mid trigger under old bug
+    local moLimitA=$moTickUpper                # correctly configured baseline
+    moLimitC=$(( (moLimitC / spacing) * spacing ))
+    moLimitB=$(( (moLimitB / spacing) * spacing ))
+    echo "  range: [$moTickLower, $moTickUpper]  tickLimits A=$moLimitA B=$moLimitB C=$moLimitC"
+
+    if [ "$t0" -ge "$moTickLower" ]; then
+        fail "multi-order: current tick $t0 already inside/above intended range"
+        return
+    fi
+
+    # Mint three sibling positions, attach a limit order to each.
+    local idA idB idC
+    idA=$(getNextPositionId)
+    deposit $token0 1000000000
+    depositFrom $token1 1000000000
+    mint $moTickLower $moTickUpper 900000000 1000000000
+    dfx canister call $poolId addLimitOrder "(record { positionId = $idA :nat; tickLimit = $moLimitA :int; })" > /dev/null
+
+    idB=$(getNextPositionId)
+    deposit $token0 1000000000
+    depositFrom $token1 1000000000
+    mint $moTickLower $moTickUpper 900000000 1000000000
+    dfx canister call $poolId addLimitOrder "(record { positionId = $idB :nat; tickLimit = $moLimitB :int; })" > /dev/null
+
+    idC=$(getNextPositionId)
+    deposit $token0 1000000000
+    depositFrom $token1 1000000000
+    mint $moTickLower $moTickUpper 900000000 1000000000
+    dfx canister call $poolId addLimitOrder "(record { positionId = $idC :nat; tickLimit = $moLimitC :int; })" > /dev/null
+
+    if [ "$(limitOrderPresent $idA)" -ne 1 ] || [ "$(limitOrderPresent $idB)" -ne 1 ] || [ "$(limitOrderPresent $idC)" -ne 1 ]; then
+        fail "multi-order: not all orders registered (A=$idA B=$idB C=$idC)"
+        return
+    fi
+    pass "multi-order: 3 orders registered (pids A=$idA B=$idB C=$idC)"
+
+    # ---- Phase 1: tick lands in [moLimitB, moTickUpper). All 3 orders MUST still be pending.
+    # Under the bug, B and C would have fired (their tickLimit was crossed); under the fix,
+    # all three wait for tickUpper.
+    local cur
+    for amt in 10000000000 30000000000 80000000000 200000000000; do
+        cur=$(getCurrentTick)
+        if [ "$cur" -ge "$moLimitB" ]; then break; fi
+        depositFrom $token1 $amt
+        swap $token1 $amt 0
+        sleep 3
+    done
+    cur=$(getCurrentTick)
+    echo "  tick after phase 1: $cur"
+    if [ "$cur" -ge "$moLimitB" ] && [ "$cur" -lt "$moTickUpper" ]; then
+        local pa=$(limitOrderPresent $idA)
+        local pb=$(limitOrderPresent $idB)
+        local pc=$(limitOrderPresent $idC)
+        if [ "$pa" -eq 1 ] && [ "$pb" -eq 1 ] && [ "$pc" -eq 1 ]; then
+            pass "multi-order phase 1: all 3 orders survive mid-range tick=$cur (>=tickLimitB=$moLimitB, <tickUpper=$moTickUpper)"
+        else
+            fail "multi-order phase 1: order(s) fired prematurely at tick=$cur — bug regressed (A=$pa B=$pb C=$pc)"
+            return
+        fi
+    elif [ "$cur" -ge "$moTickUpper" ]; then
+        echo "  WARN: phase 1 overshot tickUpper (tick=$cur); cannot test mid-range survival"
+    else
+        echo "  WARN: phase 1 could not reach tickLimitB=$moLimitB (tick=$cur); increase amounts"
+    fi
+
+    # ---- Phase 2: tick past moTickUpper. All 3 must fire (validates batch drain).
+    for amt in 100000000000 300000000000 500000000000; do
+        cur=$(getCurrentTick)
+        if [ "$cur" -ge "$moTickUpper" ]; then break; fi
+        depositFrom $token1 $amt
+        swap $token1 $amt 0
+        sleep 6
+    done
+    cur=$(getCurrentTick)
+    echo "  tick after phase 2: $cur"
+    if [ "$cur" -ge "$moTickUpper" ]; then
+        local pa=$(limitOrderPresent $idA)
+        local pb=$(limitOrderPresent $idB)
+        local pc=$(limitOrderPresent $idC)
+        if [ "$pa" -eq 0 ] && [ "$pb" -eq 0 ] && [ "$pc" -eq 0 ]; then
+            pass "multi-order phase 2: all 3 orders fired after tick=$cur >= tickUpper=$moTickUpper"
+        else
+            fail "multi-order phase 2: order(s) still pending after tickUpper crossed (A=$pa B=$pb C=$pc)"
+        fi
+    else
+        fail "multi-order: could not push tick past tickUpper=$moTickUpper (tick=$cur); increase amounts"
+    fi
+
+    withdrawAll
+}
+
+# ========================= Test Cases =========================
+
+function testBizFlow()
+{
+    create_pool 274450166607934908532224538203
+
+    dfx canister call $poolId setAdmins "(vec {principal \"$MINTER_PRINCIPAL\"})" > /dev/null
+
+    step_header 0 "Stop sync jobs"
+    dfx canister call $poolId stopJobs "(vec {\"SyncTrxsJob\";})" > /dev/null
+
+    step_header 1 "Deposit (ICRC1 transfer + deposit, ICRC2 depositFrom)"
+    deposit $token0 10000000000
+    depositFrom $token1 10000000000
     checkUnusedBalance
 
-    echo "==> step 3 mint"
+    step_header 2 "Withdraw all"
+    withdrawAll
+    checkUnusedBalance
+
+    step_header 3 "Mint position"
     deposit $token0 100000000000
     depositFrom $token1 100000000000
-    
-    echo "==> step 3.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
-
+    checkUnusedBalance
+    mint -887220 887220 99900000000 100000000000
     checkUnusedBalance
 
-    # tickLower tickUpper amount0Desired amount1Desired
-    mint -887220 887220 99900000000 100000000000 
-
-    checkUnusedBalance
-
-    echo "==> step 4 mint and add limit order"
+    step_header 4 "Mint + add limit orders (x3)"
     for ((batch = 0; batch < 3; batch++)); do
-      positionId=$((batch + 2))
-
-      echo "==> add upper limit order $positionId"
-      deposit $token0 1000000000
-      depositFrom $token1 1000000000
-      # current tick 24850
-      mint 24900 36060 900000000 1000000000 
-
-      dfx canister call $poolId addLimitOrder "(record { positionId = $positionId :nat; tickLimit = 36060 :int; })"
+        positionId=$((batch + 2))
+        echo "  Adding upper limit order (positionId=$positionId)..."
+        deposit $token0 1000000000
+        depositFrom $token1 1000000000
+        mint 24900 36060 900000000 1000000000
+        dfx canister call $poolId addLimitOrder "(record { positionId = $positionId :nat; tickLimit = 36060 :int; })" > /dev/null
     done
-
-    echo "==> step 4.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
-
     checkUnusedBalance
 
-    echo "==> step 5 remove limit order"
-    dfx canister call $poolId removeLimitOrder "(2:nat)"
+    step_header 5 "Remove limit order (positionId=2)"
+    result=`dfx canister call $poolId removeLimitOrder "(2:nat)"`
+    if [[ "$result" =~ "ok" ]]; then
+        pass "removeLimitOrder (positionId=2)"
+    else
+        fail "removeLimitOrder: $result"
+    fi
 
-    echo "==> step 6 swap 1->0"
+    step_partial_fill_regression
+    step_multi_order_regression
+
+    step_header 6 "Swap token1 -> token0"
     depositFrom $token1 200000000000
     swap $token1 200000000000 0
     withdrawAll
-
     checkUnusedBalance
 
-    echo "==> step 7 swap 0->1"
+    step_header 7 "OneStepSwap token0 -> token1 (with quote)"
     quote=`dfx canister call $poolId quote "(record { zeroForOne = true; amountIn = \"100000000000\"; amountOutMinimum = \"0\"; })" | sed 's/.*ok = \([0-9_]*\).*/\1/' | tr -d '_'`
-    echo "quote result: $quote"
-
+    echo "  quote=$quote"
     result=`dfx canister call $token0 icrc1_transfer "(record {from_subaccount = null; to = record {owner = principal \"$poolId\"; subaccount = opt blob \"$subaccount\";}; amount = 100100000000:nat; fee = opt $TRANS_FEE; memo = null; created_at_time = null;})"`
     oneStepSwap $token0 100000000000 $quote
-
-    echo "==> step 7.1 balanceOf subaccount"
-    balanceOf $token0 $poolId $MINTER_PRINCIPAL
-
     checkUnusedBalance
 
-    echo "==> step 8 transfer position"
-
-    echo "==> step 8.1 position index data"
+    step_header 8 "Transfer position"
+    echo "  Before transfer:"
     testPools=`dfx canister call PositionIndex getUserPools "(\"$testAccount\")"`
-    echo "testPools: $testPools"
+    echo "    testPools: $testPools"
     currentPools=`dfx canister call PositionIndex getUserPools "(\"$currentAccount\")"`
-    echo "currentPools: $currentPools"
+    echo "    currentPools: $currentPools"
 
-    echo "==> step 8.2 transfer position"
-    dfx canister call $poolId transferPosition "(principal \"$MINTER_PRINCIPAL\", principal \"$testId\", 1:nat)"
-
+    dfx canister call $poolId transferPosition "(principal \"$MINTER_PRINCIPAL\", principal \"$testId\", 1:nat)" > /dev/null
     sleep 5
 
-    echo "==> step 8.3 position index data"
+    echo "  After transfer:"
     testPools=`dfx canister call PositionIndex getUserPools "(\"$testAccount\")"`
-    echo "testPools: $testPools"
+    echo "    testPools: $testPools"
     currentPools=`dfx canister call PositionIndex getUserPools "(\"$currentAccount\")"`
-    echo "currentPools: $currentPools"
+    echo "    currentPools: $currentPools"
 
-    # ---check refund of ineffective amount---
-    # echo "==> step 9 mint"
-    # deposit $token0 1000000000
-    # depositFrom $token1 1000000000
-    
-    # echo "==> step 9.1 balanceOf subaccount"
-    # balanceOf $token0 $poolId $MINTER_PRINCIPAL
+    if [[ "$testPools" =~ "$poolId" ]]; then
+        pass "transferPosition (positionId=1 -> testId)"
+    else
+        fail "transferPosition: testId pool list doesn't contain poolId"
+    fi
 
-    # checkUnusedBalance
-
-    # mint 24000 24900 900000000 1000000000 
-
-    # checkUnusedBalance
-
-    # echo "==> step 9 swap 1->0"
-    # oneStepSwap $token1 200000000000 0
-
-    # checkUnusedBalance
-    
-    echo
-    echo "=== Running Withdraw Queue Test ==="
     testWithdrawQueue
 
-    # Get swap record
+    # Save swap record
     swap_record_result=$(dfx canister call $poolId getSwapRecordState --candid .dfx/local/canisters/SwapPool/SwapPool.did | idl2json)
     echo "$swap_record_result" > swap_record.json
-    echo "Swap record has been saved to swap_record.json"
-};
+    echo "  Swap record saved to swap_record.json"
+}
 
 testBizFlow
 
-echo ""
-echo "=== ALL TESTS COMPLETED ==="
-echo "✅ Business flow test completed successfully"
-echo ""
+summary
 
 dfx stop
 mv dfx.json.bak dfx.json

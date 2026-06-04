@@ -37,19 +37,20 @@ actor class SwapPoolInstaller(
     };
 
     public shared ({ caller }) func install(
-        token0: Types.Token, 
-        token1: Types.Token, 
-        infoCid: Principal, 
-        feeReceiverCid: Principal, 
+        token0: Types.Token,
+        token1: Types.Token,
+        feeReceiverCid: Principal,
         trustedCanisterManagerCid: Principal,
-        positionIndexCid: Principal
+        passedPositionIndexCid: Principal
     ) : async Principal {
         assert (_hasPermission(caller));
+        assert (Principal.equal(passedPositionIndexCid, positionIndexCid));
+        let activeWasm = _wasmManager.getActiveWasm();
+        assert (activeWasm.size() > 0);
         let createCanisterResult = await IC0Utils.create_canister(null, null, _initCycles);
         let canisterId = createCanisterResult.canister_id;
         await IC0Utils.deposit_cycles(canisterId, _initTopUpCycles);
-        // let _ = await (system SwapPool.SwapPool)(#install canisterId)(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid);
-        await IC0Utils.install_code(canisterId, to_candid(token0, token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), _wasmManager.getActiveWasm(), #install);
+        await IC0Utils.install_code(canisterId, to_candid(token0, token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), activeWasm, #install);
         await IC0Utils.update_settings_add_controller(canisterId, [factoryId, governanceId]);
         return canisterId;
     };
@@ -97,7 +98,7 @@ actor class SwapPoolInstaller(
     // --------------------------- WasmManager Functions -------------------------------
     public shared (msg) func uploadWasmChunk(chunk : [Nat8]) : async Nat {
         _checkAdminPermission(msg.caller);
-        _wasmManager.uploadChunk(chunk);
+        _wasmManager.uploadChunk(msg.caller, chunk);
     };
 
     public shared (msg) func combineWasmChunks() : async () {
@@ -125,7 +126,7 @@ actor class SwapPoolInstaller(
     };
     
     // --------------------------- Version Control      -------------------------------
-    private var _version : Text = "3.6.0";
+    private var _version : Text = "3.7.0";
     public query func getVersion() : async Text { _version };
     
     system func preupgrade() {

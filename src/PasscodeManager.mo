@@ -55,20 +55,24 @@ actor class PasscodeManager(
     private var _wallet : HashMap.HashMap<Principal, Nat> = HashMap.fromIter(_walletArray.vals(), _walletArray.size(), Principal.equal, Principal.hash);
     private stable var _transferIndex : Nat = 0;
 
-    // Logging related code
+    // Logging related code — circular buffer
     private let MAX_LOGS = 5000;
     private stable var _logsArray : [LogEntry] = [];
     private var _logs : Buffer.Buffer<LogEntry> = Buffer.fromArray<LogEntry>(_logsArray);
+    private stable var _logsWriteIndex : Nat = 0;
     private func _addLog(caller : Principal, message : Text, amount : ?Nat) {
-        if (_logs.size() >= MAX_LOGS) {
-            ignore _logs.remove(0); // Remove oldest log
-        };
-        _logs.add({
+        let entry = {
             timestamp = Time.now();
             caller = caller;
             message = message;
             amount = amount;
-        });
+        };
+        if (_logs.size() < MAX_LOGS) {
+            _logs.add(entry);
+        } else {
+            _logs.put(_logsWriteIndex % MAX_LOGS, entry);
+        };
+        _logsWriteIndex += 1;
     };
 
     private func _walletDeposit(principal : Principal, amount : Nat) {
@@ -134,8 +138,9 @@ actor class PasscodeManager(
                 };
             };
         } catch (e) {
-            let msg : Text = debug_show (Error.message(e));
-            return #err(#InternalError(msg));
+            let errMsg = Error.message(e);
+            _addLog(caller, "deposit transfer exception (ambiguous): " # errMsg, ?args.amount);
+            return #err(#InternalError(debug_show(errMsg)));
         };
     };
 
@@ -157,22 +162,18 @@ actor class PasscodeManager(
                 };
             };
         } catch (e) {
-            let msg : Text = debug_show (Error.message(e));
-            return #err(#InternalError(msg));
+            let errMsg = Error.message(e);
+            _addLog(caller, "depositFrom transferFrom exception (ambiguous): " # errMsg, ?args.amount);
+            return #err(#InternalError(debug_show(errMsg)));
         };
     };
 
     public shared ({ caller }) func withdraw(args : WithdrawArgs) : async Result.Result<Nat, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
-        if (AccountUtils.isEmptyIdentity(caller)) {
-            return #err(#InternalError("Do not accept anonymous calls"));
-        };
         var canisterId = Principal.fromActor(this);
         var balance : Nat = _walletBalanceOf(caller);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };
-        if (not (args.amount > 0)) {
-            return #err(#InternalError("Amount can not be 0"));
-        };
+        if (not (args.amount > 0)) { return #err(#InternalError("Amount can not be 0")); };
         if (args.amount > balance) { return #err(#InsufficientFunds) };
         if (not (args.amount > args.fee)) { return #err(#InsufficientFunds) };
         var amount : Nat = Nat.sub(args.amount, args.fee);
@@ -180,16 +181,15 @@ actor class PasscodeManager(
             _transferIndex := _transferIndex + 1;
             try {
                 switch (await TOKEN.transfer({ from = { owner = canisterId; subaccount = null }; from_subaccount = null; to = { owner = caller; subaccount = null }; amount = amount; fee = ?args.fee; memo = Option.make(PoolUtils.natToBlob(_transferIndex)); created_at_time = null })) {
-                    case (#Ok(_)) {
-                        return #ok(amount);
-                    };
+                    case (#Ok(_)) { return #ok(amount); };
                     case (#Err(msg)) {
+                        _walletDeposit(caller, args.amount);
                         return #err(#InternalError(debug_show (msg)));
                     };
                 };
             } catch (e) {
-                let msg : Text = debug_show (Error.message(e));
-                return #err(#InternalError(msg));
+                _addLog(caller, "withdraw transfer exception (ambiguous): " # Error.message(e), ?args.amount);
+                return #err(#InternalError(debug_show (Error.message(e))));
             };
         } else {
             return #err(#InsufficientFunds);
@@ -203,41 +203,20 @@ actor class PasscodeManager(
                 (token1, token0);
             } else { (token0, token1) };
             try {
-                switch (
-                    await FACTORY.addPasscode(
-                        caller,
-                        {
-                            token0 = sortedToken0;
-                            token1 = sortedToken1;
-                            fee = fee;
-                        },
-                    )
-                ) {
+                switch (await FACTORY.addPasscode(caller, { token0 = sortedToken0; token1 = sortedToken1; fee = fee; })) {
                     case (#ok()) {
-                        _addLog(
-                            caller,
-                            "FACTORY.addPasscode: " # Principal.toText(sortedToken0) # "_" # Principal.toText(sortedToken1) # "_" # Nat.toText(fee) # " ok",
-                            ?passcodePrice,
-                        );
-                        return #ok("ok")
+                        _addLog(caller, "FACTORY.addPasscode: " # Principal.toText(sortedToken0) # "_" # Principal.toText(sortedToken1) # "_" # Nat.toText(fee) # " ok", ?passcodePrice);
+                        return #ok("ok");
                     };
-                    case (#err(msg)) {  
-                        _addLog(
-                            caller,
-                            "FACTORY.addPasscode error: " # debug_show (msg),
-                            ?passcodePrice,
-                        );
+                    case (#err(msg)) {
+                        _addLog(caller, "FACTORY.addPasscode error: " # debug_show (msg), ?passcodePrice);
                         _walletDeposit(caller, passcodePrice);
                         return #err(#InternalError(debug_show (msg)));
                     };
                 };
             } catch (e) {
-                _addLog(
-                    caller,
-                    "FACTORY.addPasscode error: " # Error.message(e),
-                    ?passcodePrice,
-                );
-                return #err(#InternalError(debug_show (Error.message(e))));
+                _addLog(caller, "FACTORY.addPasscode exception (ambiguous): " # Error.message(e), ?passcodePrice);
+                return #err(#InternalError(Error.message(e)));
             };
         } else {
             return #err(#InsufficientFunds);
@@ -246,31 +225,17 @@ actor class PasscodeManager(
 
     public shared ({ caller }) func destoryPasscode(token0 : Principal, token1 : Principal, fee : Nat) : async Result.Result<Text, Types.Error> {
         if (Principal.isAnonymous(caller)) return #err(#InternalError("Illegal anonymous call"));
-        switch (
-            await FACTORY.deletePasscode(
-                caller,
-                {
-                    token0 = token0;
-                    token1 = token1;
-                    fee = fee;
-                },
-            )
-        ) {
+        let (sortedToken0, sortedToken1) = if (Principal.toText(token0) > Principal.toText(token1)) {
+            (token1, token0);
+        } else { (token0, token1) };
+        switch (await FACTORY.deletePasscode(caller, { token0 = sortedToken0; token1 = sortedToken1; fee = fee; })) {
             case (#ok()) {
-                _addLog(
-                    caller,
-                    "FACTORY.deletePasscode: " # Principal.toText(token0) # "_" # Principal.toText(token1) # "_" # Nat.toText(fee) # " ok",
-                    ?passcodePrice,
-                );
+                _addLog(caller, "FACTORY.deletePasscode: " # Principal.toText(sortedToken0) # "_" # Principal.toText(sortedToken1) # "_" # Nat.toText(fee) # " ok", ?passcodePrice);
                 _walletDeposit(caller, passcodePrice);
                 return #ok("ok");
             };
             case (#err(msg)) {
-                _addLog(
-                    caller,
-                    "FACTORY.deletePasscode error: " # debug_show (msg),
-                    ?passcodePrice,
-                );
+                _addLog(caller, "FACTORY.deletePasscode error: " # debug_show (msg), ?passcodePrice);
                 return #err(#InternalError(debug_show (msg)));
             };
         };
@@ -324,7 +289,7 @@ actor class PasscodeManager(
             let msg : Text = debug_show (Error.message(e));
             _addLog(
                 caller,
-                "TOKEN.transfer error: " # Error.message(e),
+                "[transfer] TOKEN.transfer exception (ambiguous): recipient=" # Principal.toText(recipient) # ", error=" # Error.message(e),
                 ?amount,
             );
             return #err(#InternalError(msg));
@@ -361,19 +326,21 @@ actor class PasscodeManager(
     };
 
     public query func getLogs(count : ?Nat) : async [LogEntry] {
-        let logs = Buffer.toArray(_logs);
-        switch (count) {
-            case (null) { logs };
-            case (?n) {
-                let size = logs.size();
-                let start = if (size > n) { size - n } else { 0 };
-                Array.tabulate(size - start, func(i : Nat) : LogEntry = logs[start + i]);
-            };
+        let size = _logs.size();
+        if (size == 0) { return []; };
+        let n = switch (count) { case (null) { size }; case (?c) { if (c > size) { size } else { c }; }; };
+        if (size < MAX_LOGS) {
+            let start = if (size > n) { size - n } else { 0 };
+            Array.tabulate(size - start, func(i : Nat) : LogEntry = _logs.get(start + i));
+        } else {
+            Array.tabulate(n, func(i : Nat) : LogEntry {
+                _logs.get((_logsWriteIndex + MAX_LOGS - n + i) % MAX_LOGS);
+            });
         };
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.6.0";
+    private var _version : Text = "3.7.0";
     public query func getVersion() : async Text { _version };
 
     system func preupgrade() {

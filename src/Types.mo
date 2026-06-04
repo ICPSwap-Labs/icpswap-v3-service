@@ -33,7 +33,6 @@ module {
     public type PoolInitArgs = {
         token0 : Token;
         token1 : Token;
-        infoCid : Principal;
         feeReceiverCid : Principal;
         trustedCanisterManagerCid : Principal;
         positionIndexCid : Principal;
@@ -424,6 +423,8 @@ module {
         #getCachedTokenFee : () -> ();
         #getClaimLog : () -> ();
         #getCycleInfo : () -> ();
+        #getDebugLog : () -> (count : ?Nat);
+        #getFailedLimitOrders : () -> ();
         #getFailedTransactions : () -> ();
         #getFeeGrowthGlobal : () -> ();
         #getInitArgs : () -> ();
@@ -436,6 +437,8 @@ module {
         #getPositions : () -> (offset : Nat, limit : Nat);
         #getSortedUserLimitOrders : () -> (user : Principal);
         #getSwapRecordState : () -> ();
+        #getPendingSyncData : () -> (limit : ?Nat);
+        #deleteSyncedData : () -> (ids : [Nat]);
         #getTickBitmaps : () -> ();
         #getTickInfos : () -> (offset : Nat, limit : Nat);
         #getTicks : () -> (offset : Nat, limit : Nat);
@@ -557,10 +560,12 @@ module {
     public type SwapFeeReceiverMsg = {
         #burnICS : () -> ();
         #claim : () -> (Principal, Token, Nat);
+        #forceAutoClaim : () -> ();
         #getBaseBalances : () -> ();
         #getCanisterId : () -> ();
         #getConfig : () -> ();
         #getCycleInfo : () -> ();
+        #getDebugLog : () -> ?Nat;
         #getFees : () -> ();
         #getInitArgs : () -> ();
         #getPools : () -> ();
@@ -582,6 +587,8 @@ module {
         #swapWithoutDeposit : () -> (Principal, Bool, Text, Text);
         #transfer : () -> (Token, Principal, Nat);
         #transferAll : () -> (Token, Principal);
+        #resetSyncingFlag : () -> ();
+        #forceReleaseLock : () -> ();
     };
     public type SwapPoolActor = actor {
         init : (Nat, Int, Nat) -> async ();
@@ -603,10 +610,12 @@ module {
         depositFrom : shared (DepositArgs) -> async Result.Result<Nat, Error>;
         swap : shared (SwapArgs) -> async Result.Result<Nat, Error>;
         getLimitOrderAvailabilityState : query () -> async Result.Result<Bool, Error>;
-        getLimitOrderStack : query () -> async Result.Result<[(LimitOrderKey, LimitOrderValue)], Error>;
+        getLimitOrderStack : query () -> async Result.Result<[(LimitOrderType, LimitOrderKey, LimitOrderValue)], Error>;
         getLimitOrders : query () -> async Result.Result<{ lowerLimitOrders : [(LimitOrderKey, LimitOrderValue)]; upperLimitOrders : [(LimitOrderKey, LimitOrderValue)]; },Error>;
         getPositions : query (Nat, Nat) -> async Result.Result<Page<PositionInfoWithId>, Error>;
-        getSwapRecordState : query () -> async Result.Result<{ infoCid : Text; records : [SwapRecordInfo]; retryCount : Nat; errors : [PushError]; }, Error>;
+        getSwapRecordState : query () -> async Result.Result<{ records : [SwapRecordInfo]; retryCount : Nat; errors : [PushError]; }, Error>;
+        getPendingSyncData : query (?Nat) -> async [SwapRecordInfo];
+        deleteSyncedData : shared ([Nat]) -> async ();
         getTicks : query (Nat, Nat) -> async Result.Result<Page<TickInfoWithId>, Error>;
         getTokenAmountState : query () -> async Result.Result<{ token0Amount : Nat; token1Amount : Nat; swapFee0Repurchase : Nat; swapFee1Repurchase : Nat; swapFeeReceiver : Text;}, Error>;
         getUserPositions : query (Nat, Nat) -> async Result.Result<Page<UserPositionInfoWithId>, Error>;
@@ -615,6 +624,7 @@ module {
         getTickBitmaps : query () -> async Result.Result<[(Int, Nat)], Error>;
         getFeeGrowthGlobal : query () -> async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Error>;
         getInitArgs : query () -> async Result.Result<PoolInitArgs, Error>;
+        getWithdrawQueueInfo : query () -> async Result.Result<{ isProcessing: Bool; queueSize: Nat; items: [WithdrawQueueItem]; }, Error>;
         setIcrc28TrustedOrigins : shared ([Text]) -> async Result.Result<Bool, ()>;
         recoverUserPositions : shared ([UserPositionInfoWithId]) -> async ();
         recoverPositions : shared ([PositionInfoWithId]) -> async ();
@@ -640,7 +650,7 @@ module {
         removeBackupData : (Principal) -> async Result.Result<(), Error>;
     };
     public type SwapPoolInstaller = actor {
-        install : (Token, Token, Principal, Principal, Principal, Principal) -> async Principal;
+        install : (Token, Token, Principal, Principal, Principal) -> async Principal;
         getCycleInfo : () -> async Result.Result<CycleInfo, Error>;
         setAdmins : shared ([Principal]) -> async ();
     };

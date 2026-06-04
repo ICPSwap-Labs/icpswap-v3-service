@@ -37,7 +37,7 @@ module {
     };
 
     public func fail(info: Types.AddLimitOrderInfo, error: Text): Types.AddLimitOrderInfo {
-        assert(info.status != #Completed);
+        if (info.status == #Completed or info.status == #Failed) { return info; };
         _updateStatus(info, #Failed, ?error)
     };
 }; 

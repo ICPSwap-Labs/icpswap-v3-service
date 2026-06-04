@@ -43,7 +43,7 @@ module {
     };
 
     public func fail(info: Types.AddLiquidityInfo, error: Text): Types.AddLiquidityInfo {
-        assert(info.status != #Completed and info.status != #Failed);
+        if (info.status == #Completed or info.status == #Failed) { return info; };
         _updateStatus(info, #Failed, ?error)
     };
 };

@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# Optional: operator-supplied expected hash. If provided, the locally-built WASM
+# must match before upload. This catches "wrong file built" / toolchain-skew
+# scenarios where the canister-side checks alone wouldn't help.
+EXPECTED_HASH="${1:-}"
+
+# Helper: abort the script with a clear error message.
+abort() {
+    echo "" >&2
+    echo "ABORT: $1" >&2
+    echo "" >&2
+    exit 1
+}
+
 # Check if Rust is installed
 if ! command -v rustc &> /dev/null; then
     echo "Installing Rust..."
@@ -234,41 +247,85 @@ echo "Combining WASM chunks..."
 dfx canister call SwapPoolInstaller combineWasmChunks
 dfx canister call SwapFactory combineWasmChunks
 
-# Activate wasm file
+# ---- HASH-GATED ACTIVATION ----
+# Compute the locally-built WASM hash. This is the authoritative hash used to
+# gate activation: staging blobs in both canisters must match it BEFORE any
+# activateWasm call. After activation, active blobs must match it as well.
+cd ..
+LOCAL_WASM_HASH=$(sha256sum ".dfx/local/canisters/SwapPool/SwapPool.wasm" | awk '{print $1}')
+echo "Local WASM SHA256: $LOCAL_WASM_HASH"
+cd upload_pool_wasm
+
+# If operator supplied an expected hash, verify the locally-built WASM matches
+# it BEFORE uploading anything to the canisters. Catches the case where the
+# build artifact is stale or from a different source than the operator intended.
+if [ -n "$EXPECTED_HASH" ]; then
+    if [ "$LOCAL_WASM_HASH" != "$EXPECTED_HASH" ]; then
+        abort "Local WASM hash $LOCAL_WASM_HASH does not match operator-supplied expected hash $EXPECTED_HASH. The local build is not what you committed to ship."
+    fi
+    echo "Operator-supplied expected hash matches local build."
+else
+    echo "WARNING: no expected hash supplied as first argument; skipping pre-upload hash gate." >&2
+    echo "         Pass the SHA256 of the WASM you intend to ship as the first argument to enable it." >&2
+fi
+
+# Verify staging blob in each canister matches the local hash BEFORE activation.
+# This catches in-transit chunk corruption, wrong-file uploads, and concurrent
+# uploader races. If we activate before this check, a corrupt blob becomes the
+# active WASM and contaminates every subsequent pool deploy and upgrade.
+echo "Verifying staging WASM hashes BEFORE activation..."
+
+dfx canister call SwapPoolInstaller getStagingWasm | sed 's/blob "//;s/"//g' | xxd -r -p > installer_staging.wasm
+INSTALLER_STAGING_HASH=$(sha256sum installer_staging.wasm | awk '{print $1}')
+if [ "$INSTALLER_STAGING_HASH" != "$LOCAL_WASM_HASH" ]; then
+    abort "SwapPoolInstaller staging WASM hash $INSTALLER_STAGING_HASH does not match local $LOCAL_WASM_HASH. NOT activating. Re-run upload after investigating the corruption."
+fi
+echo "  SwapPoolInstaller staging hash OK: $INSTALLER_STAGING_HASH"
+
+dfx canister call SwapFactory getStagingWasm | sed 's/blob "//;s/"//g' | xxd -r -p > factory_staging.wasm
+FACTORY_STAGING_HASH=$(sha256sum factory_staging.wasm | awk '{print $1}')
+if [ "$FACTORY_STAGING_HASH" != "$LOCAL_WASM_HASH" ]; then
+    abort "SwapFactory staging WASM hash $FACTORY_STAGING_HASH does not match local $LOCAL_WASM_HASH. NOT activating. Re-run upload after investigating the corruption."
+fi
+echo "  SwapFactory staging hash OK: $FACTORY_STAGING_HASH"
+
+# Activate wasm file (only reached if both staging hashes verified above).
+echo "Activating WASM..."
 dfx canister call SwapPoolInstaller activateWasm
 dfx canister call SwapFactory activateWasm
 
-# Check WASM encoding and size
+# Check WASM encoding and size of the source artifact.
 echo "Checking WASM encoding and size..."
 cd ..
 ./wasm_checker/target/release/wasm_checker .dfx/local/canisters/SwapPool/SwapPool.wasm
 cd upload_pool_wasm
 
-# Verify WASM hash
-echo "Verifying WASM hash..."
-# Get local wasm hash
-cd ..
-LOCAL_WASM_HASH=$(sha256sum ".dfx/local/canisters/SwapPool/SwapPool.wasm" | awk '{print $1}')
-echo "Local WASM SHA256: $LOCAL_WASM_HASH"
+# Verify active blob in each canister also matches the local hash. Defends
+# against any race where activation reads from somewhere other than the
+# verified staging blob.
+echo "Verifying active WASM hashes after activation..."
 
-cd upload_pool_wasm
-# Get active WASM from SwapPoolInstaller and calculate its hash
 dfx canister call SwapPoolInstaller getActiveWasm | sed 's/blob "//;s/"//g' | xxd -r -p > installer_active.wasm
 echo "Checking SwapPoolInstaller WASM encoding and size..."
 cd ..
 ./wasm_checker/target/release/wasm_checker upload_pool_wasm/installer_active.wasm
 cd upload_pool_wasm
 INSTALLER_WASM_HASH=$(sha256sum installer_active.wasm | awk '{print $1}')
-echo "SwapPoolInstaller WASM SHA256: $INSTALLER_WASM_HASH"
+echo "  SwapPoolInstaller active SHA256: $INSTALLER_WASM_HASH"
+if [ "$INSTALLER_WASM_HASH" != "$LOCAL_WASM_HASH" ]; then
+    abort "SwapPoolInstaller active WASM hash $INSTALLER_WASM_HASH does not match local $LOCAL_WASM_HASH after activation. The fleet is now contaminated; re-upload immediately."
+fi
 
-# Get active WASM from SwapFactory and calculate its hash
 dfx canister call SwapFactory getActiveWasm | sed 's/blob "//;s/"//g' | xxd -r -p > factory_active.wasm
 echo "Checking SwapFactory WASM encoding and size..."
 cd ..
 ./wasm_checker/target/release/wasm_checker upload_pool_wasm/factory_active.wasm
 cd upload_pool_wasm
 FACTORY_WASM_HASH=$(sha256sum factory_active.wasm | awk '{print $1}')
-echo "SwapFactory WASM SHA256: $FACTORY_WASM_HASH"
+echo "  SwapFactory active SHA256: $FACTORY_WASM_HASH"
+if [ "$FACTORY_WASM_HASH" != "$LOCAL_WASM_HASH" ]; then
+    abort "SwapFactory active WASM hash $FACTORY_WASM_HASH does not match local $LOCAL_WASM_HASH after activation. The fleet is now contaminated; re-upload immediately."
+fi
 
 # Clean up generated files
 echo "Cleaning up..."
@@ -276,4 +333,4 @@ cd ..
 rm -rf upload_pool_wasm
 rm -rf wasm_checker
 
-echo "WASM upload completed successfully!" 
+echo "WASM upload completed successfully (hash $LOCAL_WASM_HASH)!"

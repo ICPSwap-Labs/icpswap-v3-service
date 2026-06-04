@@ -54,8 +54,8 @@ module UpgradeTask {
         };
     };
 
-    public func stepUpgrade(task: Types.PoolUpgradeTask, infoCid : Principal, feeReceiverCid : Principal, trustedCanisterManagerCid : Principal, positionIndexCid : Principal, wasm: Blob) : async Types.PoolUpgradeTask {
-        await IC0Utils.install_code(task.poolData.canisterId, to_candid(task.poolData.token0, task.poolData.token1, infoCid, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), wasm, #upgrade(null));
+    public func stepUpgrade(task: Types.PoolUpgradeTask, feeReceiverCid : Principal, trustedCanisterManagerCid : Principal, positionIndexCid : Principal, wasm: Blob) : async Types.PoolUpgradeTask {
+        await IC0Utils.install_code(task.poolData.canisterId, to_candid(task.poolData.token0, task.poolData.token1, feeReceiverCid, trustedCanisterManagerCid, positionIndexCid), wasm, #upgrade(null));
         {
             poolData = task.poolData;
             moduleHashBefore = task.moduleHashBefore;

@@ -35,7 +35,7 @@ module {
     };
 
     public func fail(info: Types.ClaimInfo, error: Text): Types.ClaimInfo {
-        assert(info.status != #Completed);
+        if (info.status == #Completed or info.status == #Failed) { return info; };
         _updateStatus(info, #Failed, ?error)
     };
 };
