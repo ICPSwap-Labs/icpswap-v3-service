@@ -1,0 +1,9 @@
+{
+  "canisters": {
+    "token_a": { "type": "custom", "candid": "MockLedger.did", "wasm": "MockLedger.wasm" },
+    "token_b": { "type": "custom", "candid": "MockLedger.did", "wasm": "MockLedger.wasm" },
+    "pool": { "type": "custom", "candid": "SwapPool.did", "wasm": "SwapPool.wasm" }
+  },
+  "networks": { "local": { "bind": "127.0.0.1:0", "type": "ephemeral" } },
+  "version": 1
+}

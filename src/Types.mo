@@ -332,6 +332,10 @@ module {
         fee: Nat;
         memo: ?Blob;
     };
+    public type InFlightWithdraw = {
+        item: WithdrawQueueItem;
+        startedAt: Int;
+    };
 
     public type UserWithdrawQueueInfo = {
         items: [WithdrawQueueItem];
@@ -427,6 +431,7 @@ module {
         #getFailedLimitOrders : () -> ();
         #getFailedTransactions : () -> ();
         #getFeeGrowthGlobal : () -> ();
+        #getInFlightWithdrawals : () -> ();
         #getInitArgs : () -> ();
         #getJobs : () -> ();
         #getLimitOrderAvailabilityState : () -> ();
@@ -623,6 +628,7 @@ module {
         getVersion : query () -> async Text;
         getTickBitmaps : query () -> async Result.Result<[(Int, Nat)], Error>;
         getFeeGrowthGlobal : query () -> async Result.Result<{ feeGrowthGlobal0X128 : Nat; feeGrowthGlobal1X128 : Nat; }, Error>;
+        getInFlightWithdrawals : query () -> async Result.Result<[InFlightWithdraw], Error>;
         getInitArgs : query () -> async Result.Result<PoolInitArgs, Error>;
         getWithdrawQueueInfo : query () -> async Result.Result<{ isProcessing: Bool; queueSize: Nat; items: [WithdrawQueueItem]; }, Error>;
         setIcrc28TrustedOrigins : shared ([Text]) -> async Result.Result<Bool, ()>;

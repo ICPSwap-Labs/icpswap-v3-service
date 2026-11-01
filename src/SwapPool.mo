@@ -384,8 +384,12 @@ shared (initMsg) actor class SwapPool(
     };
     
     private stable var _withdrawQueue = List.nil<Types.WithdrawQueueItem>();
+    private stable var _inFlightWithdrawals = List.nil<Types.InFlightWithdraw>();
     private var _isProcessingWithdrawQueue : Bool = false;
     private var _withdrawQueueGeneration : Nat = 0;
+    private var _withdrawQueueLastProgressAt : Time.Time = 0;
+    private var _withdrawWatchdogTimerId : ?Timer.TimerId = null;
+    private let _WITHDRAW_STALL_NS : Int = 10 * 60 * 1_000_000_000;
     
     private func _enqueueWithdraw<system>(txIndex: Nat, token: Types.Token, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : () {
         _withdrawQueue := List.append(_withdrawQueue, List.make({
@@ -395,23 +399,78 @@ shared (initMsg) actor class SwapPool(
     };
     
     private func _tryStartProcessing<system>() : () {
+        if (_isProcessingWithdrawQueue and Time.now() - _withdrawQueueLastProgressAt >= _WITHDRAW_STALL_NS) {
+            _log("[WARN][_processWithdrawQueue] Worker stalled; restarting remaining queue. In-flight transfers require ledger reconciliation.");
+            _withdrawQueueGeneration += 1;
+            _isProcessingWithdrawQueue := false;
+            _stopWithdrawWatchdog();
+        };
         if (not _isProcessingWithdrawQueue and not List.isNil(_withdrawQueue)) {
             _isProcessingWithdrawQueue := true;
-            ignore Timer.setTimer<system>(#nanoseconds(0), _processWithdrawQueue);
+            _withdrawQueueLastProgressAt := Time.now();
+            let generation = _withdrawQueueGeneration;
+            _scheduleWithdrawQueue<system>(#nanoseconds(0), generation);
+            if (_withdrawWatchdogTimerId == null) {
+                _withdrawWatchdogTimerId := ?Timer.recurringTimer<system>(#seconds(60), _watchWithdrawQueue);
+            };
+        };
+    };
+
+    private func _scheduleWithdrawQueue<system>(delay : Timer.Duration, generation : Nat) : () {
+        ignore Timer.setTimer<system>(delay, func() : async () {
+            await _processWithdrawQueue(generation);
+        });
+    };
+
+    private func _stopWithdrawWatchdog() : () {
+        switch (_withdrawWatchdogTimerId) {
+            case (?id) { Timer.cancelTimer(id); _withdrawWatchdogTimerId := null; };
+            case (null) {};
+        };
+    };
+
+    private func _watchWithdrawQueue() : async () {
+        _tryStartProcessing<system>();
+        if (not _isProcessingWithdrawQueue) {
+            _stopWithdrawWatchdog();
+        };
+    };
+
+    private func _finishWithdrawQueueItem<system>(generation : Nat) : () {
+        if (generation != _withdrawQueueGeneration) { return; };
+        _withdrawQueueLastProgressAt := Time.now();
+        if (not List.isNil(_withdrawQueue)) {
+            _scheduleWithdrawQueue<system>(#nanoseconds(500_000_000), generation);
+        } else {
+            _isProcessingWithdrawQueue := false;
+            _stopWithdrawWatchdog();
+        };
+    };
+
+    private func _withdrawIsTerminal(txIndex : Nat) : Bool {
+        switch (_txState.getTransaction(txIndex)) {
+            case (null) { true };
+            case (?tx) {
+                switch (tx.action) {
+                    case (#Withdraw(info)) { info.status == #Completed or info.status == #Failed };
+                    case (#OneStepSwap(info)) { info.withdraw.status == #Completed or info.withdraw.status == #Failed };
+                    case (_) { false };
+                };
+            };
         };
     };
     
-    private func _processWithdrawQueue() : async () {
-        let myGeneration = _withdrawQueueGeneration;
+    private func _processWithdrawQueue(myGeneration : Nat) : async () {
+        if (myGeneration != _withdrawQueueGeneration) { return; };
         switch (List.pop(_withdrawQueue)) {
-            case (null, _) { _isProcessingWithdrawQueue := false; return; };
+            case (null, _) { _isProcessingWithdrawQueue := false; _stopWithdrawWatchdog(); return; };
             case (?item, rest) {
                 // Check if transaction still exists before processing
                 switch (_txState.getTransaction(item.txIndex)) {
                     case (null) {
                         // Transaction already completed/deleted (e.g., by refund)
                         _withdrawQueue := rest;
-                        if (not List.isNil(rest)) { ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processWithdrawQueue); } else { _isProcessingWithdrawQueue := false; };
+                        _finishWithdrawQueueItem<system>(myGeneration);
                     };
                     case (?tx) {
                         // Transaction exists, check if it's still in a state that needs withdraw
@@ -424,24 +483,25 @@ shared (initMsg) actor class SwapPool(
 
                         if (not shouldProcess) {
                             _withdrawQueue := rest;
-                            if (not List.isNil(rest)) { ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processWithdrawQueue); } else { _isProcessingWithdrawQueue := false; };
+                            _finishWithdrawQueueItem<system>(myGeneration);
                         } else {
-                            // Normal processing
+                            // Commit the in-flight marker with the dequeue before the transfer awaits.
                             _withdrawQueue := rest;
+                            _inFlightWithdrawals := List.push({ item = item; startedAt = Time.now() }, _inFlightWithdrawals);
                             let tokenAct = if (item.token.address == _token0.address) { _token0Act } else { _token1Act };
 
                             try {
                                 ignore await _withdraw(item.txIndex, item.token, tokenAct, item.caller, item.from, item.to, item.amount, item.fee, item.memo);
+                                if (_withdrawIsTerminal(item.txIndex)) {
+                                    _inFlightWithdrawals := List.filter<Types.InFlightWithdraw>(_inFlightWithdrawals, func(inFlight) { inFlight.item.txIndex != item.txIndex });
+                                } else {
+                                    _log("[WARN][_processWithdrawQueue] Transfer outcome unresolved: txIndex=" # Nat.toText(item.txIndex));
+                                };
                             } catch (e) {
-                                // Log error but continue processing queue
-                                _log("[ERROR][_processWithdrawQueue] Withdraw failed: txIndex=" # Nat.toText(item.txIndex) # ", error=" # Error.message(e));
+                                _log("[ERROR][_processWithdrawQueue] Withdraw outcome unresolved: txIndex=" # Nat.toText(item.txIndex) # ", error=" # Error.message(e));
                             };
 
-                            // Superseded by force restart — stop this processor
-                            if (myGeneration != _withdrawQueueGeneration) { return; };
-
-                            if (not List.isNil(_withdrawQueue)) { ignore Timer.setTimer<system>(#nanoseconds(500_000_000), _processWithdrawQueue); }
-                            else { _isProcessingWithdrawQueue := false; };
+                            _finishWithdrawQueueItem<system>(myGeneration);
                         };
                     };
                 };
@@ -537,6 +597,10 @@ shared (initMsg) actor class SwapPool(
             queueSize = List.size(_withdrawQueue);
             items = List.toArray(_withdrawQueue);
         });
+    };
+
+    public query func getInFlightWithdrawals() : async Result.Result<[Types.InFlightWithdraw], Types.Error> {
+        #ok(List.toArray(_inFlightWithdrawals));
     };
 
     public query ({ caller }) func getUserWithdrawQueue() : async Result.Result<Types.UserWithdrawQueueInfo, Types.Error> {

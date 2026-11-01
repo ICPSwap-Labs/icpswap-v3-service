@@ -104,7 +104,11 @@ Failed executions are retried up to 3 times. Permanently failed orders are moved
 
 ### Withdraw Queue
 
-All token withdrawals (from user withdraw, decrease liquidity, claim, limit order execution) go through an async queue (`_processWithdrawQueue`) that processes one transfer at a time with 500ms spacing. This prevents concurrent transfer conflicts.
+All token withdrawals (from user withdraw, decrease liquidity, claim, limit order execution) go through an async queue (`_processWithdrawQueue`) with 500ms spacing. The pool records a dequeued transfer in stable in-flight state before calling the token canister. `getWithdrawQueueInfo` shows queued items; `getInFlightWithdrawals` shows dequeued transfers whose workers have not finished the pool's existing success/failure handling. Returned failures remain in the existing failed-transaction records. A failed status alone does not prove nonpayment on the ledger.
+
+After 10 minutes without progress, the next watchdog check or newly enqueued withdrawal starts the remaining queue under a new generation. It does not retry the in-flight transfer, because the token canister may still complete the original call. Later transfers may run while that call remains unresolved. An operator must compare the transaction with the token ledger before resolving or compensating it. `restartWithdrawQueueProcessing(true)` also resumes only queued items. After an upgrade, the pool retains in-flight records and restarts only queued items.
+
+Recovery needs enough cycles to execute. If low cycles disable timer dispatch, a top-up alone may leave the queue idle until a new withdrawal or an administrator restarts it.
 
 ### Structured Upgrade Pipeline
 
@@ -133,6 +137,12 @@ Managed via [vessel](https://github.com/dfinity/vessel):
 - `sha224` / `sha256` — Hash functions
 
 ## Local Testing
+
+The withdrawal queue regression test builds the pool and runs it against a delayed mock ledger in an isolated PocketIC network. It advances time past the watchdog deadline, verifies that the later payout completes first, and checks that the delayed reply does not cause a duplicate payment. The mock ledger tests queue control flow, not ledger balance accounting. Tested with Motoko 0.11.1, vessel 0.8.0, dfx 0.31.0 and Python 3.
+
+```bash
+MOC=/path/to/moc VESSEL=/path/to/vessel bash test/withdraw-queue/run.sh
+```
 
 Run the `test-data-accuracy.sh` script to see how the whole swap process is working.
 
