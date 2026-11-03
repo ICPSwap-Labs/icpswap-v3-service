@@ -2439,6 +2439,13 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
+    private func _isQueuedWithdraw(txIndex : Nat) : Bool {
+        switch (List.find<Types.WithdrawQueueItem>(_withdrawQueue, func(item : Types.WithdrawQueueItem) : Bool { item.txIndex == txIndex })) {
+            case (?_) { true };
+            case null { false };
+        };
+    };
+
     private func _adminRefundAggregateFor(relatedIndex : Nat) : { #done; #inProgress; #none } {
         var done = false;
         var inProgress = false;
@@ -2477,7 +2484,20 @@ shared (initMsg) actor class SwapPool(
                         switch (i.status) {
                             case (#Completed) { return #ok(true) };
                             case (#Created) { return #err(#InternalError("Refund transaction still in progress")) };
-                            case (#CreditCompleted) { return #err(#InternalError("Refund transaction still in progress")) };
+                            case (#CreditCompleted) {
+                                // Balance is already deducted and the transfer timer is gone. index == 0 means no ledger receipt was recorded.
+                                // Wait 24h so an in-flight transfer cannot resolve after this retry.
+                                if (i.transfer.index != 0) {
+                                    let errMsg = "Cannot refund: refund transfer.index=" # Nat.toText(i.transfer.index) # " (already on ledger). Status=" # debug_show(i.status);
+                                    _log("[ERROR][deleteFailedTransaction] Refund recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                                    return #err(#InternalError(errMsg));
+                                };
+                                if (Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
+                                    let errMsg = "Refund still in flight (status=#CreditCompleted, age <24h); refusing refund to avoid double-pay if transfer resolves. Verify ledger directly or wait until age >=24h.";
+                                    _log("[ERROR][deleteFailedTransaction] In-flight refund rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                                    return #err(#InternalError(errMsg));
+                                };
+                            };
                             case (#Failed) {};
                         };
                     };
@@ -2555,7 +2575,10 @@ shared (initMsg) actor class SwapPool(
                             _log("[ERROR][deleteFailedTransaction] Refund re-credit failed: txId=" # Nat.toText(txId) # ", " # errMsg);
                             return #err(#InternalError(errMsg));
                         };
-                        switch (await _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), info.relatedIndex)) {
+                        // CreditCompleted retries point at this refund id, so a second call is stopped by _adminRefundAggregateFor.
+                        // Failed retries keep the original business transaction as relatedIndex.
+                        let retryRelatedIndex = if (info.status == #CreditCompleted) { txId } else { info.relatedIndex };
+                        switch (await _refund<system>(token, tokenAct, transaction.owner, info.transfer.from, info.transfer.to, info.transfer.amount, tokenFee, ?PoolUtils.natToBlob(txId), retryRelatedIndex)) {
                             case (#ok(_)) {};
                             case (#err(e)) {
                                 _log("[ERROR][deleteFailedTransaction] Refund retry failed: txId=" # Nat.toText(txId) # ", error=" # debug_show(e));
@@ -2574,9 +2597,14 @@ shared (initMsg) actor class SwapPool(
                                 };
                             };
                         }
-                        else if (info.withdraw.status == #Failed) {
-                            // Safe to refund: withdraw is finalized as failed (transfer rejected or exception).
-                            // Defensive: also reject if a ledger transfer index was somehow recorded.
+                        else if (info.withdraw.status == #Failed or info.withdraw.status == #CreditCompleted) {
+                            // #Failed: transfer was rejected. #CreditCompleted: balance was deducted but the queued transfer is gone.
+                            // The outer guard already requires 24h before a non-failed one-step swap reaches here.
+                            if (info.withdraw.status == #CreditCompleted and (_isQueuedWithdraw(txId) or _isProcessingWithdrawQueue)) {
+                                let errMsg = "Cannot refund: withdraw is still queued or being processed. Restart the withdraw queue so the original transfer can finish.";
+                                _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                                return #err(#InternalError(errMsg));
+                            };
                             if (info.withdraw.transfer.index != 0) {
                                 let errMsg = "Cannot refund: withdraw transfer.index=" # Nat.toText(info.withdraw.transfer.index) # " (already on ledger). Status=" # debug_show(info.withdraw.status);
                                 _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
@@ -2597,10 +2625,8 @@ shared (initMsg) actor class SwapPool(
                             };
                         }
                         else if (info.withdraw.status != #Completed) {
-                            // #Created or #CreditCompleted — withdraw is in-flight or queued.
-                            // Refunding here would race with the original tokenAct.transfer and risks double-pay.
-                            // Admin must drain/restart the withdraw queue and let it finalize naturally before retrying.
-                            let errMsg = "Cannot refund: withdraw status=" # debug_show(info.withdraw.status) # " (must be #Failed). Original withdraw is still in-flight; risk of double-pay. Restart the withdraw queue or wait for natural completion.";
+                            // #Created — tokenHolder has not been deducted, or the withdraw has not started.
+                            let errMsg = "Cannot refund: withdraw status=" # debug_show(info.withdraw.status) # " (must be #Failed or #CreditCompleted with index 0 and age >=24h). Restart the withdraw queue or wait for natural completion.";
                             _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
                             return #err(#InternalError(errMsg));
                         };
@@ -3204,7 +3230,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.7.0";
+    private var _version : Text = "3.7.1";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
