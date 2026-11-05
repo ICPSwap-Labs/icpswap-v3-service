@@ -101,6 +101,101 @@ shared (initMsg) actor class SwapFeeReceiver(
     };
     private func _releaseLock() { _locked := false; };
 
+    // --------------------------- Swap Price Protection ------------------------------------
+    private let _BPS_DENOMINATOR : Nat = 10000;
+    private let _POOL_FEE_DENOMINATOR : Nat = 1000000;
+    private let _SWAP_POOL_FEE : Nat = 3000;
+    // amountOutMinimum = quote * (1 - slippage); guards the window between quote and swap.
+    private stable var _swapSlippageBps : Nat = 500;
+    // Skip the swap when the quote is worse than the reference spot price by more than this.
+    private stable var _maxPriceDeviationBps : Nat = 1000;
+    // Delay between the end of the claim phase (where reference prices are taken) and the swap phase,
+    // so that a manipulated price has to be held against arbitrage for at least this long.
+    private stable var _swapDelaySeconds : Nat = 1800;
+    private stable var _refPriceMaxAgeSeconds : Nat = 86400;
+    private var _refPriceMap : HashMap.HashMap<Principal, { sqrtPriceX96 : Nat; timestamp : Nat }> = HashMap.HashMap<Principal, { sqrtPriceX96 : Nat; timestamp : Nat }>(100, Principal.equal, Principal.hash);
+
+    private func _snapshotReferencePrice(poolId : Principal, poolAct : Types.SwapPoolActor, data : Types.ClaimedPoolData) : async () {
+        if (data.fee != _SWAP_POOL_FEE or not _poolHasICP(data)) { return };
+        try {
+            switch (await poolAct.metadata()) {
+                case (#ok(metadata)) {
+                    _refPriceMap.put(poolId, { sqrtPriceX96 = metadata.sqrtPriceX96; timestamp = BlockTimestamp.blockTimestamp() });
+                };
+                case (#err(msg)) {
+                    _log("[WARN][_snapshotReferencePrice] metadata failed pool=" # Principal.toText(poolId) # " err=" # debug_show(msg));
+                };
+            };
+        } catch (e) {
+            _log("[WARN][_snapshotReferencePrice] metadata threw pool=" # Principal.toText(poolId) # " err=" # Error.message(e));
+        };
+    };
+
+    // Output at the given spot price after the pool fee, ignoring price impact.
+    private func _spotAmountOut(sqrtPriceX96 : Nat, amountIn : Nat, zeroForOne : Bool, poolFee : Nat) : Nat {
+        if (sqrtPriceX96 == 0 or poolFee >= _POOL_FEE_DENOMINATOR) { return 0 };
+        let amountInLessFee = amountIn * (_POOL_FEE_DENOMINATOR - poolFee) / _POOL_FEE_DENOMINATOR;
+        let priceX192 = sqrtPriceX96 * sqrtPriceX96;
+        let q192 : Nat = 2 ** 192;
+        if (zeroForOne) { amountInLessFee * priceX192 / q192 } else { amountInLessFee * q192 / priceX192 };
+    };
+
+    type MinOutMode = {
+        // Quote, checked against the claim-time reference price, minus _swapSlippageBps.
+        #reference;
+        // Quote minus the given slippage bps, without the reference price check.
+        #quote : Nat;
+        // Caller-supplied amountOutMinimum; 0 means no limit.
+        #fixed : Nat;
+    };
+
+    // Returns the amountOutMinimum to use for swapping `amountIn`, or an error when the swap must be skipped.
+    private func _resolveAmountOutMinimum(mode : MinOutMode, poolData : Types.PoolData, poolAct : Types.SwapPoolActor, zeroForOne : Bool, amountIn : Nat) : async Result.Result<Nat, Text> {
+        let ref = switch (mode) {
+            case (#fixed(amount)) { return #ok(amount) };
+            case (#quote(_)) { null };
+            case (#reference) {
+                switch (_refPriceMap.get(poolData.canisterId)) {
+                    case (?r) {
+                        if (BlockTimestamp.blockTimestamp() > r.timestamp + _refPriceMaxAgeSeconds) {
+                            return #err("reference price is stale, taken at " # Nat.toText(r.timestamp));
+                        };
+                        ?r;
+                    };
+                    case (null) { return #err("no reference price for pool") };
+                };
+            };
+        };
+        let quoted = switch (await poolAct.quote({ zeroForOne = zeroForOne; amountIn = Nat.toText(amountIn); amountOutMinimum = "0"; })) {
+            case (#ok(amount)) { amount };
+            case (#err(msg)) { return #err("quote failed: " # debug_show(msg)) };
+        };
+        switch (ref) {
+            case (?r) {
+                let refAmountOut = _spotAmountOut(r.sqrtPriceX96, amountIn, zeroForOne, poolData.fee);
+                if (quoted * _BPS_DENOMINATOR < refAmountOut * (_BPS_DENOMINATOR - _maxPriceDeviationBps)) {
+                    return #err("quote " # Nat.toText(quoted) # " deviates more than " # Nat.toText(_maxPriceDeviationBps)
+                        # " bps from reference " # Nat.toText(refAmountOut));
+                };
+            };
+            case (null) {};
+        };
+        let slippageBps = switch (mode) { case (#quote(bps)) { bps }; case (_) { _swapSlippageBps } };
+        let amountOutMinimum = quoted * (_BPS_DENOMINATOR - slippageBps) / _BPS_DENOMINATOR;
+        if (amountOutMinimum == 0) { return #err("amountOutMinimum is 0") };
+        #ok(amountOutMinimum);
+    };
+
+    private var _isForceSwapping : Bool = false;
+    private var _forceSwapQueue : [{ token : Types.Token; reclaimPool : ?Principal }] = [];
+    private var _forceSwapIndex : Nat = 0;
+    private var _forceSwapMode : MinOutMode = #fixed(0);
+
+    private func _scaleAmountOutMinimum(amountOutMinimum : Nat, actualAmountIn : Nat, quotedAmountIn : Nat) : Nat {
+        if (actualAmountIn == quotedAmountIn or quotedAmountIn == 0) { return amountOutMinimum };
+        amountOutMinimum * actualAmountIn / quotedAmountIn;
+    };
+
     // Track active timers
     private var _activeTimers : Buffer.Buffer<Timer.TimerId> = Buffer.Buffer(0);
     private func _scheduleRetry(delay: Nat, operation: () -> async ()) : async () {
@@ -200,6 +295,9 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     public shared ({ caller }) func forceAutoClaim() : async Result.Result<(), Types.Error> {
         _checkPermission(caller);
+        if (_isForceSwapping) { return #err(#InternalError("Force swap queue is running")); };
+        // _syncPools resets pool, token, swap log and reference price state, so it must not run mid-cycle.
+        if (_isSyncing) { return #err(#InternalError("Already syncing")); };
         try {
             // First sync pools to get latest pool list
             if (await _syncPools()) {
@@ -220,13 +318,53 @@ shared (initMsg) actor class SwapFeeReceiver(
 
     public shared ({ caller }) func swapToICP(token : Types.Token) : async Result.Result<Bool, Types.Error> {
         _checkPermission(caller);
-        return #ok(await _swapToICP(token));
+        return #ok(await _swapToICP(token, #reference));
     };
 
     public shared ({ caller }) func swapICPToICS() : async Result.Result<(), Types.Error> {
         _checkPermission(caller);
         await _swapICPToICS();
         return #ok();
+    };
+
+    // Bypasses the reference price check and uses the given amountOutMinimum (0 means no limit).
+    public shared ({ caller }) func forceSwapToICP(token : Types.Token, amountOutMinimum : Nat) : async Result.Result<Bool, Types.Error> {
+        _checkPermission(caller);
+        return #ok(await _swapToICP(token, #fixed(amountOutMinimum)));
+    };
+
+    // Bypasses the reference price check and uses the given amountOutMinimum (0 means no limit).
+    public shared ({ caller }) func forceSwapICPToICS(amountOutMinimum : Nat) : async Result.Result<(), Types.Error> {
+        _checkPermission(caller);
+        await _swapICPToICSWith(#fixed(amountOutMinimum));
+        return #ok();
+    };
+
+    // Re-runs token -> ICP swaps that were skipped or failed in the current cycle, one token per message.
+    // slippageBps = null means no amountOutMinimum; ?bps means quote * (1 - bps), without the reference price check.
+    public shared ({ caller }) func forceSwapSkippedTokens(slippageBps : ?Nat) : async Result.Result<[Types.Token], Types.Error> {
+        _checkPermission(caller);
+        if (_isSyncing) { return #err(#InternalError("Auto claim/swap cycle is running")); };
+        if (_isForceSwapping) { return #err(#InternalError("Force swap queue is already running")); };
+        if (_locked) { return #err(#InternalError("Another swap is in progress")); };
+        let mode : MinOutMode = switch (slippageBps) {
+            case (null) { #fixed(0) };
+            case (?bps) {
+                if (bps > 5000) { return #err(#InternalError("slippageBps must be at most 5000")); };
+                #quote(bps);
+            };
+        };
+        _forceSwapQueue := _collectPendingSwapTokens();
+        _forceSwapIndex := 0;
+        _forceSwapMode := mode;
+        if (_forceSwapQueue.size() == 0) { return #ok([]); };
+        _isForceSwapping := true;
+        ignore Timer.setTimer<system>(#nanoseconds (0), _processForceSwapQueue);
+        return #ok(Array.map<{ token : Types.Token; reclaimPool : ?Principal }, Types.Token>(_forceSwapQueue, func(item) { item.token }));
+    };
+
+    public query func getForceSwapStatus() : async Result.Result<{ isRunning : Bool; processed : Nat; total : Nat; }, Types.Error> {
+        return #ok({ isRunning = _isForceSwapping; processed = _forceSwapIndex; total = _forceSwapQueue.size(); });
     };
 
     public shared ({ caller }) func burnICS() : async Result.Result<(), Types.Error> {
@@ -408,16 +546,30 @@ shared (initMsg) actor class SwapFeeReceiver(
         poolData : Types.PoolData,
         token : Types.Token, 
         balance : Nat,
-        fee : Nat
+        fee : Nat,
+        minOutMode : MinOutMode,
     ) : async () {
         // Check and acquire lock
-        if (not _acquireLock()) { return };
+        if (not _acquireLock()) {
+            _addTokenSwapLog(token, 0, 0, "Skip: another swap holds the lock", "lock", ?poolData.canisterId);
+            return;
+        };
         try {
             var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(token.address, token.standard);
             var poolId = poolData.canisterId;
             var poolAct = actor (Principal.toText(poolId)) : Types.SwapPoolActor;
             // Calculate amounts before external calls
             var transferedAmount = balance - fee;
+            let expectedDepositAmount : Nat = transferedAmount - fee;
+            let zeroForOne = if (Functions.tokenEqual(ICP, poolData.token0)) { false } else { true };
+            let quotedAmountOutMinimum = switch (await _resolveAmountOutMinimum(minOutMode, poolData, poolAct, zeroForOne, expectedDepositAmount)) {
+                case (#ok(amount)) { amount };
+                case (#err(msg)) {
+                    _addTokenSwapLog(token, expectedDepositAmount, 0, "Skip: " # msg, "priceCheck", ?poolId);
+                    _releaseLock();
+                    return;
+                };
+            };
             // First external call - transfer
             switch (await tokenAct.transfer({
                 from = { owner = canisterId; subaccount = null }; 
@@ -436,9 +588,9 @@ shared (initMsg) actor class SwapFeeReceiver(
                             _addTokenSwapLog(token, depositedAmount, 0, "", "deposit", ?poolId);
                             // Third external call - swap
                             switch (await poolAct.swap({
-                                zeroForOne = if (Functions.tokenEqual(ICP, poolData.token0)) { false } else { true };
+                                zeroForOne = zeroForOne;
                                 amountIn = debug_show(depositedAmount);
-                                amountOutMinimum = "0";
+                                amountOutMinimum = Nat.toText(_scaleAmountOutMinimum(quotedAmountOutMinimum, depositedAmount, expectedDepositAmount));
                             })) {
                                 case (#ok(swappedAmount)) {
                                     _addTokenSwapLog(token, depositedAmount, swappedAmount, "", "swap", ?poolId);
@@ -479,9 +631,13 @@ shared (initMsg) actor class SwapFeeReceiver(
         tokenInFee : Nat, 
         tokenOut : Types.Token,
         tokenOutFee : Nat,
+        minOutMode : MinOutMode,
     ) : async () {
         // Check and acquire lock
-        if (not _acquireLock()) { return };
+        if (not _acquireLock()) {
+            _addTokenSwapLog(tokenIn, 0, 0, "Skip: another swap holds the lock", "lock", ?poolData.canisterId);
+            return;
+        };
         try {
             // Safety checks for calculations
             if (balance <= tokenInFee) {
@@ -500,6 +656,15 @@ shared (initMsg) actor class SwapFeeReceiver(
             var tokenInAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(tokenIn.address, tokenIn.standard);
             var poolId = poolData.canisterId;
             var poolAct = actor (Principal.toText(poolId)) : Types.SwapPoolActor;
+            let zeroForOne = if (Functions.tokenEqual(tokenOut, poolData.token0)) { false } else { true };
+            let quotedAmountOutMinimum = switch (await _resolveAmountOutMinimum(minOutMode, poolData, poolAct, zeroForOne, depositAmount)) {
+                case (#ok(amount)) { amount };
+                case (#err(msg)) {
+                    _addTokenSwapLog(tokenIn, depositAmount, 0, "Skip: " # msg, "priceCheck", ?poolId);
+                    _releaseLock();
+                    return;
+                };
+            };
             // First external call - approve
             switch (await tokenInAct.approve({
                 from_subaccount = null; 
@@ -517,9 +682,9 @@ shared (initMsg) actor class SwapFeeReceiver(
                             _addTokenSwapLog(tokenIn, depositedAmount, 0, "", "depositFrom", ?poolId);
                             // Third external call - swap
                             switch (await poolAct.swap({
-                                zeroForOne = if (Functions.tokenEqual(tokenOut, poolData.token0)) { false } else { true };
+                                zeroForOne = zeroForOne;
                                 amountIn = debug_show(depositedAmount);
-                                amountOutMinimum = "0";
+                                amountOutMinimum = Nat.toText(_scaleAmountOutMinimum(quotedAmountOutMinimum, depositedAmount, depositAmount));
                             })) {
                                 case (#ok(swappedAmount)) {
                                     _addTokenSwapLog(tokenIn, depositedAmount, swappedAmount, "", "swap", ?poolId);
@@ -552,6 +717,10 @@ shared (initMsg) actor class SwapFeeReceiver(
     };
 
     private func _swapICPToICS() : async () {
+        await _swapICPToICSWith(#reference);
+    };
+
+    private func _swapICPToICSWith(minOutMode : MinOutMode) : async () {
         try {
             var canisterId = switch (_canisterId) {
                 case(?p){ p };
@@ -563,9 +732,9 @@ shared (initMsg) actor class SwapFeeReceiver(
             var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(ICP.address, ICP.standard);
             var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
             if (balance <= (_ICPFee * 10)) { return; };
-            switch (await _factoryAct.getPool({ token0 = ICP; token1 = ICS; fee = 3000; })) {
+            switch (await _factoryAct.getPool({ token0 = ICP; token1 = ICS; fee = _SWAP_POOL_FEE; })) {
                 case (#ok(poolData)) {
-                    await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee);
+                    await _commonSwap(poolData, ICP, balance, _ICPFee, ICS, _ICSFee, minOutMode);
                     // Only schedule burn if enabled
                     if (_autoBurnIcsEnabled) {
                         ignore Timer.setTimer<system>(#nanoseconds (1), _burnICS);
@@ -584,18 +753,18 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    private func _swapToICP(tokenIn : Types.Token) : async Bool {
+    private func _swapToICP(tokenIn : Types.Token, minOutMode : MinOutMode) : async Bool {
         var canisterId = switch (_canisterId) { case(?p){ p }; case(_) { return false; }; };
         var tokenAct : TokenAdapterTypes.TokenAdapter = TokenFactory.getAdapter(tokenIn.address, tokenIn.standard);
         var balance : Nat = await tokenAct.balanceOf({ owner = canisterId; subaccount = null; });
         var fee : Nat = await tokenAct.fee();
         if (balance <= (fee * 10)) { return false; };
-        switch (await _factoryAct.getPool({ token0 = tokenIn; token1 = ICP; fee = 3000; })) {
+        switch (await _factoryAct.getPool({ token0 = tokenIn; token1 = ICP; fee = _SWAP_POOL_FEE; })) {
             case (#ok(poolData)) {
                 if (Text.equal("ICRC1", tokenIn.standard)) {
-                    await _ICRC1SwapToICP(canisterId, poolData, tokenIn, balance, fee);
+                    await _ICRC1SwapToICP(canisterId, poolData, tokenIn, balance, fee, minOutMode);
                 } else {
-                    await _commonSwap(poolData, tokenIn, balance, fee, ICP, _ICPFee);
+                    await _commonSwap(poolData, tokenIn, balance, fee, ICP, _ICPFee, minOutMode);
                 };
                 true;
             };
@@ -609,6 +778,7 @@ shared (initMsg) actor class SwapFeeReceiver(
     private func _claim(poolId: Principal, canisterId: Principal, data: Types.ClaimedPoolData) : async Bool {
         try {
             var poolAct = actor (Principal.toText(poolId)) : Types.SwapPoolActor;
+            await _snapshotReferencePrice(poolId, poolAct, data);
             var balance = { balance0 = 0; balance1 = 0 };
             switch (await poolAct.getUserUnusedBalance(canisterId)) {
                 case(#ok(data)) {
@@ -681,6 +851,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 // clear history
                 _tokenClaimLog := Buffer.Buffer<Types.ReceiverClaimLog>(0);
                 _tokenSwapLog := Buffer.Buffer<Types.ReceiverSwapLog>(0);
+                _refPriceMap := HashMap.HashMap<Principal, { sqrtPriceX96 : Nat; timestamp : Nat }>(100, Principal.equal, Principal.hash);
                 _claimCycleHadICP := false;
                 _claimCycleHadNoICP := false;
                 true;
@@ -689,21 +860,38 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
-    private func _hasUnclaimedPool() : Bool {
+    private func _poolHasICP(data : Types.ClaimedPoolData) : Bool {
+        Functions.tokenEqual(data.token0, ICP) or Functions.tokenEqual(data.token1, ICP)
+    };
+
+    // Unclaimed pools that are in-scope for this claim cycle.
+    // ICP-only cycles intentionally leave non-ICP pools unclaimed; those must not block completion.
+    private func _hasUnclaimedPoolInScope(claimNoICP : Bool) : Bool {
         for ((_, data) in _poolMap.entries()) {
-            if (not data.claimed) { return true };
+            if (not data.claimed) {
+                if (_poolHasICP(data) or claimNoICP) { return true };
+            };
         };
         false;
     };
 
-    private func _finalizeClaimIntervalTimestamps(currentTime : Nat) {
-        if (_hasUnclaimedPool()) { return };
-        if (_claimCycleHadICP or _claimCycleHadNoICP) {
-            _log("[INFO][_finalizeClaim] advanced: icp=" # debug_show(_claimCycleHadICP)
-                # " noICP=" # debug_show(_claimCycleHadNoICP) # " at=" # Nat.toText(currentTime));
+    private func _hasUnclaimedPool() : Bool {
+        _hasUnclaimedPoolInScope(true)
+    };
+
+    // Advance interval timestamps once all in-scope pools for this cycle are done.
+    // claimICP / claimNoICP are the *intended* scope of the cycle (not whether any pool was found).
+    private func _finalizeClaimIntervalTimestamps(currentTime : Nat, claimICP : Bool, claimNoICP : Bool) {
+        if (_hasUnclaimedPoolInScope(claimNoICP)) { return };
+        if (claimICP or claimNoICP) {
+            _log("[INFO][_finalizeClaim] advanced: claimICP=" # debug_show(claimICP)
+                # " claimNoICP=" # debug_show(claimNoICP)
+                # " hadICP=" # debug_show(_claimCycleHadICP)
+                # " hadNoICP=" # debug_show(_claimCycleHadNoICP)
+                # " at=" # Nat.toText(currentTime));
         };
-        if (_claimCycleHadICP) { _lastICPPoolClaimTime := currentTime };
-        if (_claimCycleHadNoICP) { _lastNoICPPoolClaimTime := currentTime };
+        if (claimICP) { _lastICPPoolClaimTime := currentTime };
+        if (claimNoICP) { _lastNoICPPoolClaimTime := currentTime };
         _claimCycleHadICP := false;
         _claimCycleHadNoICP := false;
     };
@@ -714,7 +902,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 if((not swapped) and (not Text.equal(token.address, ICP.address)) and (not Text.equal(token.address, ICS.address))) {
                     _tokenSet := TrieSet.put<(Types.Token, Bool)>(_tokenSet, (token, true), Functions.tokenHash(token), _tokenSetEqual);
                     try {
-                        let _ = await _swapToICP(token);
+                        let _ = await _swapToICP(token, #reference);
                     } catch (e) {
                         _addTokenSwapLog(token, 0, 0, "Call _swapToICP failed: " # debug_show (Error.message(e)), "_swapToICP", null);
                     };
@@ -744,6 +932,57 @@ shared (initMsg) actor class SwapFeeReceiver(
         };
     };
 
+    // Tokens whose latest token -> ICP attempt in the current swap log did not complete.
+    // reclaimPool is set when the tokens were already deposited into the pool and must be withdrawn first.
+    private func _collectPendingSwapTokens() : [{ token : Types.Token; reclaimPool : ?Principal }] {
+        let pending = HashMap.HashMap<Text, { token : Types.Token; reclaimPool : ?Principal }>(16, Text.equal, Text.hash);
+        for (log in _tokenSwapLog.vals()) {
+            let address = log.token.address;
+            if (address != "" and address != ICP.address and address != ICS.address) {
+                let prevReclaimPool = switch (pending.get(address)) { case (?p) { p.reclaimPool }; case (null) { null } };
+                if (log.step == "swap") {
+                    if (log.errMsg == "") {
+                        pending.delete(address);
+                    } else {
+                        pending.put(address, { token = log.token; reclaimPool = log.poolId });
+                    };
+                } else if (log.step == "priceCheck" or log.step == "lock" or (log.errMsg != "" and (
+                    log.step == "transfer" or log.step == "approve" or log.step == "depositFrom"
+                    or log.step == "ICRC1SwapToICP" or log.step == "commonSwap" or log.step == "_swapToICP"
+                    or log.step == "forceSwapQueue"
+                ))) {
+                    pending.put(address, { token = log.token; reclaimPool = prevReclaimPool });
+                };
+            };
+        };
+        Iter.toArray(pending.vals());
+    };
+
+    private func _processForceSwapQueue() : async () {
+        if (_forceSwapIndex >= _forceSwapQueue.size()) {
+            _isForceSwapping := false;
+            _log("[INFO][_processForceSwapQueue] done: total=" # Nat.toText(_forceSwapQueue.size()));
+            return;
+        };
+        let item = _forceSwapQueue[_forceSwapIndex];
+        _forceSwapIndex += 1;
+        try {
+            switch (item.reclaimPool, _canisterId) {
+                case (?poolId, ?canisterId) {
+                    switch (_poolMap.get(poolId)) {
+                        case (?data) { ignore await _claim(poolId, canisterId, data); };
+                        case (null) { _log("[WARN][_processForceSwapQueue] reclaim skipped, pool not in pool map: " # Principal.toText(poolId)); };
+                    };
+                };
+                case (_) {};
+            };
+            ignore await _swapToICP(item.token, _forceSwapMode);
+        } catch (e) {
+            _addTokenSwapLog(item.token, 0, 0, "forceSwapSkippedTokens failed: " # debug_show(Error.message(e)), "forceSwapQueue", item.reclaimPool);
+        };
+        ignore Timer.setTimer<system>(#nanoseconds (1), _processForceSwapQueue);
+    };
+
     // Force claim all pools ignoring time restrictions
     private func _forceAutoClaim() : async () {
         try {
@@ -754,6 +993,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 case(?p){ p };
                 case(_) {
                     _log("[ERROR][_forceAutoClaim] skip: _canisterId uninitialized (call setCanisterId)");
+                    _isSyncing := false;
                     return;
                 };
             };
@@ -761,7 +1001,7 @@ shared (initMsg) actor class SwapFeeReceiver(
             // Force claim all pools (both ICP and non-ICP) ignoring time restrictions
             label claimLoop for ((cid, data) in _poolMap.entries()) {
                 if (not data.claimed) {
-                    let hasICP = Functions.tokenEqual(data.token0, ICP) or Functions.tokenEqual(data.token1, ICP);
+                    let hasICP = _poolHasICP(data);
 
                     if (hasICP) {
                         _claimCycleHadICP := true;
@@ -784,10 +1024,10 @@ shared (initMsg) actor class SwapFeeReceiver(
                         });
                     };
 
-                    _finalizeClaimIntervalTimestamps(currentTime);
+                    _finalizeClaimIntervalTimestamps(currentTime, true, true);
                     if (not _hasUnclaimedPool()) {
                         _log("[INFO][_forceAutoClaim] all pools claimed; scheduling _autoSwap");
-                        ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+                        ignore Timer.setTimer<system>(#seconds (_swapDelaySeconds), _autoSwap);
                     } else {
                         ignore Timer.setTimer<system>(#nanoseconds (1), _forceAutoClaim);
                     };
@@ -796,8 +1036,8 @@ shared (initMsg) actor class SwapFeeReceiver(
             };
 
             _log("[INFO][_forceAutoClaim] no unclaimed pools found; scheduling _autoSwap");
-            _finalizeClaimIntervalTimestamps(currentTime);
-            ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+            _finalizeClaimIntervalTimestamps(currentTime, true, true);
+            ignore Timer.setTimer<system>(#seconds (_swapDelaySeconds), _autoSwap);
         } catch (e) {
             _log("[ERROR][_forceAutoClaim] exception: " # Error.message(e) # " - retry in 3600s");
             _tokenClaimLog.add({
@@ -833,6 +1073,7 @@ shared (initMsg) actor class SwapFeeReceiver(
                 case(?p){ p };
                 case(_) {
                     _log("[ERROR][_autoClaim] skip: _canisterId uninitialized (call setCanisterId)");
+                    _isSyncing := false;
                     return;
                 };
             };
@@ -841,12 +1082,13 @@ shared (initMsg) actor class SwapFeeReceiver(
             if (not shouldClaimICPPools) {
                 _log("[INFO][_autoClaim] skip: ICP interval not elapsed remaining="
                     # Nat.toText((_icpPoolClaimInterval + _lastICPPoolClaimTime) - currentTime) # "s");
+                _isSyncing := false;
                 return;
             };
 
             label claimLoop for ((cid, data) in _poolMap.entries()) {
                 if (not data.claimed) {
-                    let hasICP = Functions.tokenEqual(data.token0, ICP) or Functions.tokenEqual(data.token1, ICP);
+                    let hasICP = _poolHasICP(data);
 
                     if (hasICP) {
                         // Always claim ICP pools when shouldClaimICPPools is true
@@ -874,10 +1116,11 @@ shared (initMsg) actor class SwapFeeReceiver(
                         });
                     };
 
-                    _finalizeClaimIntervalTimestamps(currentTime);
-                    if (not _hasUnclaimedPool()) {
-                        _log("[INFO][_autoClaim] all pools claimed; scheduling _autoSwap");
-                        ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+                    _finalizeClaimIntervalTimestamps(currentTime, true, shouldClaimNoICPPools);
+                    if (not _hasUnclaimedPoolInScope(shouldClaimNoICPPools)) {
+                        _log("[INFO][_autoClaim] in-scope pools claimed (claimNoICP="
+                            # debug_show(shouldClaimNoICPPools) # "); scheduling _autoSwap");
+                        ignore Timer.setTimer<system>(#seconds (_swapDelaySeconds), _autoSwap);
                     } else {
                         ignore Timer.setTimer<system>(#nanoseconds (1), _autoClaim);
                     };
@@ -885,9 +1128,9 @@ shared (initMsg) actor class SwapFeeReceiver(
                 };
             };
 
-            _log("[INFO][_autoClaim] no unclaimed pools found; scheduling _autoSwap");
-            _finalizeClaimIntervalTimestamps(currentTime);
-            ignore Timer.setTimer<system>(#nanoseconds (2), _autoSwap);
+            _log("[INFO][_autoClaim] no in-scope unclaimed pools; scheduling _autoSwap");
+            _finalizeClaimIntervalTimestamps(currentTime, true, shouldClaimNoICPPools);
+            ignore Timer.setTimer<system>(#seconds (_swapDelaySeconds), _autoSwap);
         } catch (e) {
             _log("[ERROR][_autoClaim] exception: " # Error.message(e) # " - retry in 3600s");
             _tokenClaimLog.add({
@@ -914,6 +1157,10 @@ shared (initMsg) actor class SwapFeeReceiver(
 
             if (_isSyncing) {
                 _log("[INFO][_autoSyncPools] skip: already syncing (call resetSyncingFlag if stuck)");
+                return;
+            };
+            if (_isForceSwapping) {
+                _log("[INFO][_autoSyncPools] skip: force swap queue is running");
                 return;
             };
             if (currentTime < nextEligible) {
@@ -978,9 +1225,33 @@ shared (initMsg) actor class SwapFeeReceiver(
         return #ok();
     };
 
+    public shared ({ caller }) func setSwapProtectionConfig(config : Types.SwapProtectionConfig) : async Result.Result<(), Types.Error> {
+        _checkPermission(caller);
+        if (config.slippageBps > 5000) { return #err(#InternalError("slippageBps must be at most 5000")); };
+        if (config.maxPriceDeviationBps > 5000) { return #err(#InternalError("maxPriceDeviationBps must be at most 5000")); };
+        if (config.refPriceMaxAgeSeconds <= config.swapDelaySeconds) {
+            return #err(#InternalError("refPriceMaxAgeSeconds must be greater than swapDelaySeconds"));
+        };
+        _swapSlippageBps := config.slippageBps;
+        _maxPriceDeviationBps := config.maxPriceDeviationBps;
+        _swapDelaySeconds := config.swapDelaySeconds;
+        _refPriceMaxAgeSeconds := config.refPriceMaxAgeSeconds;
+        return #ok();
+    };
+
+    public query func getSwapProtectionConfig() : async Result.Result<Types.SwapProtectionConfig, Types.Error> {
+        return #ok({
+            slippageBps = _swapSlippageBps;
+            maxPriceDeviationBps = _maxPriceDeviationBps;
+            swapDelaySeconds = _swapDelaySeconds;
+            refPriceMaxAgeSeconds = _refPriceMaxAgeSeconds;
+        });
+    };
+
     public shared ({ caller }) func resetSyncingFlag() : async () {
         _checkPermission(caller);
         _isSyncing := false;
+        _isForceSwapping := false;
     };
 
     public shared ({ caller }) func forceReleaseLock() : async () {
@@ -1065,6 +1336,10 @@ shared (initMsg) actor class SwapFeeReceiver(
             case (#transferAll _)               { Prim.isController(caller) };
             case (#resetSyncingFlag _)          { Prim.isController(caller) };
             case (#forceReleaseLock _)          { Prim.isController(caller) };
+            case (#setSwapProtectionConfig _)   { Prim.isController(caller) };
+            case (#forceSwapToICP _)            { Prim.isController(caller) };
+            case (#forceSwapICPToICS _)         { Prim.isController(caller) };
+            case (#forceSwapSkippedTokens _)    { Prim.isController(caller) };
             // Anyone
             case (_) { true };
         };
