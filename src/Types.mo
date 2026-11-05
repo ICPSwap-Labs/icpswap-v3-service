@@ -589,6 +589,18 @@ module {
         #transferAll : () -> (Token, Principal);
         #resetSyncingFlag : () -> ();
         #forceReleaseLock : () -> ();
+        #getSwapProtectionConfig : () -> ();
+        #setSwapProtectionConfig : () -> SwapProtectionConfig;
+        #forceSwapToICP : () -> (Token, Nat);
+        #forceSwapICPToICS : () -> Nat;
+        #forceSwapSkippedTokens : () -> ?Nat;
+        #getForceSwapStatus : () -> ();
+    };
+    public type SwapProtectionConfig = {
+        slippageBps : Nat;
+        maxPriceDeviationBps : Nat;
+        swapDelaySeconds : Nat;
+        refPriceMaxAgeSeconds : Nat;
     };
     public type SwapPoolActor = actor {
         init : (Nat, Int, Nat) -> async ();
@@ -609,6 +621,7 @@ module {
         deposit : shared (DepositArgs) -> async Result.Result<Nat, Error>;
         depositFrom : shared (DepositArgs) -> async Result.Result<Nat, Error>;
         swap : shared (SwapArgs) -> async Result.Result<Nat, Error>;
+        quote : query (SwapArgs) -> async Result.Result<Nat, Error>;
         getLimitOrderAvailabilityState : query () -> async Result.Result<Bool, Error>;
         getLimitOrderStack : query () -> async Result.Result<[(LimitOrderType, LimitOrderKey, LimitOrderValue)], Error>;
         getLimitOrders : query () -> async Result.Result<{ lowerLimitOrders : [(LimitOrderKey, LimitOrderValue)]; upperLimitOrders : [(LimitOrderKey, LimitOrderValue)]; },Error>;

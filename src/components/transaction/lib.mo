@@ -266,6 +266,14 @@ module {
                         case (?tx) {
                             switch(tx.action) {
                                 case (#OneStepSwap(relatedInfo)) {
+                                    // Admin reissue of a stuck withdraw: this refund pays the credited output.
+                                    // Close the swap only when token and amount match that withdraw, so an excess-input
+                                    // refund (different token) cannot finalize a swap whose withdraw is still pending.
+                                    let refundPaysStuckWithdraw =
+                                        relatedInfo.withdraw.status == #CreditCompleted
+                                        and relatedInfo.withdraw.transfer.index == 0
+                                        and info.transfer.token == relatedInfo.withdraw.transfer.token
+                                        and info.transfer.amount == relatedInfo.withdraw.transfer.amount;
                                     if (relatedInfo.deposit.status == #Completed and relatedInfo.swap.status == #Completed and relatedInfo.withdraw.status == #Completed) {
                                         // All steps completed, mark the entire transaction as Completed
                                         _updateTransaction(info.relatedIndex, tx, #OneStepSwap(
@@ -274,6 +282,16 @@ module {
                                                 status = #Completed;
                                             }
                                         ), transactions);
+                                    } else if (refundPaysStuckWithdraw) {
+                                        _updateTransaction(info.relatedIndex, tx, #OneStepSwap({
+                                            relatedInfo with
+                                            status = #Completed;
+                                            withdraw = {
+                                                relatedInfo.withdraw with
+                                                status = #Completed;
+                                                transfer = { relatedInfo.withdraw.transfer with index = txIndex };
+                                            };
+                                        }), transactions);
                                     } else if (relatedInfo.status == #Failed or relatedInfo.swap.status == #Failed) {
                                         // Transaction already failed or swap failed - mark entire transaction as Failed
                                         _updateTransaction(info.relatedIndex, tx, #OneStepSwap(
@@ -296,6 +314,17 @@ module {
                                 case (#Withdraw(relatedInfo)) {
                                     if (relatedInfo.status != #Completed) {
                                         _updateTransaction(info.relatedIndex, tx, #Withdraw({ relatedInfo with status = #Failed }), transactions);
+                                    };
+                                };
+                                case (#Refund(relatedInfo)) {
+                                    // Reissue of a stuck refund. Mark it completed even if archiving fails,
+                                    // so a later retry cannot pay it again.
+                                    if (relatedInfo.status == #CreditCompleted and relatedInfo.transfer.index == 0) {
+                                        _updateTransaction(info.relatedIndex, tx, #Refund({
+                                            relatedInfo with
+                                            status = #Completed;
+                                            err = ?"Reissued";
+                                        }), transactions);
                                     };
                                 };
                                 case (_) { };
