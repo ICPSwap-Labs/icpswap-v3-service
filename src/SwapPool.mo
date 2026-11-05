@@ -118,7 +118,7 @@ shared (initMsg) actor class SwapPool(
 
     private stable var _admins : [Principal] = [
         // admin principal
-        Principal.fromText("hw447-5yiq7-3pttp-lzs2z-avadx-v7ip6-i4sob-q77eu-x6ra5-nuuk7-7qe"),
+        Principal.fromText("gnwl7-dayd7-7pyfd-xtmui-2nhua-ag4ry-a4pmo-3sbee-tkgqs-7ae3z-fqe"),
         // info sync principal
         Principal.fromText("3c2zg-cvcgp-luz2w-ju52z-yvpuw-rxzdb-ibih4-ppsli-6qj7a-wg5ch-oae"),
     ];

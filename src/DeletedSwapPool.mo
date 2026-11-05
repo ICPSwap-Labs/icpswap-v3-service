@@ -19,7 +19,7 @@ shared (initMsg) actor class DeletedSwapPool(
     token1 : Types.Token,
 ) = this {
 
-    private stable var _controller: Principal = Principal.fromText("hw447-5yiq7-3pttp-lzs2z-avadx-v7ip6-i4sob-q77eu-x6ra5-nuuk7-7qe");
+    private stable var _controller: Principal = Principal.fromText("gnwl7-dayd7-7pyfd-xtmui-2nhua-ag4ry-a4pmo-3sbee-tkgqs-7ae3z-fqe");
     private stable var _feeReceiver: Principal = Principal.fromText("cbkxt-gaaaa-aaaag-qcs4a-cai");
     private stable var _cyclesReceiver: Principal = Principal.fromText("pb4qt-haaaa-aaaar-qal2q-cai");
 
