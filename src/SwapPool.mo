@@ -386,6 +386,17 @@ shared (initMsg) actor class SwapPool(
     private stable var _withdrawQueue = List.nil<Types.WithdrawQueueItem>();
     private var _isProcessingWithdrawQueue : Bool = false;
     private var _withdrawQueueGeneration : Nat = 0;
+    // Items popped from _withdrawQueue whose ledger call has not returned yet. A force restart does not clear this,
+    // so a superseded processor's pending transfer stays visible to deleteFailedTransaction.
+    private var _inFlightWithdraws = List.nil<Nat>();
+
+    private func _isWithdrawInFlight(txIndex : Nat) : Bool {
+        List.some<Nat>(_inFlightWithdraws, func(i : Nat) : Bool { i == txIndex });
+    };
+
+    private func _removeInFlightWithdraw(txIndex : Nat) : () {
+        _inFlightWithdraws := List.filter<Nat>(_inFlightWithdraws, func(i : Nat) : Bool { i != txIndex });
+    };
     
     private func _enqueueWithdraw<system>(txIndex: Nat, token: Types.Token, caller: Principal, from: Tx.Account, to: Tx.Account, amount: Nat, fee: Nat, memo: ?Blob) : () {
         _withdrawQueue := List.append(_withdrawQueue, List.make({
@@ -430,11 +441,14 @@ shared (initMsg) actor class SwapPool(
                             _withdrawQueue := rest;
                             let tokenAct = if (item.token.address == _token0.address) { _token0Act } else { _token1Act };
 
+                            _inFlightWithdraws := List.push(item.txIndex, _inFlightWithdraws);
                             try {
                                 ignore await _withdraw(item.txIndex, item.token, tokenAct, item.caller, item.from, item.to, item.amount, item.fee, item.memo);
                             } catch (e) {
                                 // Log error but continue processing queue
                                 _log("[ERROR][_processWithdrawQueue] Withdraw failed: txIndex=" # Nat.toText(item.txIndex) # ", error=" # Error.message(e));
+                            } finally {
+                                _removeInFlightWithdraw(item.txIndex);
                             };
 
                             // Superseded by force restart — stop this processor
@@ -1003,10 +1017,26 @@ shared (initMsg) actor class SwapPool(
                         };
                     };
                     case (#Err(e)) { 
-                        // Check if transaction still exists before updating failure status
+                        // The ledger explicitly rejected the transfer, so no funds left the pool: re-credit and close the tx
+                        // so it cannot be refunded a second time through deleteFailedTransaction.
                         switch (_txState.getTransaction(txIndex)) {
                             case (null) { };
-                            case (?_) { ignore _txState.withdrawFailed(txIndex, debug_show(e)); };
+                            case (?_) {
+                                ignore _txState.withdrawFailed(txIndex, debug_show(e));
+                                switch (e) {
+                                    // A duplicate means an identical transfer already landed on the ledger, so the funds did leave the pool.
+                                    case (#Duplicate(_)) {
+                                        _log("[ERROR][__withdraw] Ledger reported duplicate transfer, not re-crediting: txIndex=" # Nat.toText(txIndex) # ", owner=" # Principal.toText(caller) # ", token=" # token.address # ", amount=" # Nat.toText(amount) # ", error=" # debug_show(e));
+                                    };
+                                    case (_) {
+                                        if (_tokenHolderService.deposit(caller, token, amount)) {
+                                            try { _pushSwapInfoCache(txIndex); } catch (err) { _log("[WARN][__withdraw] Push swap info cache failed after re-credit: txIndex=" # Nat.toText(txIndex) # ", error=" # Error.message(err)); };
+                                        } else {
+                                            _log("[ERROR][__withdraw] Re-credit after rejected transfer failed: txIndex=" # Nat.toText(txIndex) # ", owner=" # Principal.toText(caller) # ", token=" # token.address # ", amount=" # Nat.toText(amount));
+                                        };
+                                    };
+                                };
+                            };
                         };
                     };
                 };
@@ -1464,17 +1494,21 @@ shared (initMsg) actor class SwapPool(
         });
     };
 
+    // feeGrowthInside only grows modulo 2^256, so the current value is below the snapshot after wrapping past 0.
+    // Fee growth inside a range can never exceed the global fee growth; a larger delta means the snapshot
+    // is inconsistent with the current ticks, so credit 0 instead.
+    private func _feeGrowthDelta(current : Nat, last : Nat, feeGrowthGlobal : Nat) : SafeUint.Uint256 {
+        let delta = SafeUint.Uint256(current).sub(SafeUint.Uint256(last));
+        if (delta.val() > feeGrowthGlobal) { SafeUint.Uint256(0) } else { delta };
+    };
+
     private func _distributeFee(positionInfo : Types.PositionInfo, userPositionInfo : Types.UserPositionInfo) : {
         swapFee0Repurchase : Nat;
         swapFee1Repurchase : Nat;
         swapFee0Lp : Nat;
         swapFee1Lp : Nat;
     } {
-        let feeGrowthDelta0 = if (positionInfo.feeGrowthInside0LastX128 >= userPositionInfo.feeGrowthInside0LastX128) {
-            SafeUint.Uint256(positionInfo.feeGrowthInside0LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside0LastX128))
-        } else {
-            SafeUint.Uint256(0)
-        };
+        let feeGrowthDelta0 = _feeGrowthDelta(positionInfo.feeGrowthInside0LastX128, userPositionInfo.feeGrowthInside0LastX128, _feeGrowthGlobal0X128);
         var swapFee0Total = SafeUint.Uint128(
             FullMath.mulDiv(
                 feeGrowthDelta0,
@@ -1487,11 +1521,7 @@ shared (initMsg) actor class SwapPool(
         var swapFee0Lp = if (swapFee0Total > swapFee0Repurchase) {
             SafeUint.Uint128(swapFee0Total).sub(SafeUint.Uint128(swapFee0Repurchase)).val();
         } else { swapFee0Repurchase := 0; swapFee0Total };
-        let feeGrowthDelta1 = if (positionInfo.feeGrowthInside1LastX128 >= userPositionInfo.feeGrowthInside1LastX128) {
-            SafeUint.Uint256(positionInfo.feeGrowthInside1LastX128).sub(SafeUint.Uint256(userPositionInfo.feeGrowthInside1LastX128))
-        } else {
-            SafeUint.Uint256(0)
-        };
+        let feeGrowthDelta1 = _feeGrowthDelta(positionInfo.feeGrowthInside1LastX128, userPositionInfo.feeGrowthInside1LastX128, _feeGrowthGlobal1X128);
         var swapFee1Total = SafeUint.Uint128(
             FullMath.mulDiv(
                 feeGrowthDelta1,
@@ -1635,6 +1665,10 @@ shared (initMsg) actor class SwapPool(
         let token = tokenInfo.token;
         let tokenPrincipal = tokenInfo.tokenPrincipal;
         let fee = tokenInfo.fee;
+        if (Text.notEqual(token.standard, "ICP") and Text.notEqual(token.standard, "ICRC1") and Text.notEqual(token.standard, "ICRC2")) {
+            return #err(#InternalError("Withdraw to subaccount is not supported for token standard " # token.standard));
+        };
+        if (args.subaccount.size() != 32) { return #err(#InternalError("Invalid subaccount: must be 32 bytes")); };
         var canisterId = Principal.fromActor(this);
         var balance : Nat = _tokenHolderService.getBalance(caller, token);
         if (not (balance > 0)) { return #err(#InsufficientFunds) };
@@ -2446,6 +2480,16 @@ shared (initMsg) actor class SwapPool(
         };
     };
 
+    private func _pendingWithdrawError(txIndex : Nat) : ?Text {
+        if (_isWithdrawInFlight(txIndex)) {
+            return ?"Cannot refund: the withdraw transfer is still awaiting the ledger response. Wait for it to return before recovering.";
+        };
+        if (_isQueuedWithdraw(txIndex)) {
+            return ?"Cannot refund: withdraw is still queued. Restart the withdraw queue so the original transfer can finish.";
+        };
+        null
+    };
+
     private func _adminRefundAggregateFor(relatedIndex : Nat) : { #done; #inProgress; #none } {
         var done = false;
         var inProgress = false;
@@ -2511,14 +2555,35 @@ shared (initMsg) actor class SwapPool(
                     };
                     case (#Withdraw(i)) {
                         if (i.status == #Completed) { return #err(#InternalError("Withdraw already completed; refusing refund")); };
+                        switch (_pendingWithdrawError(txId)) {
+                            case (?errMsg) {
+                                _log("[ERROR][deleteFailedTransaction] Withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                                return #err(#InternalError(errMsg));
+                            };
+                            case (null) {};
+                        };
                         if (i.status == #Created and Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
                             let errMsg = "Withdraw still in flight (status=#Created, age <24h); refusing refund to avoid double-pay if transfer resolves. Verify ledger directly or wait until age >=24h.";
                             _log("[ERROR][deleteFailedTransaction] In-flight withdraw refund rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
                             return #err(#InternalError(errMsg));
                         };
+                        if (i.status == #CreditCompleted) {
+                            if (Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
+                                let errMsg = "Withdraw still in flight (status=#CreditCompleted, age <24h); refusing refund to avoid double-pay if transfer resolves. Verify ledger directly or wait until age >=24h.";
+                                _log("[ERROR][deleteFailedTransaction] In-flight withdraw refund rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                                return #err(#InternalError(errMsg));
+                            };
+                        };
                     };
                     case (#OneStepSwap(i)) {
                         if (i.status == #Completed) { return #err(#InternalError("One-step swap already completed; refusing refund")); };
+                        switch (_pendingWithdrawError(txId)) {
+                            case (?errMsg) {
+                                _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
+                                return #err(#InternalError(errMsg));
+                            };
+                            case (null) {};
+                        };
                         if (i.status != #Failed and Int.abs(Time.now() - transaction.timestamp) < 24 * 60 * 60 * 1000000000) {
                             let errMsg = "One-step swap still in flight (status=" # debug_show(i.status) # ", age <24h); refusing refund to avoid draining pre-existing tokenHolder balance while the original deposit/swap may still complete. Verify ledger directly or wait until age >=24h.";
                             _log("[ERROR][deleteFailedTransaction] In-flight one-step swap refund rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
@@ -2599,12 +2664,7 @@ shared (initMsg) actor class SwapPool(
                         }
                         else if (info.withdraw.status == #Failed or info.withdraw.status == #CreditCompleted) {
                             // #Failed: transfer was rejected. #CreditCompleted: balance was deducted but the queued transfer is gone.
-                            // The outer guard already requires 24h before a non-failed one-step swap reaches here.
-                            if (info.withdraw.status == #CreditCompleted and (_isQueuedWithdraw(txId) or _isProcessingWithdrawQueue)) {
-                                let errMsg = "Cannot refund: withdraw is still queued or being processed. Restart the withdraw queue so the original transfer can finish.";
-                                _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
-                                return #err(#InternalError(errMsg));
-                            };
+                            // The outer guards already require 24h and that the withdraw is neither queued nor in flight.
                             if (info.withdraw.transfer.index != 0) {
                                 let errMsg = "Cannot refund: withdraw transfer.index=" # Nat.toText(info.withdraw.transfer.index) # " (already on ledger). Status=" # debug_show(info.withdraw.status);
                                 _log("[ERROR][deleteFailedTransaction] OneStepSwap withdraw recovery rejected: txId=" # Nat.toText(txId) # ", " # errMsg);
@@ -3230,7 +3290,7 @@ shared (initMsg) actor class SwapPool(
     };
 
     // --------------------------- Version Control ------------------------------------
-    private var _version : Text = "3.7.1";
+    private var _version : Text = "3.7.2";
     public query func getVersion() : async Text { _version };
     // --------------------------- mistransfer recovery ------------------------------------
     public shared({caller}) func getMistransferBalance(token: Types.Token) : async Result.Result<Nat, Types.Error> {
@@ -3355,6 +3415,14 @@ shared (initMsg) actor class SwapPool(
             case (#ExecuteLimitOrder(info)) { info.status == #Failed };
         };
     };
+    // A failed withdraw still in _txState has its balance deducted and not yet refunded.
+    private func _isUnrefundedFailedWithdraw(transaction: Tx.Transaction): Bool {
+        switch (transaction.action) {
+            case (#Withdraw(info)) { info.status == #Failed };
+            case (#OneStepSwap(info)) { info.withdraw.status == #Failed };
+            case (_) { false };
+        };
+    };
     private func _clearExpiredFailedTransactionJob(): async () {
         for((index, transaction) in _txState.getTransactions().vals()) {
             let age = Time.now() - transaction.timestamp;
@@ -3364,7 +3432,9 @@ shared (initMsg) actor class SwapPool(
             };
             // 30 days in nanoseconds
             if (age > 30 * 24 * 60 * 60 * 1000000000) {
-                if (_isTxFailed(transaction)) {
+                if (_isUnrefundedFailedWithdraw(transaction)) {
+                    _log("[WARN][cleanupExpiredTransactions] Expired unrefunded failed withdraw kept for refund: index=" # Nat.toText(index) # ", action=" # debug_show(transaction.action));
+                } else if (_isTxFailed(transaction)) {
                     switch (_txState.getTransaction(index)) {
                         case (null) { _log("[WARN][cleanupExpiredTransactions] Transaction not found: index=" # Nat.toText(index)); };
                         case (?_tx) { try { _pushSwapInfoCache(_txState.setFailed(index, "Expired")); } catch (e) { _log("[WARN][_clearExpiredFailedTransactionJob] Push swap info cache failed: index=" # Nat.toText(index) # ", error=" # Error.message(e)); }; };
