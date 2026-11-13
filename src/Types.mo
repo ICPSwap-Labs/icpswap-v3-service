@@ -445,7 +445,7 @@ module {
         #getTokenAmountState : () -> ();
         #getTokenBalance : () -> ();
         #getTransactions : () -> ();
-        #getTransactionsByOwner : () -> (owner : Principal);
+        // #getTransactionsByOwner : () -> (owner : Principal);
         #getUserByPositionId : () -> (positionId : Nat);
         #getUserLimitOrders : () -> (user : Principal);
         #getUserPosition : () -> (positionId : Nat);
